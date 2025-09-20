@@ -578,7 +578,7 @@ render_ui :: proc(rect_rendering_data: [dynamic]Rect_Render_Data) {
 	}
 	n_rects := u32(len(rect_rendering_data))
 	populate_vbuffer_with_rects(
-		ui_state.quad_vabuffer,
+		ui_state.quad_vbuffer, // ui_state.quad_vabuffer,
 		0,
 		raw_data(rect_rendering_data),
 		n_rects * size_of(Rect_Render_Data),

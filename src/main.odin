@@ -28,10 +28,11 @@ main :: proc() {
 		}
 		rect_render_data := make([dynamic]Rect_Render_Data, context.temp_allocator)
 		collect_render_data_from_ui_tree(root, &rect_render_data)
-		render_ui(rect_render_data)
+		if !ui_state.first_frame {
+			render_ui(rect_render_data)
+		}
 		reset_ui_state()
 	}
-
 }
 
 

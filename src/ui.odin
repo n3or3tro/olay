@@ -1,7 +1,7 @@
 package main
+import "core:mem"
 import gl "vendor:OpenGL"
 import sdl "vendor:sdl2"
-import "core:mem"
 
 init_ui_state :: proc() -> ^UI_State {
 	// app.wx = new(i32)
@@ -50,22 +50,9 @@ init_ui_state :: proc() -> ^UI_State {
 create_ui :: proc() -> ^Box {
 	// root := box_from_cache("root@root", {}, {semantic_size = {{.Fixed, f32(app.wx)}, {.Fixed, f32(app.wy)}}})
 	root := box_from_cache("root@root", {}, {semantic_size = {{.Fixed, f32(app.wx)}, {.Fixed, f32(app.wy)}}})
-	box_open_children(root, {direction = .Horizontal, gap_horizontal = 10})
+	box_open_children(root, {direction = .Horizontal})
 
-	first_part: {
-		container := container("ha@container1", {semantic_size = {{.Grow, 1}, {.Grow, 1}}})
-		box_open_children(container.box, {direction = .Horizontal, gap_horizontal = 10})
-		defer box_close_children(container.box)
-
-		button_text(
-			"button1@button1",
-			{background_color = {0, 0, 1, 1}, corner_radius = 2, semantic_size = {{.Grow, 1}, {.Grow, 1}}},
-		)
-		button_text(
-			"button2@button2",
-			{background_color = {0, 0, 1, 1}, corner_radius = 2, semantic_size = {{.Grow, 1}, {.Grow, 1}}},
-		)
-	}
+	audio_track(0, 300)
 
 	second_part: {
 		container_2 := container("ha@container2", {semantic_size = {{.Grow, 1}, {.Grow, 1}}})
@@ -97,6 +84,8 @@ create_ui :: proc() -> ^Box {
 	}
 
 	box_close_children(root)
+	sizing_calc_percent_width(root)
+	sizing_calc_percent_height(root)
 	sizing_grow_growable_height(root)
 	sizing_grow_growable_width(root)
 	position_boxes(root)

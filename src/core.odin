@@ -51,6 +51,11 @@ Box_Config :: struct {
 		bottom: int,
 	},
 	semantic_size:    [2]Box_Size,
+	alignment:        [2]enum {
+		Start,
+		Middle,
+		End,
+	},
 }
 
 Box_Child_Layout :: struct {
@@ -68,6 +73,7 @@ Box_Size_Type :: enum {
 	Fit,
 	Grow,
 	Fixed,
+	Percent, // Percent of parent.
 }
 
 Box_Size :: struct {
@@ -214,10 +220,8 @@ Mouse_State :: struct {
 	right_clicked: bool, // whether mouse was right clicked in this frame.
 }
 
-
 app: ^App_State
 ui_state: ^UI_State
-
 
 box_from_cache :: proc(id_string: string, flags: Box_Flags, config: Box_Config) -> ^Box {
 	// if id_string in ui_state.box_cache {
@@ -251,7 +255,6 @@ box_from_cache :: proc(id_string: string, flags: Box_Flags, config: Box_Config) 
 
 		// 4. Clear the children from the previous frame to prepare for the new tree structure.
 		clear(&box.children)
-
 	} else {
 		// --- BOX NOT FOUND IN CACHE ---
 		is_new = true
@@ -275,7 +278,6 @@ box_from_cache :: proc(id_string: string, flags: Box_Flags, config: Box_Config) 
 			append(&ui_state.parents_top.children, box)
 		}
 	}
-
 	return box
 }
 
@@ -427,6 +429,62 @@ sizing_grow_growable_width :: proc(box: ^Box) {
 	}
 	for &child in box.children {
 		sizing_grow_growable_width(child)
+	}
+}
+
+// Odds are you can create layouts that won't actually work, can do some cool checking / error'ing if this happens.
+// or implement some constraints mechanism.
+sizing_calc_percent_width :: proc(box: ^Box) {
+	no_layout_conflict :: proc(box: ^Box) -> bool {
+		if box.parent.config.semantic_size.x.type == .Fit {
+			panic(
+				tprintf(
+					"A box with size type of .Fit cannot contain a child with size type of .Percent\nIn this case the parent box: {} has sizing type .Fit on it's x-axis and it has a child: {} with sizing type .Percent",
+					box.parent.id_string,
+					box.id_string,
+				),
+			)
+		}
+		return true
+	}
+
+	// Might want to account for child gap.
+	available_width := box.width - (box.config.padding.left + box.config.padding.right)
+
+	for child in box.children {
+		if child.config.semantic_size.x.type == .Percent && no_layout_conflict(child) {
+			child.width = int(child.config.semantic_size.x.amount * f32(available_width))
+		}
+	}
+	for child in box.children {
+		sizing_calc_percent_width(child)
+	}
+}
+
+sizing_calc_percent_height :: proc(box: ^Box) {
+	no_layout_conflict :: proc(box: ^Box) -> bool {
+		if box.parent.config.semantic_size.y.type == .Fit {
+			panic(
+				tprintf(
+					"A box with size type of .Fit cannot contain a child with size type of .Percent\nIn this case the parent box: {} has sizing type .Fit on it's y-axis and it has a child: {} with sizing type .Percent",
+					box.parent.id_string,
+					box.id_string,
+				),
+			)
+		}
+		return true
+	}
+
+	// Need to account for child gap too.
+	available_height := box.height - (box.config.padding.top + box.config.padding.bottom)
+
+	for child in box.children {
+		if child.config.semantic_size.y.type == .Percent && no_layout_conflict(child) {
+			child.height = int(child.config.semantic_size.y.amount * f32(available_height))
+		}
+	}
+	for child in box.children {
+		sizing_calc_percent_height(child)
 	}
 }
 
