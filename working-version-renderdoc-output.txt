@@ -1,7 +1,0 @@
-C:\Users\n3or3tro\AppData\Local\Temp\RenderDoc\src_2025.09.08_10.42.17_frame30345.rdc - Frame #30345
-
- EID  | Event                                                       | Action #
-------------------------------------------------------------------------------
-3     | - glClear(Color = <0.000000, 0.500000, 1.000000, 0.500000>) | 1     
-5     | - glDrawArraysInstanced(4, 10)                              | 2     
-6     | - SwapBuffers(Backbuffer Color)                             | 3     
