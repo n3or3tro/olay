@@ -148,7 +148,6 @@ UI_State :: struct {
 	// font_atlases:          Atlases,
 	// font_size:             Font_Size,
 	temp_boxes:            [dynamic]^Box,
-	first_frame:           bool, // dont want to render on the first frame
 	// rect_stack:            [dynamic]Rect,
 	settings_toggled:      bool,
 	color_stack:           [dynamic]Color,
@@ -232,7 +231,7 @@ box_from_cache :: proc(id_string: string, flags: Box_Flags, config: Box_Config) 
 		clear(&box.children)
 	} else {
 		is_new = true
-		persistant_id_string, err := str.clone(id_string)
+		persistant_id_string, err := str.clone(id_string, context.temp_allocator)
 		new_box := box_make(id_string, flags, config)
 		ui_state.box_cache[persistant_id_string] = new_box
 		box = new_box
@@ -255,11 +254,11 @@ box_from_cache :: proc(id_string: string, flags: Box_Flags, config: Box_Config) 
 }
 
 box_make :: proc(id_string: string, flags: Box_Flags, config: Box_Config) -> ^Box {
-	box := new(Box)
+	box: ^Box
 	if id_string == "spacer@spacer" {
 		box = new(Box, context.temp_allocator)
 	} else {
-		box = new(Box)
+		box = new(Box, context.temp_allocator)
 	}
 	box.flags = flags
 	box.id_string = id_string
@@ -587,6 +586,7 @@ collect_render_data_from_ui_tree :: proc(root: ^Box, render_data: ^[dynamic]Rect
 	for data in boxes_rendering_data {
 		append_elem(render_data, data)
 	}
+	delete_dynamic_array(boxes_rendering_data^)
 	for child in root.children {
 		collect_render_data_from_ui_tree(child, render_data)
 	}

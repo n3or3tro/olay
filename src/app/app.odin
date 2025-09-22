@@ -72,6 +72,7 @@ app_init_window :: proc() {
 		panic("Failed to create window")
 	}
 }
+
 @(export)
 app_create_gl_context :: proc() {
 	// Set OpenGL attributes after SDL initialization
@@ -158,21 +159,52 @@ app_update :: proc() -> (all_good: bool) {
 	}
 	rect_render_data := make([dynamic]Rect_Render_Data, context.temp_allocator)
 	collect_render_data_from_ui_tree(root, &rect_render_data)
-	if !ui_state.first_frame {
+	if ui_state.frame_num > 0 {
 		render_ui(rect_render_data)
 	}
-	reset_renderer_data()
+	clear_dynamic_array(&ui_state.temp_boxes)
+	delete(rect_render_data)
+
 	sdl.GL_SwapWindow(app.window)
+
 	reset_ui_state()
 	free_all(context.temp_allocator)
 	app.ui_state.frame_num += 1
 	app.curr_chars_stored = {}
+
 	return true
 }
 
 @(export)
 app_shutdown :: proc() {
-	println("cya!")
+	free(app.ui_state.quad_vbuffer)
+	free(app.ui_state.quad_vabuffer)
+	// delete_dynamic_array(app.ui_state.rect_stack)
+	delete_dynamic_array(app.ui_state.color_stack)
+	for key, val in app.ui_state.box_cache {
+		delete_string(val.id_string)
+		free(val)
+	}
+	for entry in app.ui_state.temp_boxes {
+		free(entry)
+	}
+	delete_map(app.ui_state.box_cache)
+	delete(app.ui_state.temp_boxes)
+	sdl.DestroyWindow(app.window)
+
+	// delete(app.audio_state.tracks)
+	// free(app.audio_state.engine)
+	// for group in app.audio_state.audio_groups {
+	// free(group)
+	// }
+	for something in ui_state.parents_stack {
+		free(something)
+	}
+	delete(ui_state.parents_stack)
+	free(app.ui_state)
+	free(app)
+	free_all(context.allocator)
+	free_all(context.temp_allocator)
 }
 
 handle_input :: proc(event: sdl.Event) -> (exit, show_context_menu: bool) {

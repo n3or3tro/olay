@@ -3,6 +3,7 @@ import "core:fmt"
 import "core:math"
 import alg "core:math/linalg"
 import "core:math/rand"
+import "core:mem"
 import "core:mem/tlsf"
 import "core:strconv"
 import s "core:strings"
@@ -59,7 +60,7 @@ get_default_rendering_data :: proc(box: Box) -> Rect_Render_Data {
 
 // sets circumstantial (hovering, clicked, etc) rendering data like radius, borders, etc
 get_boxes_rendering_data :: proc(box: Box) -> ^[dynamic]Rect_Render_Data {
-	render_data := new([dynamic]Rect_Render_Data, allocator = context.temp_allocator)
+	render_data := new([dynamic]Rect_Render_Data, context.temp_allocator)
 	tl_color: Vec4_f32 = box.config.background_color
 	bl_color: Vec4_f32 = box.config.background_color
 	tr_color: Vec4_f32 = box.config.background_color
@@ -561,11 +562,6 @@ setup_for_quads :: proc(shader_program: ^u32) {
 	//odinfmt:enable
 }
 
-reset_renderer_data :: proc() {
-	clear_dynamic_array(&ui_state.temp_boxes)
-	ui_state.first_frame = false
-}
-
 clear_screen :: proc() {
 	gl.ClearColor(0, 0.5, 1, 0.5)
 	gl.Clear(gl.COLOR_BUFFER_BIT)
@@ -573,7 +569,7 @@ clear_screen :: proc() {
 
 render_ui :: proc(rect_rendering_data: [dynamic]Rect_Render_Data) {
 	clear_screen()
-	if ui_state.first_frame {
+	if ui_state.frame_num == 0 {
 		return
 	}
 	n_rects := u32(len(rect_rendering_data))

@@ -3,8 +3,10 @@ import "app"
 import "core:dynlib"
 import "core:fmt"
 import "core:io"
+import "core:mem"
 import os "core:os/os2"
 import "core:time"
+import "pool_allocator"
 
 print :: fmt.print
 println :: fmt.println
@@ -30,6 +32,7 @@ App_API :: struct {
 	wants_reload:      proc() -> bool,
 	wants_restart:     proc() -> bool,
 	hot_reload:        proc(mem: rawptr) -> bool,
+	shutdown:          proc(),
 	last_edit:         time.Time,
 	version:           int,
 	lib:               dynlib.Library,
@@ -38,6 +41,20 @@ App_API :: struct {
 api: App_API
 
 main :: proc() {
+	when ODIN_DEBUG {
+		track: mem.Tracking_Allocator
+		mem.tracking_allocator_init(&track, context.allocator)
+		context.allocator = mem.tracking_allocator(&track)
+
+		defer {
+			if len(track.allocation_map) > 0 {
+				for _, entry in track.allocation_map {
+					fmt.eprintf("%v leaked %v bytes\n", entry.location, entry.size)
+				}
+			}
+			mem.tracking_allocator_destroy(&track)
+		}
+	}
 	load_dll()
 	api.create()
 	api.init_window()
@@ -64,11 +81,13 @@ main :: proc() {
 			api.hot_reload(app_mem)
 		}
 	}
+	println("running shutdown code")
+	api.shutdown()
+	println("shutdown code run")
 }
 
-
+// Calling dynlib.initiazlize_symbols, unloads the old dll, so you don't have to manually unload.
 load_dll :: proc() {
-	// os.setwd("C:\\Users\\n3or3tro\\MySoftware\\my-projects\\olay")
 	new_dll_path := tprintf("build/app_{}.dll", api.version)
 	// Try multiple times since `odin build` doesn't release it's lock on the file straight away.
 	for i in 0 ..< 20 {
@@ -114,12 +133,4 @@ should_reload :: proc() -> bool {
 		panic(tprintfln("{}", err))
 	}
 	return time._nsec > api.last_edit._nsec
-}
-
-unload_lib :: proc() {
-	assert(api.lib != nil)
-	ok := dynlib.unload_library(api.lib)
-	if !ok {
-		panic(tprintf("Could not unload lib: {}\nVersion: {}", api.lib, api.version))
-	}
 }

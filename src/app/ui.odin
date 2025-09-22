@@ -17,10 +17,13 @@ init_ui_state :: proc() -> ^UI_State {
 	ui_state.temp_boxes = make([dynamic]^Box)
 	ui_state.next_frame_signals = make(map[string]Box_Signals)
 	// ui_state.clipping_stack = make([dynamic]^Rect)
-	ui_state.first_frame = true
 	ui_state.text_box_padding = 10
-	ui_state.steps_value_allocator = mem.arena_allocator(&ui_state.steps_value_arena)
+	// ui_state.steps_value_allocator = mem.arena_allocator(&ui_state.steps_value_arena)
 	// mem.arena_init(&ui_state.steps_value_arena, steps_arena_buffer[:])
+
+	// mem.dynamic_arena_init()
+	// mem.dynamic_pool_init()
+	// mem.dynamic_pool_allocator()
 
 	printfln("ui_state.quad_vabuffer: {}", ui_state.quad_vabuffer)
 	printfln("about to execute: {}", gl.GenVertexArrays)
@@ -55,19 +58,39 @@ create_ui :: proc() -> ^Box {
 
 	audio_track(0, 300)
 
+	//odinfmt: disable
 	second_part: {
 		container_2 := container("ha@container2", {semantic_size = {{.Grow, 1}, {.Grow, 1}}})
-		box_open_children(container_2.box, Box_Child_Layout{direction = .Vertical, gap_vertical = 10})
+		box_open_children(container_2.box, Box_Child_Layout{direction = .Horizontal, gap_vertical = 10})
 		defer box_close_children(container_2.box)
 
 		button_text(
 			"button3@button3",
-			{background_color = {0.3, 1, 0.5, 1}, corner_radius = 2, semantic_size = {{.Grow, 1}, {.Grow, 1}}},
+			{background_color = {0.3, 1, 0.5, 1}, corner_radius = 1, semantic_size = {{.Grow, 1}, {.Grow, 1}}},
 		)
 		button_text(
 			"button4@button4",
 			{background_color = {1, 1, 0, 0.5}, corner_radius = 2, semantic_size = {{.Grow, 1}, {.Grow, 1}}},
 		)
+		button_text(
+			"button4@button5",
+			{background_color = {1, 1, 0, 0.5}, corner_radius = 20, semantic_size = {{.Grow, 1}, {.Grow, 1}}},
+		)
+		{
+			other_container := container(
+				"a@other_container",
+				{background_color = {1, 1, 0, 0.5}, corner_radius = 2, semantic_size = {{.Grow, 1}, {.Grow, 1}}},
+			)
+			box_open_children(other_container.box, {direction = .Horizontal, gap_horizontal = 1})
+			defer box_close_children(other_container.box)
+			button_text(
+				"somehing@alskdjfafd",
+				{
+					semantic_size = {{type = .Fixed, amount = 100}, {type = .Fixed, amount = 30}},
+					background_color = {1, 1, 0.2, 1},
+				},
+			)
+		}
 	}
 	third_part: {
 		container_3 := container("ha@container3", {semantic_size = {{.Fixed, 100}, {.Fixed, 30}}})
