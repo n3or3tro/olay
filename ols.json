@@ -18,8 +18,10 @@
         {
             "name": "default",
             "checker_path": [
-                "src"
+                "src",
+                "src/pool_allocator"
             ]
+
         }
     ]
 }

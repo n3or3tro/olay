@@ -582,23 +582,6 @@ render_ui :: proc(rect_rendering_data: [dynamic]Rect_Render_Data) {
 	gl.DrawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, i32(n_rects))
 }
 
-reset_ui_state :: proc() {
-	/* 
-		I think maybe I don't want to actually reset this each frame, for exmaple,
-		if a user selected some input field on one frame, then it should still be active
-		on the next fram
-	*/
-	if ui_state.active_box != nil {
-		ui_state.last_active_box = ui_state.active_box
-	}
-	if ui_state.hot_box != nil {
-		ui_state.last_hot_box = ui_state.hot_box
-	}
-	ui_state.active_box = nil
-	ui_state.hot_box = nil
-	clear(&ui_state.box_cache)
-}
-
 
 draw :: proc(n_vertices: i32, indices: [^]u32) {
 	gl.DrawElements(gl.TRIANGLES, n_vertices, gl.UNSIGNED_INT, indices)

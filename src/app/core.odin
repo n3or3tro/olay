@@ -115,6 +115,7 @@ Box :: struct {
 	top_left:     Vec2_int,
 	bottom_right: Vec2_int,
 	next:         ^Box, // Sibling, aka, on the same level of the UI tree. Have the same parent.
+	keep:         bool, // Indicates whether we keep this box across frame boundaries.
 }
 
 Box_Signals :: struct {
@@ -214,14 +215,14 @@ Mouse_State :: struct {
 
 box_from_cache :: proc(id_string: string, flags: Box_Flags, config: Box_Config) -> ^Box {
 	box: ^Box
-	is_new := false // Track if we created a new box
+	is_new: bool
 
-	if cached_box, ok := ui_state.box_cache[id_string]; ok {
-		box = cached_box
-
+	if id_string in ui_state.box_cache {
+		box = ui_state.box_cache[id_string]
 		box.flags = flags
 		box.config = config
 
+		// Reset sizing infomation from last frame since we need to calculate it from scratch again.
 		if box.config.semantic_size.x.type != .Fixed {box.width = 0}
 		if box.config.semantic_size.y.type != .Fixed {box.height = 0}
 
@@ -231,7 +232,7 @@ box_from_cache :: proc(id_string: string, flags: Box_Flags, config: Box_Config) 
 		clear(&box.children)
 	} else {
 		is_new = true
-		persistant_id_string, err := str.clone(id_string, context.temp_allocator)
+		persistant_id_string, err := str.clone(id_string)
 		new_box := box_make(id_string, flags, config)
 		ui_state.box_cache[persistant_id_string] = new_box
 		box = new_box
@@ -258,7 +259,7 @@ box_make :: proc(id_string: string, flags: Box_Flags, config: Box_Config) -> ^Bo
 	if id_string == "spacer@spacer" {
 		box = new(Box, context.temp_allocator)
 	} else {
-		box = new(Box, context.temp_allocator)
+		box = new(Box)
 	}
 	box.flags = flags
 	box.id_string = id_string
@@ -578,6 +579,30 @@ position_boxes :: proc(root: ^Box) {
 		}
 	}
 	position_children(root)
+}
+
+reset_ui_state :: proc() {
+	/* 
+		I think maybe I don't want to actually reset this each frame, for exmaple,
+		if a user selected some input field on one frame, then it should still be active
+		on the next fram
+	*/
+	if ui_state.active_box != nil {
+		ui_state.last_active_box = ui_state.active_box
+	}
+	if ui_state.hot_box != nil {
+		ui_state.last_hot_box = ui_state.hot_box
+	}
+	ui_state.active_box = nil
+	ui_state.hot_box = nil
+	for key, val in ui_state.box_cache {
+		if !val.keep {
+			delete(val.children)
+			delete(key)
+			free(val)
+		}
+	}
+	clear(&ui_state.box_cache)
 }
 
 collect_render_data_from_ui_tree :: proc(root: ^Box, render_data: ^[dynamic]Rect_Render_Data) {

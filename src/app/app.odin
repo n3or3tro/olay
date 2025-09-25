@@ -3,6 +3,8 @@ import "core:fmt"
 import gl "vendor:OpenGL"
 import sdl "vendor:sdl2"
 
+PROFILING :: #config(profile, false)
+
 print :: fmt.print
 println :: fmt.println
 printf :: fmt.printf
@@ -28,6 +30,7 @@ App_State :: struct {
 
 Window :: sdl.Window
 
+
 ui_state: ^UI_State
 app: ^App_State
 
@@ -37,6 +40,46 @@ app_create :: proc() -> ^App_State {
 	app = new(App_State)
 	return app
 }
+
+@(export)
+app_update :: proc() -> (all_good: bool) {
+	// root_rect := app.ui_state.root_rect
+	if register_resize() {
+		printfln("changing screen res to : {} x {}", app.wx, app.wy)
+		set_shader_vec2(ui_state.quad_shader_program, "screen_res", {f32(app.wx), f32(app.wy)})
+	}
+	event: sdl.Event
+	reset_mouse_state()
+	show_context_menu, exit: bool
+	for sdl.PollEvent(&event) {
+		exit, show_context_menu := handle_input(event)
+		if exit {
+			return false
+		}
+	}
+
+	root := create_ui()
+	if show_context_menu {
+		ui_state.context_menu.active = true
+	}
+	rect_render_data := make([dynamic]Rect_Render_Data, context.temp_allocator)
+	collect_render_data_from_ui_tree(root, &rect_render_data)
+	if ui_state.frame_num > 0 {
+		render_ui(rect_render_data)
+	}
+	clear_dynamic_array(&ui_state.temp_boxes)
+	delete(rect_render_data)
+
+	sdl.GL_SwapWindow(app.window)
+
+	reset_ui_state()
+	free_all(context.temp_allocator)
+	app.ui_state.frame_num += 1
+	app.curr_chars_stored = {}
+
+	return true
+}
+
 
 @(export)
 app_init :: proc() -> ^App_State {
@@ -134,45 +177,6 @@ app_wants_restart :: proc() -> bool {
 app_hot_reload :: proc(mem: rawptr) {
 	app = (^App_State)(mem)
 	ui_state = app.ui_state
-}
-
-@(export)
-app_update :: proc() -> (all_good: bool) {
-	// root_rect := app.ui_state.root_rect
-	if register_resize() {
-		printfln("changing screen res to : {} x {}", app.wx, app.wy)
-		set_shader_vec2(ui_state.quad_shader_program, "screen_res", {f32(app.wx), f32(app.wy)})
-	}
-	event: sdl.Event
-	reset_mouse_state()
-	show_context_menu, exit: bool
-	for sdl.PollEvent(&event) {
-		exit, show_context_menu := handle_input(event)
-		if exit {
-			return false
-		}
-	}
-
-	root := create_ui()
-	if show_context_menu {
-		ui_state.context_menu.active = true
-	}
-	rect_render_data := make([dynamic]Rect_Render_Data, context.temp_allocator)
-	collect_render_data_from_ui_tree(root, &rect_render_data)
-	if ui_state.frame_num > 0 {
-		render_ui(rect_render_data)
-	}
-	clear_dynamic_array(&ui_state.temp_boxes)
-	delete(rect_render_data)
-
-	sdl.GL_SwapWindow(app.window)
-
-	reset_ui_state()
-	free_all(context.temp_allocator)
-	app.ui_state.frame_num += 1
-	app.curr_chars_stored = {}
-
-	return true
 }
 
 @(export)

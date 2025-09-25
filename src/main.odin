@@ -1,12 +1,19 @@
 package main
 import "app"
+import "base:runtime"
 import "core:dynlib"
 import "core:fmt"
 import "core:io"
 import "core:mem"
 import os "core:os/os2"
+import "core:prof/spall"
+import "core:sync"
 import "core:time"
 import "pool_allocator"
+
+PROFILING :: #config(profile, false)
+MODE_RELEASE :: #config(release, false)
+MODE_HOT_RELOAD :: #config(hot_reload, true)
 
 print :: fmt.print
 println :: fmt.println
@@ -38,9 +45,33 @@ App_API :: struct {
 	lib:               dynlib.Library,
 }
 
+
+when PROFILING {
+	spall_ctx: spall.Context
+	@(thread_local)
+	spall_buffer: spall.Buffer
+
+	//------------------ Automatic profiling of every procedure:-----------------
+	@(instrumentation_enter)
+	spall_enter :: proc "contextless" (
+		proc_address, call_site_return_address: rawptr,
+		loc: runtime.Source_Code_Location,
+	) {
+		spall._buffer_begin(&spall_ctx, &spall_buffer, "", "", loc)
+	}
+
+	@(instrumentation_exit)
+	spall_exit :: proc "contextless" (
+		proc_address, call_site_return_address: rawptr,
+		loc: runtime.Source_Code_Location,
+	) {
+		spall._buffer_end(&spall_ctx, &spall_buffer)
+	}
+}
+
 api: App_API
 
-main :: proc() {
+run_release_mode :: proc() {
 	when ODIN_DEBUG {
 		track: mem.Tracking_Allocator
 		mem.tracking_allocator_init(&track, context.allocator)
@@ -55,6 +86,60 @@ main :: proc() {
 			mem.tracking_allocator_destroy(&track)
 		}
 	}
+
+	when PROFILING {
+		spall_ctx = spall.context_create("trace_test.spall")
+		defer spall.context_destroy(&spall_ctx)
+
+		backing_buffer := make([]u8, spall.BUFFER_DEFAULT_SIZE)
+		defer delete(backing_buffer)
+
+		spall_buffer = spall.buffer_create(backing_buffer, u32(sync.current_thread_id()))
+		defer spall.buffer_destroy(&spall_ctx, &spall_buffer)
+
+		spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, #procedure)
+	}
+
+	app.app_create()
+	app.app_init_window()
+	app.app_create_gl_context()
+	app.app_load_gl_procs()
+	app.app_init()
+	for {
+		if !app.app_update() {
+			break
+		}
+	}
+	app.app_shutdown()
+}
+
+main :: proc() {
+	when MODE_HOT_RELOAD {
+		run_hot_reload_mode()
+	}
+
+	// Can't figure out how to profile in hot-reload debug mode so we only profile in release mode.
+	when MODE_RELEASE {
+		run_release_mode()
+	}
+}
+
+run_hot_reload_mode :: proc() {
+	when ODIN_DEBUG {
+		track: mem.Tracking_Allocator
+		mem.tracking_allocator_init(&track, context.allocator)
+		context.allocator = mem.tracking_allocator(&track)
+
+		defer {
+			if len(track.allocation_map) > 0 {
+				for _, entry in track.allocation_map {
+					fmt.eprintf("%v leaked %v bytes\n", entry.location, entry.size)
+				}
+			}
+			mem.tracking_allocator_destroy(&track)
+		}
+	}
+
 	load_dll()
 	api.create()
 	api.init_window()

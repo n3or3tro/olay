@@ -11,6 +11,7 @@ Designed to take in another allocator which will be used to create the backing s
 
 package pool_allocator
 import "core:fmt"
+import "core:log"
 import "core:mem"
 import "core:slice"
 
@@ -36,17 +37,20 @@ slab_init :: proc(
 	backing_allocator := context.allocator,
 	alignment := mem.DEFAULT_ALIGNMENT,
 ) {
-	if n_items < 1 {
-		panic("You tried to create a slab allocator that holds < 1 item !!!")
-	}
-	slab.backing_buffer = make([dynamic]byte, item_size * n_items, allocator = backing_allocator)
+	assert(n_items > 0, "You cannot create a slab allocator that holds < 1 item.")
+	assert(
+		item_size >= size_of(Free_Node),
+		fmt.tprintf(
+			"item_size is too small to hold a Free_Node pointer. item_size: {}, size_of(Free_Node): {}",
+			item_size,
+			size_of(Free_Node),
+		),
+	)
+	slab.backing_buffer = make([dynamic]byte, item_size * n_items)
 
 	// Init the free list.
-	first_node := transmute(^Free_Node)&slab.backing_buffer[0]
-	slab.free_list_head = first_node
 	for i in 0 ..< n_items {
 		start := i * item_size
-		end := (i + 1) * item_size
 		node := transmute(^Free_Node)&slab.backing_buffer[start]
 		node.next = slab.free_list_head
 		slab.free_list_head = node
@@ -59,28 +63,45 @@ slab_init :: proc(
 }
 
 
+slab_allocator_alloc :: proc(slab: ^Slab, size: int, loc := #caller_location) -> ([]byte, mem.Allocator_Error) {
+	assert(slab.items_capacity != slab.items_allocated, "Tried to allocate from full slab allocator.")
+	assert(
+		size == slab.item_size,
+		"Tried to allocate a size of memory which was different from the size this allocator was configured to support",
+	)
+	next_free := slab.free_list_head
+	slab.free_list_head = next_free.next // Works even if next_free.next is nil
+
+	result := ([^]byte)(next_free)[:size]
+	slab.items_allocated += 1
+	return result, .None
+}
+
 slab_allocator_free :: proc(slab: ^Slab, item: rawptr) -> ([]byte, mem.Allocator_Error) {
 	start := raw_data(slab.backing_buffer)
 	end := rawptr(&slab.backing_buffer[slab.items_capacity * slab.item_size - 1])
-	if item > end || item < start {
-		panic("tried to free an item whose address does not lie in the bounds of this allocators backing buffer.")
-	}
-	if item == nil {
-		panic("tried to free nil pointer")
-	}
+	assert(
+		item <= end && item >= start,
+		"Pointer which was passed in to free, is outside the bounds of the backing buffer.",
+	)
+	assert(item != nil, "Passed in nil pointer to slab_allocator_free.")
+
+	// In debug mode we will walk the free list to try and catch if we've free'd this pointer already.
+	// if ODIN_DEBUG {
+	// 	curr := slab.free_list_head
+	// 	for curr != nil {
+	// 		fmt.printfln("curr: {}", curr)
+	// 		assert(curr != item, "Double free detected in slab allocator.")
+	// 		curr = curr.next
+	// 	}
+	// }
+
 	node := transmute(^Free_Node)item
-	if slab.free_list_head == nil {
-		if slab.items_allocated != 0 {
-			panic(
-				"When trying to free, found that items_allocated != 0 BUT free_list_head == nil. Should never happen!",
-			)
-		} else {
-			slab.free_list_head = node
-		}
-	} else {
-		node.next = slab.free_list_head
-		slab.free_list_head = node
-	}
+
+	// This works whether the list is empty or not.
+	node.next = slab.free_list_head
+	slab.free_list_head = node
+
 	slab.items_allocated -= 1
 	return nil, .None
 }
@@ -88,15 +109,14 @@ slab_allocator_free :: proc(slab: ^Slab, item: rawptr) -> ([]byte, mem.Allocator
 // I fear calling free all when there's already things in the list will cause the same chunk to appear in the
 // free list twice.
 slab_allocator_free_all :: proc(slab: ^Slab) -> ([]byte, mem.Allocator_Error) {
+
+	// Rebuild the free list from scratch.
+	slab.free_list_head = nil
 	for i in 0 ..< slab.items_capacity {
 		offset := i * slab.item_size
 		node := transmute(^Free_Node)&slab.backing_buffer[offset]
-		if i == 0 && slab.items_allocated == slab.items_capacity {
-			slab.free_list_head = node
-		} else {
-			node.next = slab.free_list_head
-			slab.free_list_head.next = node
-		}
+		node.next = slab.free_list_head
+		slab.free_list_head = node
 	}
 	slab.items_allocated = 0
 	return nil, .None
@@ -112,32 +132,6 @@ slab_allocator :: proc(pool: ^Slab) -> mem.Allocator {
 	return mem.Allocator{procedure = slab_allocator_proc, data = pool}
 }
 
-slab_allocator_alloc :: proc(slab: ^Slab, size: int, loc := #caller_location) -> ([]byte, mem.Allocator_Error) {
-	if slab.items_allocated == slab.items_capacity {
-		panic("Tried to allocate from full slab allocator.")
-	}
-	if size != slab.item_size {
-		panic(
-			fmt.tprintf(
-				"Tried to allocate {} byte. This slab allocator was configured to allocate chunks of size {} bytes",
-				size,
-				slab.item_size,
-			),
-		)
-	}
-	next_free: ^Free_Node
-	if slab.free_list_head.next == nil { 	// i.e. there's only 1 free chunk left.
-		next_free = slab.free_list_head
-		slab.free_list_head = nil
-	} else {
-		new_head := slab.free_list_head.next
-		next_free = slab.free_list_head
-		slab.free_list_head = new_head
-	}
-	result := ([^]byte)(next_free)[:size]
-	slab.items_allocated += 1
-	return result, .None
-}
 
 slab_allocator_proc :: proc(
 	allocator_data: rawptr,
@@ -168,5 +162,6 @@ slab_allocator_proc :: proc(
 	case .Resize_Non_Zeroed:
 		return nil, .Mode_Not_Implemented
 	}
-	panic("slab_allocator_proc did not receive a valid .Mode")
+	assert(1 == 2, "slab_allocator_proc did not receive a valid .Mode")
+	return nil, .Mode_Not_Implemented
 }
