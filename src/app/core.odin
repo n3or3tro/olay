@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:math/rand"
 import "core:mem"
 import str "core:strings"
+import "core:time"
 import gl "vendor:OpenGL"
 import sdl "vendor:sdl2"
 
@@ -100,6 +101,9 @@ Box_Flags :: bit_set[Box_Flag]
 
 Box :: struct {
 	id_string:    string,
+	hot:          bool,
+	active:       bool,
+	signals:      Box_Signals,
 	// Feature flags.
 	flags:        Box_Flags,
 	// Style and layout config
@@ -114,13 +118,12 @@ Box :: struct {
 	// Probably don't need both tl, br and x,y + width, height
 	top_left:     Vec2_int,
 	bottom_right: Vec2_int,
+	z_index:      int,
 	next:         ^Box, // Sibling, aka, on the same level of the UI tree. Have the same parent.
 	keep:         bool, // Indicates whether we keep this box across frame boundaries.
 }
 
 Box_Signals :: struct {
-	box:            ^Box,
-	mouse:          Vec2_i32,
 	clicked:        bool,
 	double_clicked: bool,
 	right_clicked:  bool,
@@ -134,6 +137,8 @@ Box_Signals :: struct {
 	scrolled:       bool,
 	scrolled_up:    bool,
 	scrolled_down:  bool,
+	box:            ^Box,
+	mouse:          Vec2_i32,
 }
 
 Box_Data :: enum {
@@ -141,60 +146,6 @@ Box_Data :: enum {
 	int,
 }
 
-UI_State :: struct {
-	box_cache:             map[string]^Box,
-	// I.e. the node which will parent future children if children_open() has been called.
-	parents_top:           ^Box,
-	parents_stack:         [dynamic]^Box,
-	// font_atlases:          Atlases,
-	// font_size:             Font_Size,
-	temp_boxes:            [dynamic]^Box,
-	// rect_stack:            [dynamic]Rect,
-	settings_toggled:      bool,
-	color_stack:           [dynamic]Color,
-	// font_size_stack:       [dynamic]Font_Size,
-	// ui_scale:              f32, // between 0.0 and 1.0.
-	// Used to tell the core layer to override some valu of a box that's in the cache.
-	// Useful for parts of the code where the box isn't easilly accessible (like in audio related stuff).
-	override_color:        bool,
-	override_rect:         bool,
-	quad_vbuffer:          ^u32,
-	quad_vabuffer:         ^u32,
-	quad_shader_program:   u32,
-	// root_rect:             ^Rect,
-	frame_num:             u64,
-	hot_box:               ^Box,
-	active_box:            ^Box,
-	selected_box:          ^Box,
-	last_hot_box:          ^Box,
-	last_active_box:       ^Box,
-	z_index:               i16,
-	right_clicked_on:      ^Box,
-	// wav_rendering_data:    map[ma.sound][dynamic]Rect_Render_Data,
-	// the visual space between border of text box and the text inside.
-	text_box_padding:      u16,
-	keyboard_mode:         bool,
-	last_clicked_box:      ^Box,
-	// last_clicked_box_time: time.Time,
-	// Added this to help with sorting out z-order event consumption.
-	next_frame_signals:    map[string]Box_Signals,
-	// Used to help with the various bugs I was having related to input for box.value and mutating box.value.
-	steps_value_arena:     mem.Arena,
-	steps_value_allocator: mem.Allocator,
-	// Helps to stop clicks registering when you start outside an element and release on top of it.
-	mouse_down_on:         ^Box,
-	context_menu:          struct {
-		// pos:                   Vec2,
-		active:                bool,
-		show_fill_note_menu:   bool,
-		show_remove_note_menu: bool,
-		show_add_step_menu:    bool,
-		show_remove_step_menu: bool,
-	},
-	steps_vertical_offset: u32,
-	// Used to calculate clipping rects and nested clipping rects for overflowing content.
-	// clipping_stack:        [dynamic]^Rect,
-}
 
 ui_vertex_shader_data :: #load("shaders/box_vertex_shader.glsl")
 ui_pixel_shader_data :: #load("shaders/box_pixel_shader.glsl")
@@ -213,47 +164,6 @@ Mouse_State :: struct {
 	right_clicked: bool, // whether mouse was right clicked in this frame.
 }
 
-box_from_cache :: proc(id_string: string, flags: Box_Flags, config: Box_Config) -> ^Box {
-	box: ^Box
-	is_new: bool
-
-	if id_string in ui_state.box_cache {
-		box = ui_state.box_cache[id_string]
-		box.flags = flags
-		box.config = config
-
-		// Reset sizing infomation from last frame since we need to calculate it from scratch again.
-		if box.config.semantic_size.x.type != .Fixed {box.width = 0}
-		if box.config.semantic_size.y.type != .Fixed {box.height = 0}
-
-		if box.config.semantic_size.x.type == .Fixed {box.width = int(box.config.semantic_size.x.amount)}
-		if box.config.semantic_size.y.type == .Fixed {box.height = int(box.config.semantic_size.y.amount)}
-
-		clear(&box.children)
-	} else {
-		is_new = true
-		persistant_id_string, err := str.clone(id_string)
-		new_box := box_make(id_string, flags, config)
-		ui_state.box_cache[persistant_id_string] = new_box
-		box = new_box
-	}
-
-	// This now runs for BOTH new and cached boxes.
-	// We re-establish the parent-child link for the current frame.
-	// This is the step that was missing and causing the layout to be "fixed".
-	if id_string != "root@root" && ui_state.parents_top != nil {
-		if is_new {
-			// If the box is new, box_make already parented it.
-			// (Assuming original box_make is restored)
-		} else {
-			// If the box is from the cache, we must re-parent it manually.
-			box.parent = ui_state.parents_top
-			append(&ui_state.parents_top.children, box)
-		}
-	}
-	return box
-}
-
 box_make :: proc(id_string: string, flags: Box_Flags, config: Box_Config) -> ^Box {
 	box: ^Box
 	if id_string == "spacer@spacer" {
@@ -267,6 +177,7 @@ box_make :: proc(id_string: string, flags: Box_Flags, config: Box_Config) -> ^Bo
 	if id_string != "root@root" {
 		box.parent = ui_state.parents_top
 		append(&ui_state.parents_top.children, box)
+		box.z_index = box.parent.z_index + 1
 	}
 	if box.config.semantic_size.x.type == .Fixed {
 		box.width = int(box.config.semantic_size.x.amount)
@@ -276,6 +187,47 @@ box_make :: proc(id_string: string, flags: Box_Flags, config: Box_Config) -> ^Bo
 	}
 	return box
 }
+
+box_from_cache :: proc(id_string: string, flags: Box_Flags, config: Box_Config) -> ^Box {
+	box: ^Box
+	is_new: bool
+
+	if id_string in ui_state.box_cache {
+		box = ui_state.box_cache[id_string]
+		box.flags = flags
+		box.config = config
+
+		// Boxes with fixed sizing have their size set upon creation, so if we're retrieving a box from the cache
+		// we need to manually re-set it's sizing info for later layout calculations.
+		if box.config.semantic_size.x.type != .Fixed {box.width = 0}
+		if box.config.semantic_size.y.type != .Fixed {box.height = 0}
+		if box.config.semantic_size.x.type == .Fixed {box.width = int(box.config.semantic_size.x.amount)}
+		if box.config.semantic_size.y.type == .Fixed {box.height = int(box.config.semantic_size.y.amount)}
+		clear(&box.children)
+	} else {
+		is_new = true
+		persistant_id_string, err := str.clone(id_string)
+		new_box := box_make(id_string, flags, config)
+		ui_state.box_cache[persistant_id_string] = new_box
+		box = new_box
+	}
+
+	// Re-establish parent-child link for boxes from the cache. If we didn't do this and we for example removed
+	// a box from the UI that was a child of some parent, that parent would still think it had that child.
+	if id_string != "root@root" && ui_state.parents_top != nil {
+		if is_new {
+			// The box is new, box_make already parented it.
+		} else {
+			// If the box is from the cache, we must re-parent it manually.
+			box.parent = ui_state.parents_top
+			append(&ui_state.parents_top.children, box)
+			box.z_index = box.parent.z_index + 1
+		}
+	}
+	box.keep = true
+	return box
+}
+
 
 box_open_children :: proc(box: ^Box, child_layout: Box_Child_Layout) {
 	box.child_layout = child_layout
@@ -300,6 +252,177 @@ box_close_children :: proc(box: ^Box) {
 	}
 }
 
+reset_ui_state :: proc() {
+	/* 
+		I think maybe I don't want to actually reset this each frame, for exmaple,
+		if a user selected some input field on one frame, then it should still be active
+		on the next fram
+	*/
+	if ui_state.active_box != nil {
+		ui_state.last_active_box = ui_state.active_box
+	}
+	if ui_state.hot_box != nil {
+		ui_state.last_hot_box = ui_state.hot_box
+	}
+	ui_state.active_box = nil
+	ui_state.hot_box = nil
+	for key, box in ui_state.box_cache {
+		if !box.keep {
+			delete(box.children)
+			delete_key(&ui_state.box_cache, key)
+			free(box)
+			delete(key)
+		}
+	}
+	// clear(&ui_state.box_cache)
+}
+
+/* ============================ Signal Handling =========================== */
+
+mouse_inside_box :: proc(box: ^Box, mouse: [2]i32) -> bool {
+	mousex := int(mouse.x)
+	mousey := int(mouse.y)
+	top_left := box.top_left
+	bottom_right := box.bottom_right
+	return mousex >= top_left.x && mousex <= bottom_right.x && mousey >= top_left.y && mousey <= bottom_right.y
+}
+
+box_signals :: proc(box: ^Box) -> Box_Signals {
+	// Return signals computed in previous frame if they exist
+	if stored_signals, ok := ui_state.next_frame_signals[box.id_string]; ok {
+		// Update box visual state
+		box.hot = stored_signals.hovering
+		box.active = stored_signals.pressed || stored_signals.clicked
+		box.signals = stored_signals
+		return stored_signals
+	} else {
+		this_frame_signals: Box_Signals
+		this_frame_signals.box = box
+		// Can always immediately set hover state.
+		if mouse_inside_box(box, app.mouse.pos) {
+			this_frame_signals.hovering = true
+		}
+		box.signals = this_frame_signals
+		return this_frame_signals
+	}
+}
+
+// Parses UI tree of boxes and gives you back a flat list.
+box_tree_to_list :: proc(root: ^Box, allocator := context.allocator) -> [dynamic]^Box {
+	recurse_and_add :: proc(box: ^Box, list: ^[dynamic]^Box) {
+		append_elem(list, box)
+		for child in box.children {
+			recurse_and_add(child, list)
+		}
+	}
+	list := make([dynamic]^Box, allocator)
+	recurse_and_add(root, &list)
+	return list
+}
+
+compute_frame_signals :: proc(root: ^Box) {
+	candidates_at_mouse := make([dynamic]^Box, allocator = context.temp_allocator)
+	mouse_pos := Vec2_f32{f32(app.mouse.pos.x), f32(app.mouse.pos.y)}
+	box_list := box_tree_to_list(root, context.temp_allocator)
+	// Find all boxes under mouse
+	for box in box_list {
+		if mouse_inside_box(box, app.mouse.pos) && .Clickable in box.flags {
+			append(&candidates_at_mouse, box)
+		}
+	}
+
+	// Find highest z-index
+	hot_box: ^Box
+	if len(candidates_at_mouse) > 0 {
+		hot_box = candidates_at_mouse[0]
+		for box in candidates_at_mouse[1:] {
+			if box.z_index > hot_box.z_index {
+				hot_box = box
+			}
+		}
+		ui_state.hot_box = hot_box
+		// printfln("hot box is: {}", ui_state.hot_box.id_string)
+	}
+
+	// Record where mouse down started, otherwise starting outside a box and releasing on a box
+	// will register as if we clicked on that box.
+	if app.mouse.left_pressed && !app.mouse_last_frame.left_pressed {
+		ui_state.mouse_down_on = hot_box
+	}
+
+	// Process all boxes
+	for box in box_list {
+		next_signals: Box_Signals
+		next_signals.box = box
+
+		// Get previous frame's signals
+		prev_signals: Box_Signals
+		if stored, ok := ui_state.next_frame_signals[box.id_string]; ok {
+			prev_signals = stored
+		}
+
+		// These events should only trigger on the top most box.
+		if box == hot_box {
+			if app.mouse.left_pressed {
+				next_signals.pressed = true
+				if !prev_signals.pressed {
+					ui_state.active_box = box
+				}
+			} else if prev_signals.pressed && ui_state.mouse_down_on == box {
+				next_signals.clicked = true
+				// Double-click detection
+				if ui_state.last_clicked_box == box {
+					time_diff_ms := (time.now()._nsec - ui_state.last_clicked_box_time._nsec) / 1000 / 1000
+					if time_diff_ms <= 400 {
+						next_signals.double_clicked = true
+					}
+				}
+				ui_state.last_clicked_box = box
+				ui_state.last_clicked_box_time = time.now()
+			}
+
+			if app.mouse.right_pressed {
+				next_signals.right_pressed = true
+			} else if prev_signals.right_pressed {
+				next_signals.right_clicked = true
+				ui_state.right_clicked_on = box
+			}
+
+
+			// These are events that can just trigger regardless of z-index.
+			if mouse_inside_box(box, app.mouse.pos) {
+				next_signals.hovering = true
+				// Dragging
+				if next_signals.pressed && prev_signals.pressed {
+					next_signals.dragging = true
+				}
+				next_signals.dragged_over = next_signals.pressed
+
+				// Scrolling
+				if app.mouse.wheel.y != 0 {
+					next_signals.scrolled = true
+					printfln("scrolling on {}", box.id_string)
+					if app.mouse.wheel.y > 0 {
+						next_signals.scrolled_up = true
+					} else if app.mouse.wheel.y < 0 {
+						next_signals.scrolled_down = true
+					}
+				}
+			}
+
+		}
+
+		// Maintain active state even if not hot
+		if ui_state.active_box == box {
+			box.active = true
+		}
+		ui_state.next_frame_signals[box.id_string] = next_signals
+	}
+
+}
+/* ============================ End Signal Handling ======================= */
+
+/* ============================ Layout  ============================== */
 // Calculates a boxes width based on the widths of it's children.
 sizing_calc_fit_width :: proc(box: Box) -> int {
 	total := 0
@@ -580,39 +703,4 @@ position_boxes :: proc(root: ^Box) {
 	}
 	position_children(root)
 }
-
-reset_ui_state :: proc() {
-	/* 
-		I think maybe I don't want to actually reset this each frame, for exmaple,
-		if a user selected some input field on one frame, then it should still be active
-		on the next fram
-	*/
-	if ui_state.active_box != nil {
-		ui_state.last_active_box = ui_state.active_box
-	}
-	if ui_state.hot_box != nil {
-		ui_state.last_hot_box = ui_state.hot_box
-	}
-	ui_state.active_box = nil
-	ui_state.hot_box = nil
-	for key, val in ui_state.box_cache {
-		if !val.keep {
-			delete(val.children)
-			delete(key)
-			free(val)
-		}
-	}
-	clear(&ui_state.box_cache)
-}
-
-collect_render_data_from_ui_tree :: proc(root: ^Box, render_data: ^[dynamic]Rect_Render_Data) {
-	// Box may need multiple 'rects' to be rendered to achieve desired affect.
-	boxes_rendering_data := get_boxes_rendering_data(root^)
-	for data in boxes_rendering_data {
-		append_elem(render_data, data)
-	}
-	delete_dynamic_array(boxes_rendering_data^)
-	for child in root.children {
-		collect_render_data_from_ui_tree(child, render_data)
-	}
-}
+/* ============================ END LAYOUT CODE ============================== */

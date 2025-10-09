@@ -67,7 +67,7 @@ app_update :: proc() -> (all_good: bool) {
 	if ui_state.frame_num > 0 {
 		render_ui(rect_render_data)
 	}
-	clear_dynamic_array(&ui_state.temp_boxes)
+	// clear_dynamic_array(&ui_state.temp_boxes)
 	delete(rect_render_data)
 
 	sdl.GL_SwapWindow(app.window)
@@ -186,14 +186,15 @@ app_shutdown :: proc() {
 	// delete_dynamic_array(app.ui_state.rect_stack)
 	delete_dynamic_array(app.ui_state.color_stack)
 	for key, val in app.ui_state.box_cache {
-		delete_string(val.id_string)
+		// delete_string(val.id_string)
+		delete(key)
 		free(val)
 	}
-	for entry in app.ui_state.temp_boxes {
-		free(entry)
-	}
+	// for entry in app.ui_state.temp_boxes {
+	// 	free(entry)
+	// }
 	delete_map(app.ui_state.box_cache)
-	delete(app.ui_state.temp_boxes)
+	// delete(app.ui_state.temp_boxes)
 	sdl.DestroyWindow(app.window)
 
 	// delete(app.audio_state.tracks)

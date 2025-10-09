@@ -1,8 +1,62 @@
 package app
 import "core:mem"
+import "core:time"
 import gl "vendor:OpenGL"
 import sdl "vendor:sdl2"
 
+UI_State :: struct {
+	box_cache:             map[string]^Box,
+	// I.e. the node which will parent future children if children_open() has been called.
+	parents_top:           ^Box,
+	parents_stack:         [dynamic]^Box,
+	// font_atlases:          Atlases,
+	// font_size:             Font_Size,
+	// temp_boxes:            [dynamic]^Box,
+	// rect_stack:            [dynamic]Rect,
+	settings_toggled:      bool,
+	color_stack:           [dynamic]Color,
+	// font_size_stack:       [dynamic]Font_Size,
+	// ui_scale:              f32, // between 0.0 and 1.0.
+	// Used to tell the core layer to override some valu of a box that's in the cache.
+	// Useful for parts of the code where the box isn't easilly accessible (like in audio related stuff).
+	override_color:        bool,
+	override_rect:         bool,
+	quad_vbuffer:          ^u32,
+	quad_vabuffer:         ^u32,
+	quad_shader_program:   u32,
+	// root_rect:             ^Rect,
+	frame_num:             u64,
+	hot_box:               ^Box,
+	active_box:            ^Box,
+	selected_box:          ^Box,
+	last_hot_box:          ^Box,
+	last_active_box:       ^Box,
+	z_index:               i16,
+	right_clicked_on:      ^Box,
+	// wav_rendering_data:    map[ma.sound][dynamic]Rect_Render_Data,
+	// the visual space between border of text box and the text inside.
+	text_box_padding:      u16,
+	keyboard_mode:         bool,
+	last_clicked_box:      ^Box,
+	last_clicked_box_time: time.Time,
+	next_frame_signals:    map[string]Box_Signals,
+	// Used to help with the various bugs I was having related to input for box.value and mutating box.value.
+	steps_value_arena:     mem.Arena,
+	steps_value_allocator: mem.Allocator,
+	// Helps to stop clicks registering when you start outside an element and release on top of it.
+	mouse_down_on:         ^Box,
+	context_menu:          struct {
+		// pos:                   Vec2,
+		active:                bool,
+		show_fill_note_menu:   bool,
+		show_remove_note_menu: bool,
+		show_add_step_menu:    bool,
+		show_remove_step_menu: bool,
+	},
+	steps_vertical_offset: u32,
+	// Used to calculate clipping rects and nested clipping rects for overflowing content.
+	// clipping_stack:        [dynamic]^Rect,
+}
 init_ui_state :: proc() -> ^UI_State {
 	// app.wx = new(i32)
 	// app.wy = new(i32)
@@ -14,7 +68,7 @@ init_ui_state :: proc() -> ^UI_State {
 	ui_state.color_stack = make([dynamic]Color)
 	// append(&ui_state.rect_stack, ui_state.root_rect)
 	ui_state.box_cache = make(map[string]^Box)
-	ui_state.temp_boxes = make([dynamic]^Box)
+	// ui_state.temp_boxes = make([dynamic]^Box)
 	ui_state.next_frame_signals = make(map[string]Box_Signals)
 	// ui_state.clipping_stack = make([dynamic]^Rect)
 	ui_state.text_box_padding = 10
@@ -53,12 +107,16 @@ init_ui_state :: proc() -> ^UI_State {
 }
 
 create_ui :: proc() -> ^Box {
+	// This is the first step of the mark and sweep, any boxes which are not re-created this frame, will
+	// be removed from the cache at the end of the frame.
+	for key, box in ui_state.box_cache {
+		box.keep = false
+	}
 	root := box_from_cache("root@root", {}, {semantic_size = {{.Fixed, f32(app.wx)}, {.Fixed, f32(app.wy)}}})
 	box_open_children(root, {direction = .Horizontal})
 
-	audio_track(0, 300)
+	// audio_track(0, 300)
 
-	//odinfmt: disable
 	second_part: {
 		container_2 := container("ha@container2", {semantic_size = {{.Grow, 1}, {.Grow, 1}}})
 		box_open_children(container_2.box, Box_Child_Layout{direction = .Horizontal, gap_vertical = 10})
@@ -92,6 +150,7 @@ create_ui :: proc() -> ^Box {
 			)
 		}
 	}
+
 	third_part: {
 		container_3 := container("ha@container3", {semantic_size = {{.Fixed, 100}, {.Fixed, 30}}})
 		box_open_children(container_3.box, Box_Child_Layout{direction = .Vertical, gap_vertical = 10})
@@ -106,12 +165,12 @@ create_ui :: proc() -> ^Box {
 			{background_color = {1, 0, 0, 1}, corner_radius = 2, semantic_size = {{.Grow, 1}, {.Grow, 1}}},
 		)
 	}
-
 	box_close_children(root)
 	sizing_calc_percent_width(root)
 	sizing_calc_percent_height(root)
 	sizing_grow_growable_height(root)
 	sizing_grow_growable_width(root)
 	position_boxes(root)
+	compute_frame_signals(root)
 	return root
 }

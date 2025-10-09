@@ -220,61 +220,61 @@ get_boxes_rendering_data :: proc(box: Box) -> ^[dynamic]Rect_Render_Data {
 // 	return rendering_data
 // }
 
-get_all_rendering_data :: proc() -> ^[dynamic]Rect_Render_Data {
-	// Deffs not efficient to keep realloc'ing and deleting this list, will fix in future.
-	rendering_data := new([dynamic]Rect_Render_Data, allocator = context.temp_allocator)
-	// append(rendering_data, get_background_rendering_data())
-	for box in ui_state.temp_boxes {
-		if box.id_string == "" || box == nil {
-			panic("This box as it has no id_string OR box == nil")
-		}
-		boxes_to_render := get_boxes_rendering_data(box^)
-		defer delete(boxes_to_render^)
-		if .Draw in box.flags {
-			for data in boxes_to_render {
-				append(rendering_data, data)
-			}
-		}
-		// if metadata, is_knob := box.metadata.(Sampler_Metadata); is_knob {
-		// 	if metadata.sampler_part == .ADSR_Knob {
-		// 		add_knob_rendering_data(box^, rendering_data)
-		// 	}
-		// } else if metadata, is_grip := box.metadata.(Track_Control_Metadata); is_grip {
-		// 	if metadata.control_type == .Volume_Slider {
-		// 		add_fader_knob_rendering_data(box^, rendering_data)
-		// 	}
-		// } else if .Draw in box.flags {
-		// 	for data in boxes_to_render {
-		// 		append(rendering_data, data)
-		// 	}
-		// }
+// get_all_rendering_data :: proc() -> ^[dynamic]Rect_Render_Data {
+// 	// Deffs not efficient to keep realloc'ing and deleting this list, will fix in future.
+// 	rendering_data := new([dynamic]Rect_Render_Data, allocator = context.temp_allocator)
+// 	// append(rendering_data, get_background_rendering_data())
+// 	for box in ui_state.temp_boxes {
+// 		if box.id_string == "" || box == nil {
+// 			panic("This box as it has no id_string OR box == nil")
+// 		}
+// 		boxes_to_render := get_boxes_rendering_data(box^)
+// 		defer delete(boxes_to_render^)
+// 		if .Draw in box.flags {
+// 			for data in boxes_to_render {
+// 				append(rendering_data, data)
+// 			}
+// 		}
+// 		// if metadata, is_knob := box.metadata.(Sampler_Metadata); is_knob {
+// 		// 	if metadata.sampler_part == .ADSR_Knob {
+// 		// 		add_knob_rendering_data(box^, rendering_data)
+// 		// 	}
+// 		// } else if metadata, is_grip := box.metadata.(Track_Control_Metadata); is_grip {
+// 		// 	if metadata.control_type == .Volume_Slider {
+// 		// 		add_fader_knob_rendering_data(box^, rendering_data)
+// 		// 	}
+// 		// } else if .Draw in box.flags {
+// 		// 	for data in boxes_to_render {
+// 		// 		append(rendering_data, data)
+// 		// 	}
+// 		// }
 
-		// if .Draw_Text in box.flags {
-		// 	add_word_rendering_data(box^, boxes_to_render, rendering_data)
-		// }
-		// if s.contains(get_id_from_id_string(box.id_string), "waveform-container") {
-		// 	// Render left_channel and right_channel serperately. Maybe we can gain some efficiency by doing this together ?
-		// 	// unclear, but it previously setup to only render one channel, so we can do this without any changes.
-		// 	active_track := get_active_track()
-		// 	left_channel, right_channel := get_track_pcm_data(active_track)
-		// 	rects := cut_rect_into_n_vertically(box.rect, 2)
-		// 	top_rect, bottom_rect := rects[0], rects[1]
-		// 	add_waveform_rendering_data(
-		// 		top_rect,
-		// 		app.audio_state.tracks[active_track].sound,
-		// 		left_channel,
-		// 		rendering_data,
-		// 	)
-		// 	add_waveform_rendering_data(
-		// 		bottom_rect,
-		// 		app.audio_state.tracks[active_track].sound,
-		// 		right_channel,
-		// 		rendering_data,
-		// 	)
-		// }
-	}
-	return rendering_data
-}
+// 		// if .Draw_Text in box.flags {
+// 		// 	add_word_rendering_data(box^, boxes_to_render, rendering_data)
+// 		// }
+// 		// if s.contains(get_id_from_id_string(box.id_string), "waveform-container") {
+// 		// 	// Render left_channel and right_channel serperately. Maybe we can gain some efficiency by doing this together ?
+// 		// 	// unclear, but it previously setup to only render one channel, so we can do this without any changes.
+// 		// 	active_track := get_active_track()
+// 		// 	left_channel, right_channel := get_track_pcm_data(active_track)
+// 		// 	rects := cut_rect_into_n_vertically(box.rect, 2)
+// 		// 	top_rect, bottom_rect := rects[0], rects[1]
+// 		// 	add_waveform_rendering_data(
+// 		// 		top_rect,
+// 		// 		app.audio_state.tracks[active_track].sound,
+// 		// 		left_channel,
+// 		// 		rendering_data,
+// 		// 	)
+// 		// 	add_waveform_rendering_data(
+// 		// 		bottom_rect,
+// 		// 		app.audio_state.tracks[active_track].sound,
+// 		// 		right_channel,
+// 		// 		rendering_data,
+// 		// 	)
+// 		// }
+// 	}
+// 	return rendering_data
+// }
 
 // add_knob_rendering_data :: proc(box: Box, rendering_data: ^[dynamic]Rect_Render_Data) {
 // 	data := get_default_rendering_data(box)
@@ -565,6 +565,18 @@ setup_for_quads :: proc(shader_program: ^u32) {
 clear_screen :: proc() {
 	gl.ClearColor(0, 0.5, 1, 0.5)
 	gl.Clear(gl.COLOR_BUFFER_BIT)
+}
+
+collect_render_data_from_ui_tree :: proc(root: ^Box, render_data: ^[dynamic]Rect_Render_Data) {
+	// Box may need multiple 'rects' to be rendered to achieve desired affect.
+	boxes_rendering_data := get_boxes_rendering_data(root^)
+	for data in boxes_rendering_data {
+		append_elem(render_data, data)
+	}
+	delete_dynamic_array(boxes_rendering_data^)
+	for child in root.children {
+		collect_render_data_from_ui_tree(child, render_data)
+	}
 }
 
 render_ui :: proc(rect_rendering_data: [dynamic]Rect_Render_Data) {
