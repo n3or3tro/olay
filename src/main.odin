@@ -1,4 +1,5 @@
 package main
+import "./playground"
 import "app"
 import "base:runtime"
 import "core:dynlib"

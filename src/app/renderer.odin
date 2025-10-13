@@ -493,6 +493,9 @@ get_boxes_rendering_data :: proc(box: Box) -> ^[dynamic]Rect_Render_Data {
 // 	return step_num == app.audio_state.tracks[track_num].curr_step
 // }
 
+add_string_render_data :: proc(text: string, render_data: ^[dynamic]Rect_Render_Data) {
+}
+
 setup_for_quads :: proc(shader_program: ^u32) {
 	//odinfmt:disable
 	gl.BindVertexArray(ui_state.quad_vabuffer^)
@@ -593,7 +596,6 @@ render_ui :: proc(rect_rendering_data: [dynamic]Rect_Render_Data) {
 	)
 	gl.DrawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, i32(n_rects))
 }
-
 
 draw :: proc(n_vertices: i32, indices: [^]u32) {
 	gl.DrawElements(gl.TRIANGLES, n_vertices, gl.UNSIGNED_INT, indices)
