@@ -1,11 +1,10 @@
 /*
-TODO:
+TODO / Improvments.:
 	- Figure out how to configure kb_text_shape to support ligatures and everything that is required for 
 	fully proffesional text rendering. I think the only thing missing is ligature stuff.
 	- Add propper memory management and cleanup.
 	- Can probably pack glyphs more efficiently than just greedily storing them as we find them.
-	- More granular caching of shaped strings. Basically if you shape "hello" and then later shape "world", when you go to 
-	shape "hello \n world" it wont be recognized as cached, the check of the cache happens before you split into runs.
+	- Check if there's any significant inefficiencies with storing 
 */
 
 package playground
@@ -15,8 +14,8 @@ import "core:fmt"
 import "core:mem"
 import "core:os"
 import str "core:strings"
+import "core:unicode/tools"
 import "core:unicode/utf8"
-import "vendor:fontstash"
 import kb "vendor:kb_text_shape"
 import image "vendor:stb/image"
 
@@ -35,17 +34,20 @@ Glyph_Cache_Record :: struct {
 }
 
 Font_State :: struct {
-	// Tells us whether we've rendered a string before
+	// Cache for strings which have already run through the kb_text_shape machinery.
 	shaped_string_cache:  map[string][dynamic]Glyph,
-	// maps kb.glyph.uid to a record which we can use to locate the rendered data in the bitmap cache.
+	// maps kb.glyph.id to a record which we can use to locate the rendered data in the bitmap cache.
 	rendered_glyph_cache: map[u16]Glyph_Cache_Record,
 	atlas:                struct {
 		// Serves as the bitmap and cache storage for rendered glyphs.
-		bitmap:          ft.Bitmap,
-		bitmap_dynarray: [dynamic]byte,
+		bitmap_buffer:       [dynamic]byte,
 		// These locate the next position in bitmap.buffer we can store a rendered glyph.
-		next_x:          int,
-		next_y:          int,
+		row_offset:          int, // How far along the current row.
+		row_num:             int, // Which row.
+		rows, width, height: int,
+		pitch:               int, // How many bytes from one row to the next.
+		num_grays:           int, // freetype shit.
+		pixel_mode:          int, // freetype shit.
 	},
 	freetype:             struct {
 		lib:  ft.Library,
@@ -79,16 +81,15 @@ font_init :: proc(state: ^Font_State, allocator := context.allocator) {
 
 	pixel_height := 30
 	// Width is set to 0 to maintain the aspect ratio.
-	err = ft.set_pixel_sizes(state.freetype.face, 0, 30)
+	err = ft.set_pixel_sizes(state.freetype.face, 0, 140)
 
 	// Init the atlas which serves as the cache storage for rendered glyphs.
-	state.atlas.bitmap.pixel_mode = 2 // This is the default value, need to investigate.
-	state.atlas.bitmap.rows = 1024
-	state.atlas.bitmap.width = 1024
-	state.atlas.bitmap.pitch = 1024
-	state.atlas.bitmap.num_grays = 256
-	state.atlas.bitmap_dynarray = make([dynamic]byte, 1024 * 1024)
-	state.atlas.bitmap.buffer = raw_data(state.atlas.bitmap_dynarray)
+	state.atlas.pixel_mode = 2 // This is the default value, need to investigate.
+	state.atlas.rows = 1024
+	state.atlas.width = 1024
+	state.atlas.pitch = 1024
+	state.atlas.num_grays = 256
+	state.atlas.bitmap_buffer = make([dynamic]byte, 1024 * 1024)
 
 	assert(err == .Ok)
 }
@@ -118,7 +119,7 @@ font_segment_and_shape :: proc(font: ^kb.font, text: []rune) -> [dynamic]Glyph {
 		kb_break: kb.break_type
 		for kb.Break(&break_state, &kb_break) {
 			flags := kb_break.Flags
-			if (kb_break.Position > run_start) && (flags & {.DIRECTION, .LINE_HARD, .LINE_SOFT, .SCRIPT} != nil) {
+			if (kb_break.Position > run_start) && (flags & {.DIRECTION, .LINE_HARD, .SCRIPT} != nil) {
 				run_length := kb_break.Position - run_start
 				font_add_shaped_run(
 					font,
@@ -216,91 +217,106 @@ font_add_shaped_run :: proc(
 }
 
 /* 
-	Takes in glyph_buffer which is segemented and shaped text info from kb_text_shape, 
-	and creates a glyph atlas. 
+	Returns list of structs which tell the caller how to locate the passed in glyphs in the bitmap.
+	If any glyph has been seen before, it's retrieved from the cache, if not, it's put into the cache.
 */
-font_get_render_info :: proc(glpyh_buffer: [dynamic]Glyph, allocator := context.allocator) -> ft.Bitmap {
+font_get_render_info :: proc(
+	glpyh_buffer: [dynamic]Glyph,
+	allocator := context.allocator,
+) -> [dynamic]Glyph_Cache_Record {
 	lib := state.freetype.lib
 	face := state.freetype.face
-	total_width: u32 = 0
-	max_ascender: u32 = 0 // aka: above the baseline.
-	max_descender: u32 = 0 // aka: below the baseline.
-	/*
-	The freetype lib only 'renders' 1 glyph at a time, so we need to create our own 'final'
-	bitmap by first iterating through our glyphs and collecting metrics, this lets us create
-	an appropriately sized buffer to store our visual data. Then the second time we collect the visual
-	data and store it in our atlas buffer.
-	We could probably gain some efficiency doing this in one pass, but for simplicity, we'll 
-	just do 2 passes for now.
-	*/
-	// Collect metrics.
-	// load_flags := ft.Load_Flags{.Bitmap_Metrics_Only}
-	// for glyph in glpyh_buffer {
-	// 	// We call load_glyph instead of load_char since kb_text_shape has already worked out all the correct glyphs.
-	// 	err := ft.load_glyph(face, u32(glyph.glyph.Id), load_flags)
-	// 	assert(err == .Ok, fmt.tprintf("Failed to glyph metrics of: {}", glyph))
 
-	// 	total_width += u32(face.glyph.advance.x >> 6)
-	// 	// curr_height := u32(face.glyph.bitmap.rows)
-	// 	curr_ascent := u32(face.glyph.bitmap_top)
-	// 	curr_descent := u32(face.glyph.bitmap.rows) - u32(face.glyph.bitmap_top)
-	// 	if curr_ascent > max_ascender {
-	// 		max_ascender = curr_ascent
-	// 	}
-	// 	if curr_descent > max_descender {
-	// 		max_descender = curr_descent
-	// 	}
-	// }
-	// total_height := max_ascender + max_descender
-	// atlas_bitmap: ft.Bitmap
-	// atlas_bitmap.width = u32(total_width)
-	// atlas_bitmap.rows = u32(total_height)
-	// atlas_bitmap.pitch = i32(total_width)
-	// atlas_bitmap.pixel_mode = 2 // magic number :)
-	// atlas_bitmap.num_grays = 256
-	// atlas_buffer := make([]u8, total_width * total_height, allocator)
-	// atlas_bitmap.buffer = raw_data(atlas_buffer)
-
-	// Write pixel data to our buffer.
 	load_flags := ft.Load_Flags{.Render}
-	curr_pos := 0
-	pen_x := 0
-	for glyph in glpyh_buffer {
+	result := make([dynamic]Glyph_Cache_Record, allocator)
+	tallest_glyph_this_row := 0
+	for glyph, i in glpyh_buffer {
+		if existing_record, ok := state.rendered_glyph_cache[glyph.glyph.Id]; ok {
+			append(&result, existing_record)
+			continue
+		}
 		err := ft.load_glyph(face, u32(glyph.glyph.Id), load_flags)
 		assert(err == .Ok, fmt.tprintf("Failed to render glyph: {}", glyph))
+
 		this_glyphs_bitmap := face.glyph.bitmap
-		pen_y := max_ascender - u32(face.glyph.bitmap_top)
-		/*
-		Due to freetype fuckery, you must copy the src bitmap row by row instead of just
-		memcopy'ing curr_glyph.bitmap.buffer into atlas_buffer in one fell swoop. 
-		Something about pitch != width due to padding and maybe other reasons... idk, but this works :).
-		*/
-		for y in 0 ..< this_glyphs_bitmap.rows {
-			dst_offset := (pen_y + y) * total_width + u32(pen_x + int(face.glyph.bitmap_left))
-			dst := mem.ptr_offset(raw_data(atlas_buffer), dst_offset)
-			src_offset := int(y) * int(this_glyphs_bitmap.pitch)
+		// Check if new glyph will fit on this row of the atlas
+		if state.atlas.row_offset + int(this_glyphs_bitmap.width) > state.atlas.width {
+			state.atlas.row_num += tallest_glyph_this_row
+			state.atlas.row_offset = 0
+			tallest_glyph_this_row = 0
+		}
+
+		new_glyph_record: Glyph_Cache_Record
+		atlas_row_offset_at_start := state.atlas.row_offset
+		atlas_row_num_at_start := state.atlas.row_num
+		// Copy glyph into atlas, row by row of the glyph.
+		for curr_glyph_row in 0 ..< this_glyphs_bitmap.rows {
+			dst_row_offset := (atlas_row_num_at_start + int(curr_glyph_row)) * state.atlas.pitch
+			dst_offset := dst_row_offset + atlas_row_offset_at_start
+			dst := mem.ptr_offset(raw_data(state.atlas.bitmap_buffer), dst_offset)
+
+			src_offset := int(curr_glyph_row) * int(this_glyphs_bitmap.pitch)
 			src := mem.ptr_offset(this_glyphs_bitmap.buffer, src_offset)
+
 			mem.copy(dst, src, int(this_glyphs_bitmap.width))
 		}
-		pen_x += int(face.glyph.advance.x >> 6)
+
+
+		// Metrics from FreeType.
+		// We >> 6 here because FreeType uses the least-sig 6 bits as metadata
+		// for subpixel rendering stuff, which we aren't implementing *yet*.
+		new_glyph_record.advance_x = int(face.glyph.advance.x >> 6)
+		new_glyph_record.bearing_x = int(face.glyph.bitmap_left)
+		new_glyph_record.bearing_y = int(face.glyph.bitmap_top)
+
+		// Position and size in the atlas.
+		new_glyph_record.height = int(face.glyph.bitmap.rows)
+		new_glyph_record.width = int(face.glyph.bitmap.width)
+		new_glyph_record.atlas_x = atlas_row_offset_at_start
+		new_glyph_record.atlas_y = atlas_row_num_at_start
+
+		if new_glyph_record.height > tallest_glyph_this_row {
+			tallest_glyph_this_row = new_glyph_record.height
+		}
+
+		// Update metadata that determines where next to 'draw' in the atlas buffer.
+
+		state.atlas.row_offset += int(new_glyph_record.width) + 1
+		if state.atlas.row_num > state.atlas.rows {
+			// In reallity we would grow the bitmap or create another one.
+			panic("we've run out of space in the glyph atlas bitmap buffer !!!")
+		}
+		append(&result, new_glyph_record)
+		state.rendered_glyph_cache[glyph.glyph.Id] = new_glyph_record
 	}
-	return atlas_bitmap
+	return result
 }
 
 font_render_text :: proc(text: string) {
 	shaped_glyphs := font_segment_and_shape(&state.kb.font, utf8.string_to_runes(text))
-	glyphs_render_info := font_get_render_info()
+	glyphs_render_info := font_get_render_info(shaped_glyphs)
+	for record in glyphs_render_info {
+		fmt.println(record)
+	}
+	image.write_png(
+		"test_output.png",
+		i32(state.atlas.width),
+		i32(state.atlas.rows),
+		2,
+		raw_data(state.atlas.bitmap_buffer),
+		i32(state.atlas.pitch),
+	)
 }
 
 main :: proc() {
 	font_init(&state, context.allocator)
 	// runes := utf8.string_to_runes("I really am that nigga. I really do render font\n\f Like a motherfucker")
 	// glyphs := font_segment_and_shape(&state.kb.font, runes)
-	font_render_text("hello there")
-	font_render_text("hello there")
-	font_render_text("hello\nthere")
-	font_render_text("hello")
-	font_render_text("hello\nthere")
+	font_render_text("zxcvbnm,./asdfghjkl;'qwertyuiop[]1234567890-!@@@@@$%^&*(_+{}|:>?<)")
+	// font_render_text("hello there")
+	// font_render_text("hello\nthere")
+	// font_render_text("hello")
+	// font_render_text("hello\nthere")
 	// bitmap := font_create_atlas(glyphs)
 	// fmt.println(bitmap)
 	// image.write_png("./font_output.png", i32(bitmap.width), i32(bitmap.rows), 1, bitmap.buffer, bitmap.pitch)
