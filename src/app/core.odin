@@ -27,35 +27,45 @@ Vec4_int :: [4]int
 
 Color :: [4]f32
 
-
 // Style and layout info that has to be known upon Box creation.
 Box_Config :: struct {
-	background_color: Color,
-	corner_radius:    int,
-	border_thickness: int,
-	border_color:     int,
-	max_size:         int,
-	min_size:         int,
-	prefered_size:    int,
+	background_color:   Color,
+	corner_radius:      int,
+	border_thickness:   int,
+	border_color:       int,
+	max_size:           int,
+	min_size:           int,
+	prefered_size:      int,
 	// Internal padding that will surround child elements.
-	padding:          struct {
+	padding:            struct {
 		left:   int,
 		top:    int,
 		right:  int,
 		bottom: int,
 	},
-	semantic_size:    [2]Box_Size,
-	alignment:        [2]enum {
-		Start,
-		Middle,
-		End,
-	},
+	semantic_size:      [2]Box_Size,
+	// Lets you break out of the layout flow and position 'absolutely', relative
+	// to immediate parent.
+	position_absolute:  bool,
+	// These are % value of how far to the right and how far down from the top left a child will
+	// be placed if position_absolute, is set.
+	offset_from_parent: [2]f32,
+}
+
+Alignment :: enum {
+	Center,
+	Start,
+	End,
+	Space_Around,
+	Space_Between,
 }
 
 Box_Child_Layout :: struct {
-	direction:      Layout_Direction,
-	gap_horizontal: int,
-	gap_vertical:   int,
+	direction:        Layout_Direction,
+	gap_horizontal:   int,
+	gap_vertical:     int,
+	align_horizontal: Alignment,
+	align_vertical:   Alignment,
 }
 
 Layout_Direction :: enum {
@@ -185,6 +195,7 @@ box_make :: proc(id_string: string, flags: Box_Flags, config: Box_Config) -> ^Bo
 	if box.config.semantic_size.y.type == .Fixed {
 		box.height = int(box.config.semantic_size.y.amount)
 	}
+	box.keep = true
 	return box
 }
 
@@ -207,7 +218,7 @@ box_from_cache :: proc(id_string: string, flags: Box_Flags, config: Box_Config) 
 	} else {
 		is_new = true
 		persistant_id_string, err := str.clone(id_string)
-		new_box := box_make(id_string, flags, config)
+		new_box := box_make(persistant_id_string, flags, config)
 		ui_state.box_cache[persistant_id_string] = new_box
 		box = new_box
 	}
@@ -229,10 +240,11 @@ box_from_cache :: proc(id_string: string, flags: Box_Flags, config: Box_Config) 
 }
 
 
-box_open_children :: proc(box: ^Box, child_layout: Box_Child_Layout) {
+box_open_children :: proc(box: ^Box, child_layout: Box_Child_Layout) -> ^Box {
 	box.child_layout = child_layout
 	append(&ui_state.parents_stack, box)
 	ui_state.parents_top = box
+	return box
 }
 
 box_close_children :: proc(box: ^Box) {
@@ -268,6 +280,7 @@ reset_ui_state :: proc() {
 	ui_state.hot_box = nil
 	for key, box in ui_state.box_cache {
 		if !box.keep {
+			printfln("deleting box with id: {}", key)
 			delete(box.children)
 			delete_key(&ui_state.box_cache, key)
 			free(box)
@@ -655,9 +668,6 @@ calc_sizing_shrink_width :: proc(box: Box) {
 calc_text_wrap :: proc(root: Box) {
 }
 
-calc_positions :: proc(root: Box) {
-}
-
 position_boxes :: proc(root: ^Box) {
 	position_children :: proc(root: ^Box) {
 		// printfln("setting position for {}'s children", root.id_string)
@@ -665,38 +675,48 @@ position_boxes :: proc(root: ^Box) {
 			root.top_left = {0, 0}
 			root.bottom_right = {app.wx, app.wy}
 		}
+		// Need to explicitly track prev sibling since absolutely positioned children are NOT to be
+		// included in the layout calculations, if we relied on index of box.children, they would be.
+		prev_layout_sibling: ^Box = nil
 		for child, i in root.children {
-			switch root.child_layout.direction {
-			case .Horizontal:
-				if i == 0 {
-					child.top_left = {
-						root.top_left.x + root.config.padding.left,
-						root.top_left.y + root.config.padding.top,
+			// Absolutely positioned children won't have padding added when positioning.
+			if child.config.position_absolute {
+				offset_x := int(f32(root.width) * child.config.offset_from_parent.x)
+				offset_y := int(f32(root.height) * child.config.offset_from_parent.y)
+				child.top_left = {root.top_left.x + offset_x, root.top_left.y + offset_y}
+				child.bottom_right = {child.top_left.x + child.width, child.top_left.y + child.height}
+			} else {
+				switch root.child_layout.direction {
+				case .Horizontal:
+					if prev_layout_sibling == nil {
+						child.top_left = {
+							root.top_left.x + root.config.padding.left,
+							root.top_left.y + root.config.padding.top,
+						}
+						child.bottom_right = {child.top_left.x + child.width, child.top_left.y + child.height}
+					} else {
+						child.top_left = {
+							prev_layout_sibling.bottom_right.x + root.child_layout.gap_horizontal,
+							root.top_left.y + root.config.padding.top,
+						}
+						child.bottom_right = {child.top_left.x + child.width, child.top_left.y + child.height}
 					}
-					child.bottom_right = {child.top_left.x + child.width, child.top_left.y + child.height}
-				} else {
-					prev_sibling := root.children[i - 1]
-					child.top_left = {
-						prev_sibling.bottom_right.x + root.child_layout.gap_horizontal,
-						root.top_left.y + root.config.padding.top,
+				case .Vertical:
+					if prev_layout_sibling == nil {
+						child.top_left = {
+							root.top_left.x + root.config.padding.left,
+							root.top_left.y + root.config.padding.top,
+						}
+						child.bottom_right = {child.top_left.x + child.width, child.top_left.y + child.height}
+					} else {
+						child.top_left = {
+							root.top_left.x + root.config.padding.left,
+							prev_layout_sibling.bottom_right.y + root.child_layout.gap_vertical,
+						}
+						child.bottom_right = {child.top_left.x + child.width, child.top_left.y + child.height}
 					}
-					child.bottom_right = {child.top_left.x + child.width, child.top_left.y + child.height}
 				}
-			case .Vertical:
-				if i == 0 {
-					child.top_left = {
-						root.top_left.x + root.config.padding.left,
-						root.top_left.y + root.config.padding.top,
-					}
-					child.bottom_right = {child.top_left.x + child.width, child.top_left.y + child.height}
-				} else {
-					prev_sibling := root.children[i - 1]
-					child.top_left = {
-						root.top_left.x + root.config.padding.left,
-						prev_sibling.bottom_right.y + root.config.padding.top,
-					}
-					child.bottom_right = {child.top_left.x + child.width, child.top_left.y + child.height}
-				}
+				prev_layout_sibling = child
 			}
 			position_children(child)
 		}

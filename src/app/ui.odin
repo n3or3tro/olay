@@ -1,9 +1,11 @@
 package app
+import "core:fmt"
 import "core:mem"
 import "core:time"
 import gl "vendor:OpenGL"
 import sdl "vendor:sdl2"
 
+id :: fmt.tprintf
 UI_State :: struct {
 	box_cache:             map[string]^Box,
 	// I.e. the node which will parent future children if children_open() has been called.
@@ -76,7 +78,6 @@ init_ui_state :: proc() -> ^UI_State {
 	// mem.arena_init(&ui_state.steps_value_arena, steps_arena_buffer[:])
 
 	font_init(&ui_state.font_state, 32)
-	printfln("font_state after init: {}", ui_state.font_state)
 
 	gl.GenVertexArrays(1, ui_state.quad_vabuffer)
 	create_vbuffer(ui_state.quad_vbuffer, nil, 700_000)
@@ -131,56 +132,64 @@ create_ui :: proc() -> ^Box {
 	root := box_from_cache("root@root", {}, {semantic_size = {{.Fixed, f32(app.wx)}, {.Fixed, f32(app.wy)}}})
 	box_open_children(root, {direction = .Horizontal})
 
-	// audio_track(0, 300)
-
-	second_part: {
-		container_2 := container("ha@container2", {semantic_size = {{.Grow, 1}, {.Grow, 1}}})
-		box_open_children(container_2.box, Box_Child_Layout{direction = .Horizontal, gap_vertical = 10})
-		defer box_close_children(container_2.box)
-
-		button_text(
-			"hey@button3",
-			{background_color = {0.3, 1, 0.5, 1}, corner_radius = 1, semantic_size = {{.Grow, 1}, {.Grow, 1}}},
-		)
-		button_text(
-			"button4@button4",
-			{background_color = {1, 1, 0, 0.5}, corner_radius = 2, semantic_size = {{.Grow, 1}, {.Grow, 1}}},
-		)
-		button_text(
-			"button4@button5",
-			{background_color = {1, 1, 0, 0.5}, corner_radius = 20, semantic_size = {{.Grow, 1}, {.Grow, 1}}},
-		)
-		{
-			other_container := container(
-				"a@other_container",
-				{background_color = {1, 1, 0, 0.5}, corner_radius = 2, semantic_size = {{.Grow, 1}, {.Grow, 1}}},
-			)
-			box_open_children(other_container.box, {direction = .Horizontal, gap_horizontal = 1})
-			defer box_close_children(other_container.box)
-			button_text(
-				"somehing@alskdjfafd",
-				{
-					semantic_size = {{type = .Fixed, amount = 100}, {type = .Fixed, amount = 30}},
-					background_color = {1, 1, 0.2, 1},
-				},
-			)
-		}
+	audio_track_containers := container(
+		"@audio-track-containers",
+		{semantic_size = {{.Fixed, f32(app.wx)}, {.Fixed, f32(app.wy)}}},
+	)
+	box_open_children(audio_track_containers.box, {gap_horizontal = 10, direction = .Horizontal})
+	for i in 0 ..< 5 {
+		audio_track(u32(i), 250)
 	}
+	box_close_children(audio_track_containers.box)
 
-	third_part: {
-		container_3 := container("ha@container3", {semantic_size = {{.Fixed, 100}, {.Fixed, 30}}})
-		box_open_children(container_3.box, Box_Child_Layout{direction = .Vertical, gap_vertical = 10})
-		defer box_close_children(container_3.box)
+	// second_part: {
+	// 	container_2 := container("ha@container2", {semantic_size = {{.Grow, 1}, {.Grow, 1}}})
+	// 	box_open_children(container_2.box, Box_Child_Layout{direction = .Horizontal, gap_vertical = 10})
+	// 	defer box_close_children(container_2.box)
 
-		button_text(
-			"what@heyabutton5",
-			{background_color = {1, 0, 0, 1}, corner_radius = 2, semantic_size = {{.Grow, 1}, {.Grow, 1}}},
-		)
-		button_text(
-			"button4@button6",
-			{background_color = {1, 0, 0, 1}, corner_radius = 2, semantic_size = {{.Grow, 1}, {.Grow, 1}}},
-		)
-	}
+	// 	button_text(
+	// 		tprintf("hey there {}@bitch", "nigga"),
+	// 		{background_color = {0.3, 1, 0.5, 1}, corner_radius = 1, semantic_size = {{.Grow, 1}, {.Grow, 1}}},
+	// 	)
+	// 	button_text(
+	// 		"button4@button4",
+	// 		{background_color = {1, 1, 0, 0.5}, corner_radius = 2, semantic_size = {{.Grow, 1}, {.Grow, 1}}},
+	// 	)
+	// 	button_text(
+	// 		"button4@button5",
+	// 		{background_color = {1, 1, 0, 0.5}, corner_radius = 20, semantic_size = {{.Grow, 1}, {.Grow, 1}}},
+	// 	)
+	// 	{
+	// 		other_container := container(
+	// 			"a@other_container",
+	// 			{background_color = {1, 1, 0, 0.5}, corner_radius = 2, semantic_size = {{.Grow, 1}, {.Grow, 1}}},
+	// 		)
+	// 		box_open_children(other_container.box, {direction = .Horizontal, gap_horizontal = 1})
+	// 		defer box_close_children(other_container.box)
+	// 		button_text(
+	// 			"somehing@alskdjfafd",
+	// 			{
+	// 				semantic_size = {{type = .Fixed, amount = 100}, {type = .Fixed, amount = 30}},
+	// 				background_color = {1, 1, 0.2, 1},
+	// 			},
+	// 		)
+	// 	}
+	// }
+
+	// third_part: {
+	// 	container_3 := container("ha@container3", {semantic_size = {{.Fixed, 100}, {.Fixed, 30}}})
+	// 	box_open_children(container_3.box, Box_Child_Layout{direction = .Vertical, gap_vertical = 10})
+	// 	defer box_close_children(container_3.box)
+
+	// 	button_text(
+	// 		"what@heyabutton5",
+	// 		{background_color = {1, 0, 0, 1}, corner_radius = 2, semantic_size = {{.Grow, 1}, {.Grow, 1}}},
+	// 	)
+	// 	button_text(
+	// 		"button4@button6",
+	// 		{background_color = {1, 0, 0, 1}, corner_radius = 2, semantic_size = {{.Grow, 1}, {.Grow, 1}}},
+	// 	)
+	// }
 	box_close_children(root)
 	sizing_calc_percent_width(root)
 	sizing_calc_percent_height(root)

@@ -117,7 +117,6 @@ font_segment_and_shape_text :: proc(font: ^kb.font, text: []rune, allocator := c
 	state := &ui_state.font_state
 	key := utf8.runes_to_string(text, context.temp_allocator)
 	if key in state.shaped_string_cache {
-		// fmt.printfln("string {} was found in shaped cache", key)
 		return state.shaped_string_cache[key]
 	}
 	glyph_buffer := make([dynamic]Glyph, allocator)
@@ -170,7 +169,6 @@ font_segment_and_shape_text :: proc(font: ^kb.font, text: []rune, allocator := c
 	// Because the segmenting code is not breaking up the input string if it finds a new line,
 	// we just cache the whole string instead of runs, words, lines etc, which would probably be
 	// better.
-	fmt.printfln("{} was not in shaped cache, it's now been shaped and stored in the cache", text)
 	state.shaped_string_cache[key] = glyph_buffer
 	return glyph_buffer
 }
@@ -191,7 +189,6 @@ font_add_shaped_run :: proc(
 	script: kb.script,
 ) {
 	key := utf8.runes_to_string(text, context.temp_allocator)
-	fmt.printfln("adding shaped text for {}\n\n", text)
 	temp_glyph_buffer := make([dynamic]kb.glyph, len(text))
 	for codepoint, i in text {
 		temp_glyph_buffer[i] = kb.CodepointToGlyph(font, codepoint)
@@ -223,7 +220,6 @@ font_add_shaped_run :: proc(
 	y_scale := i32(ui_state.font_state.freetype.face.size.metrics.y_scale)
 	for &glyph, i in temp_glyph_buffer {
 		x, y := kb.PositionGlyph(cursor, &glyph)
-		printfln("kb_text_shape says {} goes to: {},{}", rune(glyph.Id), x, y)
 		my_glyph := Glyph {
 			glyph = glyph,
 			pos   = {f32((x * x_scale) >> 16) / 64, f32((y * y_scale) >> 16) / 64},

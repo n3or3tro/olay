@@ -3,6 +3,9 @@ import s "core:strings"
 
 get_name_from_id_string :: proc(id_string: string) -> string {
 	to := s.index(id_string, "@")
+	if to == -1 {
+		return ""
+	}
 	return id_string[:to]
 }
 
