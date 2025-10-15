@@ -197,6 +197,10 @@ app_shutdown :: proc() {
 	// delete(app.ui_state.temp_boxes)
 	sdl.DestroyWindow(app.window)
 
+	delete(ui_state.font_state.rendered_glyph_cache)
+	delete(ui_state.font_state.shaped_string_cache)
+	delete(ui_state.font_state.atlas.bitmap_buffer)
+	// font_destroy(&ui_state.font_state)
 	// delete(app.audio_state.tracks)
 	// free(app.audio_state.engine)
 	// for group in app.audio_state.audio_groups {

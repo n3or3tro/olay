@@ -20,3 +20,15 @@ print_ui_tree :: proc(root: ^Box, level: int) {
 		print_ui_tree(child, level + 1)
 	}
 }
+
+box_height :: proc(box: Box) -> u32 {
+	height := box.bottom_right.y - box.top_left.y
+	assert(height >= 0)
+	return u32(height)
+}
+
+box_width :: proc(box: Box) -> u32 {
+	width := box.bottom_right.x - box.top_left.x
+	assert(width >= 0)
+	return u32(width)
+}

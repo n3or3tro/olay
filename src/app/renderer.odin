@@ -1,15 +1,10 @@
 package app
-import "core:fmt"
 import "core:math"
 import alg "core:math/linalg"
-import "core:math/rand"
-import "core:mem"
-import "core:mem/tlsf"
-import "core:strconv"
 import s "core:strings"
+import "core:unicode/utf8"
 import gl "vendor:OpenGL"
-import ma "vendor:miniaudio"
-import sdl "vendor:sdl2"
+// import ma "vendor:miniaudio"
 
 PI :: math.PI
 
@@ -19,6 +14,15 @@ Font_Size :: enum {
 	m  = 2,
 	l  = 3,
 	xl = 4,
+}
+
+UI_Element_Type :: enum {
+	Regular,
+	Text,
+	Waveform_Data,
+	Circle,
+	Fader_Knob,
+	Background = 15,
 }
 
 Rect_Render_Data :: struct {
@@ -33,7 +37,7 @@ Rect_Render_Data :: struct {
 	corner_radius:        f32,
 	edge_softness:        f32,
 	border_thickness:     f32,
-	ui_element_type:      u32,
+	ui_element_type:      UI_Element_Type,
 	font_size:            Font_Size,
 	clip_tl:              Vec2_f32,
 	clip_br:              Vec2_f32,
@@ -493,9 +497,6 @@ get_boxes_rendering_data :: proc(box: Box) -> ^[dynamic]Rect_Render_Data {
 // 	return step_num == app.audio_state.tracks[track_num].curr_step
 // }
 
-add_string_render_data :: proc(text: string, render_data: ^[dynamic]Rect_Render_Data) {
-}
-
 setup_for_quads :: proc(shader_program: ^u32) {
 	//odinfmt:disable
 	gl.BindVertexArray(ui_state.quad_vabuffer^)
@@ -570,11 +571,73 @@ clear_screen :: proc() {
 	gl.Clear(gl.COLOR_BUFFER_BIT)
 }
 
+/*
+Returns the quads which we will sample the font pixels into. 
+This is probably where I'd implement subpixel positioning and stuff, but for now
+we just naively wrap to the nearest int.
+*/
+get_text_quads :: proc(
+	box: Box,
+	glyph_buffer: []Glyph_Render_Info,
+	allocator := context.allocator,
+) -> [dynamic]Rect_Render_Data {
+	// Calculate baseline: (for now we just center text on both axis inside the box)
+	tallest_char := font_get_string_tallest_glyph(glyph_buffer)
+	rendered_len := font_get_string_rendered_len(glyph_buffer)
+	vertical_diff_half := (box.height - int(tallest_char)) / 2
+	horizontal_diff_half := (box.width - int(rendered_len)) / 2
+	// Really only the first point in baseline, which is all we need.
+	baseline_x := box.top_left.x + int(horizontal_diff_half)
+	baseline_y := box.bottom_right.y - int(vertical_diff_half)
+	pen_x := baseline_x
+	// Doesn't need to be dynamically sized but static allocated size may confuse user.
+	glyph_rects := make([dynamic]Rect_Render_Data, len(glyph_buffer), allocator)
+	atlas_width := ui_state.font_state.atlas.row_width
+	atlas_height := ui_state.font_state.atlas.num_rows
+	for glyph, i in glyph_buffer {
+		cache_record := glyph.cache_record
+		final_x := f32(baseline_x) + glyph.pos.x
+		final_y := f32(baseline_y) + glyph.pos.y
+		descent := cache_record.height - cache_record.bearing_y // Descent below baseline.
+		tex_tl_x := f32(cache_record.atlas_x) / f32(atlas_width)
+		tex_tl_y := f32(cache_record.atlas_y) / f32(atlas_height)
+		tex_br_x := f32(cache_record.atlas_x + cache_record.width) / f32(atlas_width)
+		tex_br_y := f32(cache_record.atlas_y + cache_record.height) / f32(atlas_height)
+		data := Rect_Render_Data {
+			top_left             = {final_x + f32(cache_record.bearing_x), final_y - f32(cache_record.bearing_y)},
+			bottom_right         = {
+				final_x + f32(cache_record.bearing_x + cache_record.width),
+				final_y + f32(descent),
+			},
+			texture_top_left     = Vec2_f32{tex_tl_x, tex_tl_y},
+			texture_bottom_right = Vec2_f32{tex_br_x, tex_br_y},
+			border_thickness     = 500,
+			tl_color             = Color{0, 0, 0, 1},
+			tr_color             = Color{0, 0, 0, 1},
+			bl_color             = Color{0, 0, 0, 1},
+			br_color             = Color{0, 0, 0, 1},
+			ui_element_type      = .Text,
+		}
+		// pen_x += glyph.advance_x
+		glyph_rects[i] = data
+	}
+	return glyph_rects
+}
+
 collect_render_data_from_ui_tree :: proc(root: ^Box, render_data: ^[dynamic]Rect_Render_Data) {
 	// Box may need multiple 'rects' to be rendered to achieve desired affect.
 	boxes_rendering_data := get_boxes_rendering_data(root^)
 	for data in boxes_rendering_data {
 		append_elem(render_data, data)
+	}
+	if .Draw_Text in root.flags {
+		text := utf8.string_to_runes(get_name_from_id_string(root.id_string), context.temp_allocator)
+		shaped_glyphs := font_segment_and_shape_text(&ui_state.font_state.kb.font, text)
+		glyph_render_info := font_get_render_info(shaped_glyphs, context.temp_allocator)
+		glyph_rects := get_text_quads(root^, glyph_render_info[:], context.temp_allocator)
+		for rect in glyph_rects {
+			append_elem(render_data, rect)
+		}
 	}
 	delete_dynamic_array(boxes_rendering_data^)
 	for child in root.children {

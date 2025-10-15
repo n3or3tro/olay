@@ -1,7 +1,7 @@
 package app
 
 button_text :: proc(id_string: string, config: Box_Config) -> Box_Signals {
-	box := box_from_cache(id_string, {.Clickable, .Active_Animation, .Draw, .Text_Center}, config)
+	box := box_from_cache(id_string, {.Clickable, .Active_Animation, .Draw, .Text_Center, .Draw_Text}, config)
 	return box_signals(box)
 }
 

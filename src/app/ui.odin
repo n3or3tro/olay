@@ -9,13 +9,8 @@ UI_State :: struct {
 	// I.e. the node which will parent future children if children_open() has been called.
 	parents_top:           ^Box,
 	parents_stack:         [dynamic]^Box,
-	// font_atlases:          Atlases,
-	// font_size:             Font_Size,
-	// temp_boxes:            [dynamic]^Box,
-	// rect_stack:            [dynamic]Rect,
 	settings_toggled:      bool,
 	color_stack:           [dynamic]Color,
-	// font_size_stack:       [dynamic]Font_Size,
 	// ui_scale:              f32, // between 0.0 and 1.0.
 	// Used to tell the core layer to override some valu of a box that's in the cache.
 	// Useful for parts of the code where the box isn't easilly accessible (like in audio related stuff).
@@ -24,6 +19,7 @@ UI_State :: struct {
 	quad_vbuffer:          ^u32,
 	quad_vabuffer:         ^u32,
 	quad_shader_program:   u32,
+	font_atlas_texture_id: u32,
 	// root_rect:             ^Rect,
 	frame_num:             u64,
 	hot_box:               ^Box,
@@ -54,55 +50,75 @@ UI_State :: struct {
 		show_remove_step_menu: bool,
 	},
 	steps_vertical_offset: u32,
+	font_state:            Font_State,
 	// Used to calculate clipping rects and nested clipping rects for overflowing content.
 	// clipping_stack:        [dynamic]^Rect,
 }
+
 init_ui_state :: proc() -> ^UI_State {
-	// app.wx = new(i32)
-	// app.wy = new(i32)
-	printfln("ui state is: {}", ui_state)
 	ui_state.quad_vbuffer = new(u32)
 	ui_state.quad_vabuffer = new(u32)
 
-	// ui_state.rect_stack = make([dynamic]^Rect)
 	ui_state.color_stack = make([dynamic]Color)
-	// append(&ui_state.rect_stack, ui_state.root_rect)
 	ui_state.box_cache = make(map[string]^Box)
-	// ui_state.temp_boxes = make([dynamic]^Box)
 	ui_state.next_frame_signals = make(map[string]Box_Signals)
 	// ui_state.clipping_stack = make([dynamic]^Rect)
-	ui_state.text_box_padding = 10
-	// ui_state.steps_value_allocator = mem.arena_allocator(&ui_state.steps_value_arena)
-	// mem.arena_init(&ui_state.steps_value_arena, steps_arena_buffer[:])
-
-	// mem.dynamic_arena_init()
-	// mem.dynamic_pool_init()
-	// mem.dynamic_pool_allocator()
-
-	printfln("ui_state.quad_vabuffer: {}", ui_state.quad_vabuffer)
-	printfln("about to execute: {}", gl.GenVertexArrays)
-	gl.GenVertexArrays(1, ui_state.quad_vabuffer)
-	create_vbuffer(ui_state.quad_vbuffer, nil, 700_000)
-
-	program1, quad_shader_ok := gl.load_shaders_source(string(ui_vertex_shader_data), string(ui_pixel_shader_data))
-	assert(quad_shader_ok)
-	ui_state.quad_shader_program = program1
-
-	bind_shader(ui_state.quad_shader_program)
-	// Did it this way because was getting bugs with layout being wrong when using tiling WM on windows.
-	actual_w, actual_h: i32
-	sdl.GetWindowSize(app.window, &actual_w, &actual_h)
-
-	// Use the ACTUAL size to set the shader uniform for the first time.
-	set_shader_vec2(ui_state.quad_shader_program, "screen_res", {f32(actual_w), f32(actual_h)})
-	// set_shader_vec2(ui_state.quad_shader_program, "screen_res", {f32(WINDOW_WIDTH), f32(WINDOW_HEIGHT)})
-	setup_for_quads(&ui_state.quad_shader_program)
 
 	wx: i32 = 0
 	wy: i32 = 0
 	sdl.GetWindowSize(app.window, &wx, &wy)
 	app.wx, app.wy = int(wx), int(wy)
+
 	ui_state.frame_num = 0
+	ui_state.text_box_padding = 10
+
+	// ui_state.steps_value_allocator = mem.arena_allocator(&ui_state.steps_value_arena)
+	// mem.arena_init(&ui_state.steps_value_arena, steps_arena_buffer[:])
+
+	font_init(&ui_state.font_state, 32)
+	printfln("font_state after init: {}", ui_state.font_state)
+
+	gl.GenVertexArrays(1, ui_state.quad_vabuffer)
+	create_vbuffer(ui_state.quad_vbuffer, nil, 700_000)
+
+	shader_program_id, quad_shader_ok := gl.load_shaders_source(
+		string(ui_vertex_shader_data),
+		string(ui_pixel_shader_data),
+	)
+	assert(quad_shader_ok)
+	ui_state.quad_shader_program = shader_program_id
+
+	// Setup shader.
+	bind_shader(ui_state.quad_shader_program)
+	// Did it this way because was getting bugs with layout being wrong when using tiling WM on windows.
+	actual_w, actual_h: i32
+	sdl.GetWindowSize(app.window, &actual_w, &actual_h)
+	set_shader_vec2(ui_state.quad_shader_program, "screen_res", {f32(actual_w), f32(actual_h)})
+	setup_for_quads(&ui_state.quad_shader_program)
+
+	// Setup font texture atlas.
+	atlas_texture_id: u32
+	gl.GenTextures(1, &atlas_texture_id)
+	gl.BindTexture(gl.TEXTURE_2D, atlas_texture_id)
+
+	gl.TexImage2D(
+		gl.TEXTURE_2D, // target
+		0, // level (mipmap)
+		gl.R8, // internal format (8 bit red channel is most efficient apparently)
+		1024, // width
+		1024, // height
+		0, // border
+		gl.RED, // format of pixel data, i.e. where it looks to find the pixel info.
+		gl.UNSIGNED_BYTE, // type of pixel data.
+		nil, // data -> nil as it's empty until we start rendering text.
+	)
+
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+
+	ui_state.font_atlas_texture_id = atlas_texture_id
 	return ui_state
 }
 
@@ -123,7 +139,7 @@ create_ui :: proc() -> ^Box {
 		defer box_close_children(container_2.box)
 
 		button_text(
-			"button3@button3",
+			"hey@button3",
 			{background_color = {0.3, 1, 0.5, 1}, corner_radius = 1, semantic_size = {{.Grow, 1}, {.Grow, 1}}},
 		)
 		button_text(
@@ -157,7 +173,7 @@ create_ui :: proc() -> ^Box {
 		defer box_close_children(container_3.box)
 
 		button_text(
-			"button3@button5",
+			"what@heyabutton5",
 			{background_color = {1, 0, 0, 1}, corner_radius = 2, semantic_size = {{.Grow, 1}, {.Grow, 1}}},
 		)
 		button_text(

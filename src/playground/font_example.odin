@@ -14,7 +14,6 @@ import "core:fmt"
 import "core:mem"
 import "core:os"
 import str "core:strings"
-import "core:unicode/tools"
 import "core:unicode/utf8"
 import kb "vendor:kb_text_shape"
 import image "vendor:stb/image"
@@ -69,7 +68,7 @@ font_init :: proc(state: ^Font_State, allocator := context.allocator) {
 	font, kb_err := kb.FontFromMemory(font_file_data, allocator)
 	assert(
 		kb_err == .None,
-		fmt.tprintf("kb.FontFromMemory(font_file_data, context.allocator) failed with mem_err: {}", kb_err),
+		fmt.tprintf("kb.FontFromMemory(font_file_data, context.allocator) failed with err: {}", kb_err),
 	)
 	state.kb.font = font
 
@@ -221,18 +220,18 @@ font_add_shaped_run :: proc(
 	If any glyph has been seen before, it's retrieved from the cache, if not, it's put into the cache.
 */
 font_get_render_info :: proc(
-	glpyh_buffer: [dynamic]Glyph,
+	glyph_buffer: [dynamic]Glyph,
 	allocator := context.allocator,
 ) -> [dynamic]Glyph_Cache_Record {
 	lib := state.freetype.lib
 	face := state.freetype.face
 
 	load_flags := ft.Load_Flags{.Render}
-	result := make([dynamic]Glyph_Cache_Record, allocator)
+	result := make([dynamic]Glyph_Cache_Record, len(glyph_buffer), allocator)
 	tallest_glyph_this_row := 0
-	for glyph, i in glpyh_buffer {
+	for glyph, i in glyph_buffer {
 		if existing_record, ok := state.rendered_glyph_cache[glyph.glyph.Id]; ok {
-			append(&result, existing_record)
+			result[i] = existing_record
 			continue
 		}
 		err := ft.load_glyph(face, u32(glyph.glyph.Id), load_flags)
@@ -286,7 +285,7 @@ font_get_render_info :: proc(
 			// In reallity we would grow the bitmap or create another one.
 			panic("we've run out of space in the glyph atlas bitmap buffer !!!")
 		}
-		append(&result, new_glyph_record)
+		result[i] = new_glyph_record
 		state.rendered_glyph_cache[glyph.glyph.Id] = new_glyph_record
 	}
 	return result
@@ -295,28 +294,26 @@ font_get_render_info :: proc(
 font_render_text :: proc(text: string) {
 	shaped_glyphs := font_segment_and_shape(&state.kb.font, utf8.string_to_runes(text))
 	glyphs_render_info := font_get_render_info(shaped_glyphs)
-	for record in glyphs_render_info {
-		fmt.println(record)
-	}
-	image.write_png(
-		"test_output.png",
-		i32(state.atlas.width),
-		i32(state.atlas.rows),
-		2,
-		raw_data(state.atlas.bitmap_buffer),
-		i32(state.atlas.pitch),
-	)
+	// for record in glyphs_render_info {
+	// 	fmt.println(record)
+	// }
+	// image.write_png(
+	// 	"test_output.png",
+	// 	i32(state.atlas.width),
+	// 	i32(state.atlas.rows),
+	// 	2,
+	// 	raw_data(state.atlas.bitmap_buffer),
+	// 	i32(state.atlas.pitch),
+	// )
 }
 
 main :: proc() {
 	font_init(&state, context.allocator)
 	// runes := utf8.string_to_runes("I really am that nigga. I really do render font\n\f Like a motherfucker")
 	// glyphs := font_segment_and_shape(&state.kb.font, runes)
-	font_render_text("zxcvbnm,./asdfghjkl;'qwertyuiop[]1234567890-!@@@@@$%^&*(_+{}|:>?<)")
-	// font_render_text("hello there")
-	// font_render_text("hello\nthere")
-	// font_render_text("hello")
-	// font_render_text("hello\nthere")
+	// font_render_text("zxcvbnm,./asdfghjkl;'qwertyuiop[]1234567890-!@@@@@$%^&*(_+{}|:>?<)")
+	font_render_text("hello\nthere")
+	font_render_text("hello\nmate")
 	// bitmap := font_create_atlas(glyphs)
 	// fmt.println(bitmap)
 	// image.write_png("./font_output.png", i32(bitmap.width), i32(bitmap.rows), 1, bitmap.buffer, bitmap.pitch)

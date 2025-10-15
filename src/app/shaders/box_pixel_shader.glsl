@@ -19,19 +19,30 @@ layout(location = 11) in vec2 clip_br;
 #define font_size_l   3
 #define font_size_xl  4
 
+
+#define UI_Type_Regular 		0
+#define UI_Type_Font 			1
+#define UI_Type_Waveform_Data 	2
+#define UI_Type_Circle 			3
+#define UI_Type_Fader_Knob 		4
+#define UI_Type_Background  	15
+
+
 // At the moment, a fragment == a pixel.
 out vec4 color;
 
 // This indicates which texture unit holds the relevant texture data.
-uniform sampler2D font_texture_xs;
-uniform sampler2D font_texture_s;
-uniform sampler2D font_texture_m;
-uniform sampler2D font_texture_l;
-uniform sampler2D font_texture_xl;
+// uniform sampler2D font_texture_xs;
+// uniform sampler2D font_texture_s;
+// uniform sampler2D font_texture_m;
+// uniform sampler2D font_texture_l;
+// uniform sampler2D font_texture_xl;
 
-uniform sampler2D circle_knob_texture;
-uniform sampler2D fader_knob_texture;
-uniform sampler2D background_texture;
+uniform sampler2D font_atlas;
+
+// uniform sampler2D circle_knob_texture;
+// uniform sampler2D fader_knob_texture;
+// uniform sampler2D background_texture;
 
 uniform vec2 screen_res;
 
@@ -78,7 +89,6 @@ void main() {
 	// 	discard;
 	// }
 
-
 	// we need to shrink the rectangle's half-size that is used for distance calculations with
 	// the edge softness - otherwise the underlying primitive will cut off the falloff too early.
 	vec2 softness = vec2(edge_softness, edge_softness);
@@ -86,7 +96,7 @@ void main() {
 
 	// sample distance
 	float dist;
-	if(ui_element_type == 3.0) { // 3.0 -> circle.
+	if(ui_element_type == UI_Type_Circle) { 
 		dist = CircleSDF(dst_pos, dst_center, dst_half_size.x - softness_padding.x);
 	} else {
 		dist = RoundedRectSDF(dst_pos, dst_center, dst_half_size - softness_padding, corner_radius);
@@ -96,34 +106,28 @@ void main() {
 	float sdf_factor = 1.0 - smoothstep(0.0, 2.0 * edge_softness, dist);
 
 	// use sdf_factor in final color calculation
-	if(ui_element_type == 0.0) { // normal rect
+	if(ui_element_type == UI_Type_Regular) 
+	{ 
 		color = v_color * sdf_factor * calculate_border_factor(softness_padding);
-	} else if(ui_element_type == 2.0) { // 2 -> waveform data.
-		color = v_color;
-	} else if (ui_element_type == 3.0) { 
-		vec4 texture_sample = texture(circle_knob_texture, texture_uv);
-		color = texture_sample;
-	} else if (ui_element_type == 4.0) { // i.e. fader knob
-		vec4 texture_sample = texture(fader_knob_texture, texture_uv);
-		color = texture_sample;
-	//} else if (ui_element_type == 15.0) { // i.e. background
-		// vec4 texture_sample = texture(background_texture, texture_uv);
-		// color = texture_sample;
-	} else { // i.e. we're rendering text.
-		float texture_sample;
+	} 
+	// else if(ui_element_type == UI_Type_Waveform_Data) 
+	// {
+	// 	color = v_color;
+	// } 
+	// else if (ui_element_type == UI_Type_Circle) 
+	// { 
+	// 	vec4 texture_sample = texture(circle_knob_texture, texture_uv);
+	// 	color = texture_sample;
+	// } 
+	// else if (ui_element_type == UI_Type_Fader_Knob) 
+	// { 
+	// 	vec4 texture_sample = texture(fader_knob_texture, texture_uv);
+	// 	color = texture_sample;
+	// } 
+	else 
+	{ 
 		// Sample red channel due to how texture is uploaded.
-		if (font_size == font_size_s) {
-			texture_sample = texture(font_texture_s, texture_uv).r; 
-		} else if (font_size == font_size_m) { 
-			texture_sample = texture(font_texture_m, texture_uv).r; 
-		} else if (font_size == font_size_l) { 
-			texture_sample = texture(font_texture_l, texture_uv).r; 
-		} else if (font_size == font_size_xl) { 
-			texture_sample = texture(font_texture_xl, texture_uv).r; 
-		// default font size will be xs.
-		} else {  
-			texture_sample = texture(font_texture_xs, texture_uv).r;
-		}
+		float texture_sample = texture(font_atlas, texture_uv).r;
 		color = v_color * texture_sample;
 	}
 }
