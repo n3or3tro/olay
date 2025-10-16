@@ -76,10 +76,9 @@ audio_track :: proc(track_num: u32, track_width: f32) -> Track_Signals {
 			id("arm@track-{}-arm-button", track_num),
 			{semantic_size = {{.Percent, 0.333}, {.Fixed, 30}}, background_color = {1, 1, 0, 1}},
 		)
-		// volume_slider := vertical_slider(
-		volume_slider := button_text(
-			id("hey@track-{}-volume-slider", track_num),
-			{semantic_size = {{.Percent, 0.333}, {.Grow, 30}}, background_color = {1, 0.5, 0, 1}},
+		volume_slider := vertical_slider(
+			id("hey@track-{}-volume-slider", track_num), // volume_slider := button_text(
+			{semantic_size = {{.Percent, 0.333}, {.Grow, 30}}, background_color = {1, 0, 0, 1}},
 		)
 		load_sound_button := button_text(
 			id("load@track-{}-load-sound-button", track_num),
@@ -110,9 +109,10 @@ vertical_slider :: proc(id_string: string, config: Box_Config) -> Slider_Signals
 		id("{}-grip", get_id_from_id_string(id_string)),
 		{.Clickable, .Draggable, .Draw},
 		{
-			semantic_size = {{.Percent, 0.7}, {.Percent, 0.1}},
-			background_color = {0, 0.1, 0.7, 1},
-			position_absolute = true,
+			semantic_size      = {{.Percent, 0.7}, {.Percent, 0.1}},
+			// semantic_size      = {{.Fixed, 100}, {.Fixed, 300}},
+			background_color   = {0, 0.1, 0.7, 1},
+			position_absolute  = true,
 			offset_from_parent = {0, 0},
 		},
 	)

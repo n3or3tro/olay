@@ -622,6 +622,7 @@ sizing_grow_growable_height :: proc(box: ^Box) {
 		for child in box.children {
 			if !child.config.position_absolute && child.config.semantic_size.y.type == .Grow {
 				child.height = available_height
+				sizing_calc_percent_height(child)
 			}
 		}
 	}
@@ -699,6 +700,7 @@ position_boxes :: proc(root: ^Box) {
 		// Need to explicitly track prev sibling since absolutely positioned children are NOT to be
 		// included in the layout calculations, if we relied on index of box.children, they would be.
 		prev_layout_sibling: ^Box = nil
+		num_children_in_flow := num_of_non_floating_children(root^)
 		for child, i in root.children {
 			// Absolutely positioned children won't have padding added when positioning.
 			if child.config.position_absolute {
