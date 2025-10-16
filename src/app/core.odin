@@ -442,12 +442,14 @@ sizing_calc_fit_width :: proc(box: Box) -> int {
 	switch box.child_layout.direction {
 	case .Horizontal:
 		for child in box.children {
-			total += child.width
+			if !child.config.position_absolute {
+				total += child.width
+			}
 		}
 	case .Vertical:
 		widest := 0
 		for child in box.children {
-			if child.width > widest {
+			if !child.config.position_absolute && child.width > widest {
 				widest = child.width
 			}
 		}
@@ -458,17 +460,20 @@ sizing_calc_fit_width :: proc(box: Box) -> int {
 	return total
 }
 
+// Calculates a boxes height based on the widths of it's children.
 sizing_calc_fit_height :: proc(box: Box) -> int {
 	height := 0
 	switch box.child_layout.direction {
 	case .Vertical:
 		for child in box.children {
-			height += child.height
+			if !child.config.position_absolute {
+				height += child.height
+			}
 		}
 	case .Horizontal:
 		tallest := 0
 		for child in box.children {
-			if child.height > tallest {
+			if !child.config.position_absolute && child.height > tallest {
 				tallest = child.height
 			}
 		}
@@ -479,25 +484,37 @@ sizing_calc_fit_height :: proc(box: Box) -> int {
 	return height
 }
 
+@(private = "file")
+num_of_non_floating_children :: proc(box: Box) -> int {
+	tot := 0
+	for child in box.children {
+		if !child.config.position_absolute {
+			tot += 1
+		}
+	}
+	return tot
+}
+
 // Assumes boxes size is already calculated and we expand it's children to fill the space.
 sizing_grow_growable_width :: proc(box: ^Box) {
-	// printfln("growing children of: {}", box.id_string)
 	switch box.child_layout.direction {
 	case .Horizontal:
 		remaining_width := box.width - (box.config.padding.left + box.config.padding.right)
 		growable_children := make([dynamic]^Box, allocator = context.temp_allocator)
 		defer delete(growable_children)
 		for child in box.children {
+			if child.config.position_absolute {
+				continue
+			}
 			remaining_width -= child.width
 			if child.config.semantic_size.x.type == .Grow {
 				append(&growable_children, child)
 			}
 		}
-		remaining_width -= (len(box.children) - 1) * box.child_layout.gap_horizontal
-
-		if len(growable_children) == 0 {
-			return
-		}
+		remaining_width -= (num_of_non_floating_children(box^) - 1) * box.child_layout.gap_horizontal
+		// if len(growable_children) == 0 {
+		// 	return
+		// }
 		for remaining_width > 0 {
 			smallest := 2 << 30
 			second_smallest := 2 << 30
@@ -512,16 +529,18 @@ sizing_grow_growable_width :: proc(box: ^Box) {
 					width_increase = second_smallest - smallest
 				}
 			}
+			if len(growable_children) == 0 {
+				return
+			}
 			width_increase = min(width_increase, remaining_width / len(growable_children))
 			if width_increase == 0 {
-				// println("breaking out of loop because width increase == 0 but remaining width > 0.")
-				// printfln("Actual values: height_width: {} remaining_width: {}", width_increase, remaining_width)
 				return
 			}
 			for child in growable_children {
 				if child.width == smallest {
 					child.width += width_increase
 					remaining_width -= width_increase
+					sizing_calc_percent_width(child)
 				}
 			}
 		}
@@ -529,71 +548,19 @@ sizing_grow_growable_width :: proc(box: ^Box) {
 		growable_amount :=
 			box.width -
 			(box.config.padding.left + box.config.padding.right) -
-			((box.child_layout.gap_horizontal) * len(box.children) - 1)
+			(box.child_layout.gap_horizontal * (num_of_non_floating_children(box^) - 1))
 		for child in box.children {
+			if child.config.position_absolute {
+				continue
+			}
 			if child.config.semantic_size.x.type == .Grow {
 				child.width += growable_amount - child.width
+				sizing_calc_percent_width(child)
 			}
 		}
 	}
 	for &child in box.children {
 		sizing_grow_growable_width(child)
-	}
-}
-
-// Odds are you can create layouts that won't actually work, can do some cool checking / error'ing if this happens.
-// or implement some constraints mechanism.
-sizing_calc_percent_width :: proc(box: ^Box) {
-	no_layout_conflict :: proc(box: ^Box) -> bool {
-		if box.parent.config.semantic_size.x.type == .Fit {
-			panic(
-				tprintf(
-					"A box with size type of .Fit cannot contain a child with size type of .Percent\nIn this case the parent box: {} has sizing type .Fit on it's x-axis and it has a child: {} with sizing type .Percent",
-					box.parent.id_string,
-					box.id_string,
-				),
-			)
-		}
-		return true
-	}
-
-	// Might want to account for child gap.
-	available_width := box.width - (box.config.padding.left + box.config.padding.right)
-
-	for child in box.children {
-		if child.config.semantic_size.x.type == .Percent && no_layout_conflict(child) {
-			child.width = int(child.config.semantic_size.x.amount * f32(available_width))
-		}
-	}
-	for child in box.children {
-		sizing_calc_percent_width(child)
-	}
-}
-
-sizing_calc_percent_height :: proc(box: ^Box) {
-	no_layout_conflict :: proc(box: ^Box) -> bool {
-		if box.parent.config.semantic_size.y.type == .Fit {
-			panic(
-				tprintf(
-					"A box with size type of .Fit cannot contain a child with size type of .Percent\nIn this case the parent box: {} has sizing type .Fit on it's y-axis and it has a child: {} with sizing type .Percent",
-					box.parent.id_string,
-					box.id_string,
-				),
-			)
-		}
-		return true
-	}
-
-	// Need to account for child gap too.
-	available_height := box.height - (box.config.padding.top + box.config.padding.bottom)
-
-	for child in box.children {
-		if child.config.semantic_size.y.type == .Percent && no_layout_conflict(child) {
-			child.height = int(child.config.semantic_size.y.amount * f32(available_height))
-		}
-	}
-	for child in box.children {
-		sizing_calc_percent_height(child)
 	}
 }
 
@@ -604,16 +571,16 @@ sizing_grow_growable_height :: proc(box: ^Box) {
 		defer delete(growable_children)
 		remaining_height := box.height
 		for child in box.children {
+			if child.config.position_absolute {
+				continue
+			}
 			remaining_height -= child.height
 			if child.config.semantic_size.y.type == .Grow {
 				append(&growable_children, child)
 			}
 		}
 		remaining_height -= (box.config.padding.top + box.config.padding.bottom)
-		remaining_height -= (len(box.children) - 1) * box.child_layout.gap_vertical
-		if len(growable_children) == 0 {
-			return
-		}
+		remaining_height -= (num_of_non_floating_children(box^) - 1) * box.child_layout.gap_vertical
 		for remaining_height > 0 {
 			smallest := 2 << 30
 			second_smallest := 2 << 30
@@ -634,31 +601,85 @@ sizing_grow_growable_height :: proc(box: ^Box) {
 			}
 			height_increase = min(height_increase, remaining_height / len(growable_children))
 			if height_increase == 0 {
-				// println("breaking out of loop because height increase == 0 but remaining height > 0.")
-				// printfln("Actual values: height_increase: {} remaining_height: {}", height_increase, remaining_height)
 				return
 			}
 			for child in growable_children {
 				if child.height == smallest {
 					child.height += height_increase
 					remaining_height -= height_increase
+					// Since sizing_calc_percent_height in ui.odin runs before
+					// we calculate grow sizing, any box with size .grow and whose child is
+					// .percent(of_parent)
+					sizing_calc_percent_height(child)
 				}
 			}
 		}
 	case .Horizontal:
 		tallest := 0
-		growable_amount :=
-			box.height -
-			(box.config.padding.top + box.config.padding.bottom) -
-			((box.child_layout.gap_vertical) * len(box.children) - 1)
+
+		// New and hopefully working / improved code:
+		available_height := box.height - (box.config.padding.top + box.config.padding.bottom)
 		for child in box.children {
-			if child.config.semantic_size.y.type == .Grow {
-				child.height += growable_amount - child.height
+			if !child.config.position_absolute && child.config.semantic_size.y.type == .Grow {
+				child.height = available_height
 			}
 		}
 	}
 	for &child in box.children {
 		sizing_grow_growable_height(child)
+	}
+}
+
+// Odds are you can create layouts that won't actually work, can do some cool checking / error'ing if this happens.
+// or implement some constraints mechanism.
+sizing_calc_percent_width :: proc(box: ^Box) {
+	no_layout_conflict :: proc(box: ^Box) -> bool {
+		if box.parent.config.semantic_size.x.type == .Fit {
+			panic(
+				tprintf(
+					"A box with size type of .Fit cannot contain a child with size type of .Percent\nIn this case the parent box: {} has sizing type .Fit on it's x-axis and it has a child: {} with sizing type .Percent.",
+					box.parent.id_string,
+					box.id_string,
+				),
+			)
+		}
+		return true
+	}
+	// Might want to account for child gap.
+	available_width := box.width - (box.config.padding.left + box.config.padding.right)
+
+	for child in box.children {
+		if child.config.semantic_size.x.type == .Percent && no_layout_conflict(child) {
+			child.width = int(child.config.semantic_size.x.amount * f32(available_width))
+		}
+	}
+	for child in box.children {
+		sizing_calc_percent_width(child)
+	}
+}
+
+sizing_calc_percent_height :: proc(box: ^Box) {
+	no_layout_conflict :: proc(box: ^Box) -> bool {
+		if box.parent.config.semantic_size.y.type == .Fit {
+			panic(
+				tprintf(
+					"A box with size type of .Fit cannot contain a child with size type of .Percent\nIn this case the parent box: {} has sizing type .Fit on it's y-axis and it has a child: {} with sizing type .Percent.",
+					box.parent.id_string,
+					box.id_string,
+				),
+			)
+		}
+		return true
+	}
+	// Need to account for child gap too.
+	available_height := box.height - (box.config.padding.top + box.config.padding.bottom)
+	for child in box.children {
+		if child.config.semantic_size.y.type == .Percent && no_layout_conflict(child) {
+			child.height = int(child.config.semantic_size.y.amount * f32(available_height))
+		}
+	}
+	for child in box.children {
+		sizing_calc_percent_height(child)
 	}
 }
 

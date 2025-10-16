@@ -132,15 +132,12 @@ create_ui :: proc() -> ^Box {
 	root := box_from_cache("root@root", {}, {semantic_size = {{.Fixed, f32(app.wx)}, {.Fixed, f32(app.wy)}}})
 	box_open_children(root, {direction = .Horizontal})
 
-	audio_track_containers := container(
-		"@audio-track-containers",
-		{semantic_size = {{.Fixed, f32(app.wx)}, {.Fixed, f32(app.wy)}}},
-	)
-	box_open_children(audio_track_containers.box, {gap_horizontal = 10, direction = .Horizontal})
+
+	// box_open_children(audio_track_containers.box, {gap_horizontal = 10, direction = .Horizontal})
 	for i in 0 ..< 5 {
 		audio_track(u32(i), 250)
 	}
-	box_close_children(audio_track_containers.box)
+	// box_close_children(audio_track_containers.box)
 
 	// second_part: {
 	// 	container_2 := container("ha@container2", {semantic_size = {{.Grow, 1}, {.Grow, 1}}})
@@ -195,6 +192,10 @@ create_ui :: proc() -> ^Box {
 	sizing_calc_percent_height(root)
 	sizing_grow_growable_height(root)
 	sizing_grow_growable_width(root)
+	// sizing_calc_percent_width(root)
+	// sizing_calc_percent_height(root)
+
+	// resolve_layout(root)
 	position_boxes(root)
 	compute_frame_signals(root)
 	return root

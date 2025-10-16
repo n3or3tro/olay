@@ -74,15 +74,16 @@ audio_track :: proc(track_num: u32, track_width: f32) -> Track_Signals {
 
 		arm_button := button_text(
 			id("arm@track-{}-arm-button", track_num),
-			{semantic_size = {{.Percent, 0.333}, {.Fixed, 30}}},
+			{semantic_size = {{.Percent, 0.333}, {.Fixed, 30}}, background_color = {1, 1, 0, 1}},
 		)
-		volume_slider := vertical_slider(
-			id("@track-{}-volume-slider", track_num),
-			{semantic_size = {{.Percent, 0.333}, {.Percent, 1}}, background_color = {1, 0, 0, 1}},
+		// volume_slider := vertical_slider(
+		volume_slider := button_text(
+			id("hey@track-{}-volume-slider", track_num),
+			{semantic_size = {{.Percent, 0.333}, {.Grow, 30}}, background_color = {1, 0.5, 0, 1}},
 		)
 		load_sound_button := button_text(
 			id("load@track-{}-load-sound-button", track_num),
-			{semantic_size = {{.Percent, 0.333}, {.Fixed, 30}}},
+			{semantic_size = {{.Percent, 0.333}, {.Fixed, 30}}, background_color = {1, 0, 0.5, 1}},
 		)
 	}
 	return Track_Signals{step_signals, {}}
