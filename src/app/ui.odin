@@ -77,7 +77,7 @@ init_ui_state :: proc() -> ^UI_State {
 	// ui_state.steps_value_allocator = mem.arena_allocator(&ui_state.steps_value_arena)
 	// mem.arena_init(&ui_state.steps_value_arena, steps_arena_buffer[:])
 
-	font_init(&ui_state.font_state, 32)
+	font_init(&ui_state.font_state, 24)
 
 	gl.GenVertexArrays(1, ui_state.quad_vabuffer)
 	create_vbuffer(ui_state.quad_vbuffer, nil, 700_000)
@@ -130,14 +130,24 @@ create_ui :: proc() -> ^Box {
 		box.keep = false
 	}
 	root := box_from_cache("root@root", {}, {semantic_size = {{.Fixed, f32(app.wx)}, {.Fixed, f32(app.wy)}}})
-	box_open_children(root, {direction = .Horizontal})
-
-
-	// box_open_children(audio_track_containers.box, {gap_horizontal = 10, direction = .Horizontal})
-	for i in 0 ..< 5 {
-		audio_track(u32(i), 250)
+	box_open_children(root, {direction = .Vertical})
+	topbar()
+	// We hardcode the height of the topbar otherwise the layout get's extremely fucken annoying.
+	audio_tracks: {
+		audio_tracks_container := container(
+			"@all-tracks-container",
+			{semantic_size = {{.Fit_Children, 1}, {.Fixed, f32(app.wy - TOPBAR_HEIGHT)}}},
+		)
+		box_open_children(audio_tracks_container.box, {direction = .Horizontal, gap_horizontal = 3})
+		defer box_close_children(audio_tracks_container.box)
+		for i in 0 ..< 5 {
+			audio_track(u32(i), 250)
+		}
 	}
-	// box_close_children(audio_track_containers.box)
+	if ui_state.context_menu.active {
+		println("showing context menu")
+		test_context_menu()
+	}
 
 	// second_part: {
 	// 	container_2 := container("ha@container2", {semantic_size = {{.Grow, 1}, {.Grow, 1}}})
@@ -192,10 +202,7 @@ create_ui :: proc() -> ^Box {
 	sizing_calc_percent_height(root)
 	sizing_grow_growable_height(root)
 	sizing_grow_growable_width(root)
-	// sizing_calc_percent_width(root)
-	// sizing_calc_percent_height(root)
 
-	// resolve_layout(root)
 	position_boxes(root)
 	compute_frame_signals(root)
 	return root

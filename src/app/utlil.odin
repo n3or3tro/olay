@@ -1,5 +1,11 @@
 package app
+import "base:intrinsics"
 import s "core:strings"
+
+// Could definitely break due to numeric type conversions and integer division and shit.
+map_range :: proc(in_min, in_max, out_min, out_max, value: $T) -> T where intrinsics.type_is_numeric(T) {
+	return ((value - in_min) * (out_max - out_min) / (in_max - in_min)) + out_min
+}
 
 get_name_from_id_string :: proc(id_string: string) -> string {
 	to := s.index(id_string, "@")

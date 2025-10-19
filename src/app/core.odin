@@ -5,6 +5,7 @@ import "core:math/rand"
 import "core:mem"
 import str "core:strings"
 import "core:time"
+import "core:unicode/utf8"
 import gl "vendor:OpenGL"
 import sdl "vendor:sdl2"
 
@@ -53,19 +54,19 @@ Box_Config :: struct {
 }
 
 Alignment :: enum {
-	Center,
 	Start,
+	Center,
 	End,
 	Space_Around,
 	Space_Between,
 }
 
 Box_Child_Layout :: struct {
-	direction:        Layout_Direction,
-	gap_horizontal:   int,
-	gap_vertical:     int,
-	align_horizontal: Alignment,
-	align_vertical:   Alignment,
+	direction:            Layout_Direction,
+	gap_horizontal:       int,
+	gap_vertical:         int,
+	alignment_horizontal: Alignment,
+	alignment_vertical:   Alignment,
 }
 
 Layout_Direction :: enum {
@@ -74,7 +75,8 @@ Layout_Direction :: enum {
 }
 
 Box_Size_Type :: enum {
-	Fit,
+	Fit_Children,
+	Fit_Text, // For things like text_buttons which won't have children
 	Grow,
 	Fixed,
 	Percent, // Percent of parent.
@@ -195,6 +197,12 @@ box_make :: proc(id_string: string, flags: Box_Flags, config: Box_Config) -> ^Bo
 	if box.config.semantic_size.y.type == .Fixed {
 		box.height = int(box.config.semantic_size.y.amount)
 	}
+	if box.config.semantic_size.x.type == .Fit_Text {
+		box.width = int(font_get_strings_rendered_len(get_name_from_id_string(box.id_string)))
+	}
+	if box.config.semantic_size.y.type == .Fit_Text {
+		box.height = int(font_get_strings_rendered_height(get_name_from_id_string(box.id_string)))
+	}
 	box.keep = true
 	return box
 }
@@ -214,6 +222,12 @@ box_from_cache :: proc(id_string: string, flags: Box_Flags, config: Box_Config) 
 		if box.config.semantic_size.y.type != .Fixed {box.height = 0}
 		if box.config.semantic_size.x.type == .Fixed {box.width = int(box.config.semantic_size.x.amount)}
 		if box.config.semantic_size.y.type == .Fixed {box.height = int(box.config.semantic_size.y.amount)}
+		if box.config.semantic_size.x.type == .Fit_Text {
+			box.width = int(font_get_strings_rendered_len(get_name_from_id_string(box.id_string)))
+		}
+		if box.config.semantic_size.y.type == .Fit_Text {
+			box.height = int(font_get_strings_rendered_height(get_name_from_id_string(box.id_string)))
+		}
 		clear(&box.children)
 	} else {
 		is_new = true
@@ -249,11 +263,11 @@ box_open_children :: proc(box: ^Box, child_layout: Box_Child_Layout) -> ^Box {
 
 box_close_children :: proc(box: ^Box) {
 	assert(len(ui_state.parents_stack) > 0)
-	if box.config.semantic_size.x.type == .Fit {
-		box.width = sizing_calc_fit_width(box^)
+	if box.config.semantic_size.x.type == .Fit_Children {
+		box.width = sizing_calc_fit_children_width(box^)
 	}
-	if box.config.semantic_size.y.type == .Fit {
-		box.height = sizing_calc_fit_height(box^)
+	if box.config.semantic_size.y.type == .Fit_Children {
+		box.height = sizing_calc_fit_children_height(box^)
 	}
 	pop(&ui_state.parents_stack)
 	curr_len := len(ui_state.parents_stack)
@@ -424,7 +438,6 @@ compute_frame_signals :: proc(root: ^Box) {
 			}
 
 		}
-
 		// Maintain active state even if not hot
 		if ui_state.active_box == box {
 			box.active = true
@@ -437,7 +450,7 @@ compute_frame_signals :: proc(root: ^Box) {
 
 /* ============================ Layout  ============================== */
 // Calculates a boxes width based on the widths of it's children.
-sizing_calc_fit_width :: proc(box: Box) -> int {
+sizing_calc_fit_children_width :: proc(box: Box) -> int {
 	total := 0
 	switch box.child_layout.direction {
 	case .Horizontal:
@@ -461,7 +474,7 @@ sizing_calc_fit_width :: proc(box: Box) -> int {
 }
 
 // Calculates a boxes height based on the widths of it's children.
-sizing_calc_fit_height :: proc(box: Box) -> int {
+sizing_calc_fit_children_height :: proc(box: Box) -> int {
 	height := 0
 	switch box.child_layout.direction {
 	case .Vertical:
@@ -483,6 +496,31 @@ sizing_calc_fit_height :: proc(box: Box) -> int {
 	height += box.config.padding.top + box.config.padding.bottom
 	return height
 }
+
+
+/*
+Both of these text width/height functions are broken because of memory corruption.
+Basically temp_allocating the shaped_text doesn't work because the items in that buffer
+are used in a cross-frame cache. Having to malloc and free them every frame also seems
+like a bad idea. Need to investigate. 
+
+Either make sure everything is cached so that it's okay to alloc on the first time and then all other
+calls will just return the cached result and therefore not malloc again
+
+Or the above might not be possible in which case I should have an arena for the font data so that I can get
+O(1) new and deletes.
+*/
+
+// sizing_calc_fit_text_width :: proc(text: string) -> int {
+// 	length := font_get_strings_rendered_len(text)
+// 	return int(length)
+// }
+
+// sizing_calc_fit_text_height :: proc(text: string) -> int {
+// 	tallest := font_get_strings_tallest_glyph(text)
+// 	return int(tallest)
+// }
+
 
 @(private = "file")
 num_of_non_floating_children :: proc(box: Box) -> int {
@@ -635,7 +673,7 @@ sizing_grow_growable_height :: proc(box: ^Box) {
 // or implement some constraints mechanism.
 sizing_calc_percent_width :: proc(box: ^Box) {
 	no_layout_conflict :: proc(box: ^Box) -> bool {
-		if box.parent.config.semantic_size.x.type == .Fit {
+		if box.parent.config.semantic_size.x.type == .Fit_Children {
 			panic(
 				tprintf(
 					"A box with size type of .Fit cannot contain a child with size type of .Percent\nIn this case the parent box: {} has sizing type .Fit on it's x-axis and it has a child: {} with sizing type .Percent.",
@@ -661,7 +699,7 @@ sizing_calc_percent_width :: proc(box: ^Box) {
 
 sizing_calc_percent_height :: proc(box: ^Box) {
 	no_layout_conflict :: proc(box: ^Box) -> bool {
-		if box.parent.config.semantic_size.y.type == .Fit {
+		if box.parent.config.semantic_size.y.type == .Fit_Children {
 			panic(
 				tprintf(
 					"A box with size type of .Fit cannot contain a child with size type of .Percent\nIn this case the parent box: {} has sizing type .Fit on it's y-axis and it has a child: {} with sizing type .Percent.",
@@ -690,57 +728,279 @@ calc_sizing_shrink_width :: proc(box: Box) {
 calc_text_wrap :: proc(root: Box) {
 }
 
+@(private = "file")
+non_floating_children :: proc(box: ^Box, allocator := context.temp_allocator) -> [dynamic]^Box {
+	res := make([dynamic]^Box, allocator)
+	for child in box.children {
+		if !child.config.position_absolute {
+			append(&res, child)
+		}
+	}
+	return res
+}
+
+/*
+Sizing on the x-axis and y-axis happens on 2 different passes.
+I.e. we place the x co-ords of some root's children and then we place their y co-ord in 2 seperate procs.
+*/
 position_boxes :: proc(root: ^Box) {
+
+	// 100% offset means the far edge of the box is inline with the far edge of the inside
+	// of the parents space.
+	position_absolute :: proc(root: ^Box, child: ^Box) {
+		width_diff := f32(root.width - child.width)
+		height_diff := f32(root.height - child.height)
+
+		offset_x := int(width_diff * child.config.offset_from_parent.x)
+		offset_y := int(height_diff * child.config.offset_from_parent.y)
+		// offset_x := int(f32(root.width) * child.config.offset_from_parent.x)
+		// offset_y := int(f32(root.height) * child.config.offset_from_parent.y)
+		child.top_left = {root.top_left.x + offset_x, root.top_left.y + offset_y}
+		child.bottom_right = {child.top_left.x + child.width, child.top_left.y + child.height}
+	}
+
+	/* ========== START Position horizontally when horizontal is the main axis ============= */
+	// Helper function for positioning children horizontally at start, center or end.
+	place_siblings_horizontally :: proc(root: Box, siblings: []^Box, start_x: int, gap: int) {
+		prev_sibling: ^Box
+		for child in siblings {
+			if prev_sibling == nil {
+				child.top_left.x = start_x
+			} else {
+				child.top_left.x = prev_sibling.bottom_right.x + gap
+			}
+			child.bottom_right.x = child.top_left.x + child.width
+			prev_sibling = child
+		}
+	}
+
+	position_horizontally_start :: proc(root: ^Box) {
+		start_x := root.top_left.x + root.config.padding.left
+		gap := root.child_layout.gap_horizontal
+		valid_children := non_floating_children(root)
+		place_siblings_horizontally(root^, valid_children[:], start_x, gap)
+	}
+
+	position_horizontally_center :: proc(root: ^Box) {
+		total_child_width := 0
+		gap := root.child_layout.gap_horizontal
+		valid_children := non_floating_children(root)
+		for child in valid_children {
+			total_child_width += child.width
+		}
+		available_width :=
+			root.width -
+			((root.child_layout.gap_horizontal * (len(valid_children) - 1)) +
+					root.config.padding.left +
+					root.config.padding.right)
+
+		half_width := available_width / 2
+		start_x := root.top_left.x + half_width
+		place_siblings_horizontally(root^, valid_children[:], start_x, gap)
+	}
+
+	// Could probably just iterate backwards from the root.bottom_right.x.
+	position_horizontally_end :: proc(root: ^Box) {
+		gap := root.child_layout.gap_horizontal
+		padding := root.config.padding.left + root.config.padding.right
+		total_child_raw_width := 0
+		valid_children := non_floating_children(root)
+		for child in valid_children {
+			total_child_raw_width += child.width
+		}
+		total_child_width := total_child_raw_width + (gap * (len(valid_children) - 1) + padding)
+		start_x := root.bottom_right.x - total_child_width
+		place_siblings_horizontally(root^, valid_children[:], start_x, gap)
+	}
+
+	// Basically put them in the middle with the remaining space distributed evenly on either end
+	position_horizontally_space_around :: proc(root: ^Box) {
+	}
+
+	// Distribute space evenly between children.
+	// Will ignore root.padding and just consider it 'empty' space to be distributed between.
+	position_horizontally_space_between :: proc(root: ^Box) {
+	}
+	/* ========== END Position horizontally when horizontal is the main axis ============= */
+
+
+	/* ========== START Position horizontally when horizontal is the cross axis ============= */
+	position_horizontally_across_start :: proc(root: ^Box) {
+		valid_children := non_floating_children(root)
+		for child in valid_children {
+			child.top_left.x = root.top_left.x + root.config.padding.left
+			child.bottom_right.x = child.top_left.x + child.width
+		}
+	}
+
+	position_horizontally_across_center :: proc(root: ^Box) {
+		valid_children := non_floating_children(root)
+		available_width := root.width - (root.config.padding.left + root.config.padding.right)
+		for child in valid_children {
+			half_width_diff := (available_width - child.width) / 2
+			child.top_left.x = root.top_left.x + half_width_diff
+			child.bottom_right.x = child.top_left.x + child.width
+		}
+	}
+
+	position_horizontally_across_end :: proc(root: ^Box) {
+		valid_children := non_floating_children(root)
+		for child in valid_children {
+			child.bottom_right.x = root.bottom_right.x - root.config.padding.right
+			child.top_left.x = child.bottom_right.x - child.width
+		}
+	}
+	/* ========== END Position horizontally when horizontal is the cross axis ============= */
+
+
+	/* ========== START Position vertically when vertical is the main axis ============= */
+	// Helper function for position vertically at start, center, or end.
+	place_siblings_vertically :: proc(root: Box, siblings: []^Box, start_y: int, gap: int) {
+		prev_sibling: ^Box
+		for child in siblings {
+			if prev_sibling == nil {
+				child.top_left.y = start_y
+			} else {
+				child.top_left.y = prev_sibling.bottom_right.y + gap
+			}
+			child.bottom_right.y = child.top_left.y + child.height
+			prev_sibling = child
+		}
+	}
+
+	position_vertically_start :: proc(root: ^Box) {
+		start_y := root.top_left.y + root.config.padding.top
+		gap := root.child_layout.gap_vertical
+		siblings := non_floating_children(root)
+		place_siblings_vertically(root^, siblings[:], start_y, gap)
+	}
+
+	// Probably don't account for padding here. Not sure yet, but for now we don't.
+	position_vertically_center :: proc(root: ^Box) {
+		gap := root.child_layout.gap_vertical
+		siblings := non_floating_children(root)
+		total_children_height := 0
+		for child in siblings {
+			total_children_height += child.height
+		}
+		available_height := root.height - ((len(siblings) - 1) * gap) - total_children_height
+		half_height := available_height / 2
+		start_y := root.top_left.y + half_height
+		place_siblings_vertically(root^, siblings[:], start_y, gap)
+	}
+
+	position_vertically_end :: proc(root: ^Box) {
+		gap := root.child_layout.gap_vertical
+		siblings := non_floating_children(root)
+		padding := root.config.padding.top + root.config.padding.bottom
+		total_children_height := 0
+		for child in siblings {
+			total_children_height += child.height
+		}
+		total_children_height += (len(siblings) - 1) * gap
+		start_y := root.bottom_right.y - total_children_height
+		place_siblings_vertically(root^, siblings[:], start_y, gap)
+	}
+	/* ========== END Position vertically when vertical is the main axis ============= */
+
+	/* ========== Position vertically when vertical is the cross axis ============= */
+	position_vertically_across_start :: proc(root: ^Box) {
+		valid_children := non_floating_children(root)
+		for child in valid_children {
+			child.top_left.y = root.top_left.y + root.config.padding.top
+			child.bottom_right.y = child.top_left.y + child.height
+		}
+	}
+
+	position_vertically_across_center :: proc(root: ^Box) {
+		valid_children := non_floating_children(root)
+		available_height := root.height - (root.config.padding.top + root.config.padding.bottom)
+		for child in valid_children {
+			half_height_diff := (available_height - child.height) / 2
+			child.top_left.y = root.top_left.y + half_height_diff
+			child.bottom_right.y = child.top_left.y + child.height
+		}
+	}
+
+	position_vertically_across_end :: proc(root: ^Box) {
+		valid_children := non_floating_children(root)
+		for child in valid_children {
+			child.bottom_right.y = root.bottom_right.y - root.config.padding.bottom
+			child.top_left.y = child.bottom_right.y - child.height
+		}
+	}
+	/* ========== END Position vertically when vertical is the cross axis ============= */
+
+	// Some of the more complicated positioning aren't implemented fully, but start, center and end are.
 	position_children :: proc(root: ^Box) {
 		// printfln("setting position for {}'s children", root.id_string)
 		if root.id_string == "root@root" {
 			root.top_left = {0, 0}
 			root.bottom_right = {app.wx, app.wy}
 		}
-		// Need to explicitly track prev sibling since absolutely positioned children are NOT to be
-		// included in the layout calculations, if we relied on index of box.children, they would be.
-		prev_layout_sibling: ^Box = nil
-		num_children_in_flow := num_of_non_floating_children(root^)
 		for child, i in root.children {
 			// Absolutely positioned children won't have padding added when positioning.
 			if child.config.position_absolute {
-				offset_x := int(f32(root.width) * child.config.offset_from_parent.x)
-				offset_y := int(f32(root.height) * child.config.offset_from_parent.y)
-				child.top_left = {root.top_left.x + offset_x, root.top_left.y + offset_y}
-				child.bottom_right = {child.top_left.x + child.width, child.top_left.y + child.height}
-			} else {
-				switch root.child_layout.direction {
-				case .Horizontal:
-					if prev_layout_sibling == nil {
-						child.top_left = {
-							root.top_left.x + root.config.padding.left,
-							root.top_left.y + root.config.padding.top,
-						}
-						child.bottom_right = {child.top_left.x + child.width, child.top_left.y + child.height}
-					} else {
-						child.top_left = {
-							prev_layout_sibling.bottom_right.x + root.child_layout.gap_horizontal,
-							root.top_left.y + root.config.padding.top,
-						}
-						child.bottom_right = {child.top_left.x + child.width, child.top_left.y + child.height}
-					}
-				case .Vertical:
-					if prev_layout_sibling == nil {
-						child.top_left = {
-							root.top_left.x + root.config.padding.left,
-							root.top_left.y + root.config.padding.top,
-						}
-						child.bottom_right = {child.top_left.x + child.width, child.top_left.y + child.height}
-					} else {
-						child.top_left = {
-							root.top_left.x + root.config.padding.left,
-							prev_layout_sibling.bottom_right.y + root.child_layout.gap_vertical,
-						}
-						child.bottom_right = {child.top_left.x + child.width, child.top_left.y + child.height}
-					}
-				}
-				prev_layout_sibling = child
+				position_absolute(root, child)
 			}
+		}
+		switch root.child_layout.direction {
+		case .Horizontal:
+			// Main axis case:
+			switch root.child_layout.alignment_horizontal {
+			case .Start:
+				position_horizontally_start(root)
+			case .Center:
+				position_horizontally_center(root)
+			case .End:
+				position_horizontally_end(root)
+			case .Space_Around:
+				panic("space around not implemented yet")
+			case .Space_Between:
+				panic("space between not implemented yet")
+			}
+			// Across axis case:
+			switch root.child_layout.alignment_vertical {
+			case .Start:
+				position_vertically_across_start(root)
+			case .Center:
+				position_vertically_across_center(root)
+			case .End:
+				position_vertically_across_end(root)
+			case .Space_Around:
+				panic("space around not implemented yet")
+			case .Space_Between:
+				panic("space between not implemented yet")
+			}
+		case .Vertical:
+			// Along axis case:
+			switch root.child_layout.alignment_vertical {
+			case .Start:
+				position_vertically_start(root)
+			case .Center:
+				position_vertically_center(root)
+			case .End:
+				position_vertically_end(root)
+			case .Space_Around:
+				panic("space around not implemented yet")
+			case .Space_Between:
+				panic("space between not implemented yet")
+			}
+			// Across axis case:
+			switch root.child_layout.alignment_horizontal {
+			case .Start:
+				position_horizontally_across_start(root)
+			case .Center:
+				position_horizontally_across_center(root)
+			case .End:
+				position_horizontally_across_end(root)
+			case .Space_Around:
+				panic("space around not implemented yet")
+			case .Space_Between:
+				panic("space between not implemented yet")
+			}
+		}
+		for child in root.children {
 			position_children(child)
 		}
 	}

@@ -52,7 +52,7 @@ app_update :: proc() -> (all_good: bool) {
 	reset_mouse_state()
 	show_context_menu, exit: bool
 	for sdl.PollEvent(&event) {
-		exit, show_context_menu := handle_input(event)
+		exit, show_context_menu = handle_input(event)
 		if exit {
 			return false
 		}
@@ -61,7 +61,11 @@ app_update :: proc() -> (all_good: bool) {
 	root := create_ui()
 	if show_context_menu {
 		ui_state.context_menu.active = true
+		println("shoudl show context menu")
 	}
+	// else {
+	// 	ui_state.context_menu.active = false
+	// }
 	rect_render_data := make([dynamic]Rect_Render_Data, context.temp_allocator)
 	collect_render_data_from_ui_tree(root, &rect_render_data)
 	if ui_state.frame_num > 0 {
@@ -269,6 +273,7 @@ handle_input :: proc(event: sdl.Event) -> (exit, show_context_menu: bool) {
 			app.mouse.drag_done = true
 		// app.dragging_window = false
 		case sdl.BUTTON_RIGHT:
+			println("right button up ")
 			if app.mouse.right_pressed { 	// i.e. A right click was performed.
 				app.mouse.right_clicked = true
 				show_context_menu = true

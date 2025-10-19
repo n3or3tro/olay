@@ -576,14 +576,16 @@ Returns the quads which we will sample the font pixels into.
 This is probably where I'd implement subpixel positioning and stuff, but for now
 we just naively wrap to the nearest int.
 */
+// NOTE! character quads aren't positioned correctly, refer to claude chat as to how
+// we can fix it.
 get_text_quads :: proc(
 	box: Box,
 	glyph_buffer: []Glyph_Render_Info,
 	allocator := context.allocator,
 ) -> [dynamic]Rect_Render_Data {
 	// Calculate baseline: (for now we just center text on both axis inside the box)
-	tallest_char := font_get_string_tallest_glyph(glyph_buffer)
-	rendered_len := font_get_string_rendered_len(glyph_buffer)
+	tallest_char := font_get_glyphs_tallest_glyph(glyph_buffer)
+	rendered_len := font_get_glyphs_rendered_len(glyph_buffer)
 	vertical_diff_half := (box.height - int(tallest_char)) / 2
 	horizontal_diff_half := (box.width - int(rendered_len)) / 2
 	// Really only the first point in baseline, which is all we need.
@@ -618,7 +620,6 @@ get_text_quads :: proc(
 			br_color             = Color{0, 0, 0, 1},
 			ui_element_type      = .Text,
 		}
-		// pen_x += glyph.advance_x
 		glyph_rects[i] = data
 	}
 	return glyph_rects

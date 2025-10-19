@@ -291,34 +291,6 @@ font_get_render_info :: proc(
 	return result
 }
 
-font_render_text :: proc(text: string) {
-	shaped_glyphs := font_segment_and_shape(&state.kb.font, utf8.string_to_runes(text))
-	glyphs_render_info := font_get_render_info(shaped_glyphs)
-	// for record in glyphs_render_info {
-	// 	fmt.println(record)
-	// }
-	// image.write_png(
-	// 	"test_output.png",
-	// 	i32(state.atlas.width),
-	// 	i32(state.atlas.rows),
-	// 	2,
-	// 	raw_data(state.atlas.bitmap_buffer),
-	// 	i32(state.atlas.pitch),
-	// )
-}
-
-main :: proc() {
-	font_init(&state, context.allocator)
-	// runes := utf8.string_to_runes("I really am that nigga. I really do render font\n\f Like a motherfucker")
-	// glyphs := font_segment_and_shape(&state.kb.font, runes)
-	// font_render_text("zxcvbnm,./asdfghjkl;'qwertyuiop[]1234567890-!@@@@@$%^&*(_+{}|:>?<)")
-	font_render_text("hello\nthere")
-	font_render_text("hello\nmate")
-	// bitmap := font_create_atlas(glyphs)
-	// fmt.println(bitmap)
-	// image.write_png("./font_output.png", i32(bitmap.width), i32(bitmap.rows), 1, bitmap.buffer, bitmap.pitch)
-}
-
 destroy_font :: proc(state: ^Font_State) {
 	ft.done_free_type(state.freetype.lib)
 	ft.done_face(state.freetype.face)

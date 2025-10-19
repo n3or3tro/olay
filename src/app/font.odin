@@ -314,7 +314,6 @@ font_get_render_info :: proc(
 		gl.BindTexture(gl.TEXTURE_2D, ui_state.font_atlas_texture_id)
 		gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
 		gl.PixelStorei(gl.UNPACK_ROW_LENGTH, i32(this_glyphs_bitmap.pitch))
-		// gl.PixelStorei(gl.UNPACK_ROW_LENGTH, 1)
 
 		// Upload new glyph's pixel data to subregion of atlas.
 		gl.TexSubImage2D(
@@ -335,24 +334,52 @@ font_get_render_info :: proc(
 	return result
 }
 
-// In extreme circumstances this could overflow.
-font_get_string_rendered_len :: proc(text: []Glyph_Render_Info) -> u32 {
-	tot: u32 = 0
+
+/* 
+Takes a string, performs all the transforms neccessary to get a glyph_render_info buffer and then
+calculates the length of that string if those glyphs were rendered.
+*/
+font_get_strings_rendered_len :: proc(text: string) -> int {
+
+	runes := utf8.string_to_runes(text, context.temp_allocator)
+	shaped_runes := font_segment_and_shape_text(&ui_state.font_state.kb.font, runes)
+	rendered_glyps := font_get_render_info(shaped_runes, context.temp_allocator)
+	length := font_get_glyphs_rendered_len(rendered_glyps[:])
+	return length
+}
+font_get_glyphs_rendered_len :: proc(text: []Glyph_Render_Info) -> int {
+	tot := 0
 	for record in text {
-		tot += u32(record.cache_record.advance_x)
+		tot += record.cache_record.advance_x
 	}
 	return tot
 }
 
-font_get_string_tallest_glyph :: proc(text: []Glyph_Render_Info) -> u32 {
-	hi: int = -1 * (2 << 30)
-	for record in text {
-		if record.cache_record.bearing_y > hi {
-			hi = record.cache_record.bearing_y
+/* 
+Tells you the actual height of the tallest glyph, measured in pixels from the bottom of the glyph to the top
+of the glyph.
+*/
+font_get_strings_rendered_height :: proc(text: string) -> int {
+	runes := utf8.string_to_runes(text, context.temp_allocator)
+	shaped_runes := font_segment_and_shape_text(&ui_state.font_state.kb.font, runes)
+	rendered_glyphs := font_get_render_info(shaped_runes, context.temp_allocator)
+	return font_get_glyphs_tallest_glyph(rendered_glyphs[:])
+}
+font_get_glyphs_tallest_glyph :: proc(glyph_buffer: []Glyph_Render_Info) -> int {
+	highest_ascender := 0
+	deepest_descender := 0
+	for glyph in glyph_buffer {
+		if glyph.cache_record.bearing_y > highest_ascender {
+			highest_ascender = glyph.cache_record.bearing_y
+		}
+		curr_descent := glyph.cache_record.height - glyph.cache_record.bearing_y // Descent below baseline.
+		if curr_descent > deepest_descender {
+			deepest_descender = curr_descent
 		}
 	}
-	assert(hi > 0)
-	return u32(hi)
+	height := highest_ascender + deepest_descender
+	return height
+
 }
 
 font_destroy :: proc(state: ^Font_State) {
