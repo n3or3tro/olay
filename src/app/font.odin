@@ -216,13 +216,20 @@ font_add_shaped_run :: proc(
 	/* Font have this idea of 26.6 sizing, where the greater 26 bits are the pixel position
 	and the less 6 bits are for subpixel positioning. For now, we'll just take the pixel 
 	position and worry about sub pixel rendering later. */
-	x_scale := i32(ui_state.font_state.freetype.face.size.metrics.x_scale)
-	y_scale := i32(ui_state.font_state.freetype.face.size.metrics.y_scale)
+	x_scale := i64(ui_state.font_state.freetype.face.size.metrics.x_scale)
+	y_scale := i64(ui_state.font_state.freetype.face.size.metrics.y_scale)
 	for &glyph, i in temp_glyph_buffer {
-		x, y := kb.PositionGlyph(cursor, &glyph)
+		// The weird integer up sizing is because we were previously overflowing
+		// an i32.
+		x_i32, y_i32 := kb.PositionGlyph(cursor, &glyph)
+		x := i64(x_i32)
+		y := i64(y_i32)
+		pixel_space_x: i64 = (x * x_scale) >> 16
+		final_pos := f32(pixel_space_x / 64)
 		my_glyph := Glyph {
 			glyph = glyph,
-			pos   = {f32((x * x_scale) >> 16) / 64, f32((y * y_scale) >> 16) / 64},
+			// pos   = {f32((x * x_scale) >> 16) / 64, f32((y * y_scale) >> 16) / 64},
+			pos   = {final_pos, f32((y * y_scale) >> 16) / 64},
 		}
 		append(glyph_buffer, my_glyph)
 	}

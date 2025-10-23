@@ -33,7 +33,7 @@ Box_Config :: struct {
 	background_color:   Color,
 	corner_radius:      int,
 	border_thickness:   int,
-	border_color:       int,
+	border_color:       Color,
 	max_size:           int,
 	min_size:           int,
 	prefered_size:      int,
@@ -112,7 +112,8 @@ Box_Flag :: enum {
 Box_Flags :: bit_set[Box_Flag]
 
 Box :: struct {
-	id_string:    string,
+	id:           string,
+	label:        string,
 	hot:          bool,
 	active:       bool,
 	signals:      Box_Signals,
@@ -123,11 +124,11 @@ Box :: struct {
 	children:     [dynamic]^Box,
 	child_layout: Box_Child_Layout,
 	parent:       ^Box,
-	data:         Box_Data,
+	// For boxes that need data associated with them, e.g: edit_text_boxes.
+	data:         string,
 	position:     [2]int, // x, y co-ordinates.
 	width:        int,
 	height:       int,
-	// Probably don't need both tl, br and x,y + width, height
 	top_left:     Vec2_int,
 	bottom_right: Vec2_int,
 	z_index:      int,
@@ -153,12 +154,6 @@ Box_Signals :: struct {
 	mouse:          Vec2_i32,
 }
 
-Box_Data :: enum {
-	string,
-	int,
-}
-
-
 ui_vertex_shader_data :: #load("shaders/box_vertex_shader.glsl")
 ui_pixel_shader_data :: #load("shaders/box_pixel_shader.glsl")
 
@@ -178,13 +173,18 @@ Mouse_State :: struct {
 
 box_make :: proc(id_string: string, flags: Box_Flags, config: Box_Config) -> ^Box {
 	box: ^Box
+
 	if id_string == "spacer@spacer" {
 		box = new(Box, context.temp_allocator)
 	} else {
 		box = new(Box)
 	}
+
 	box.flags = flags
-	box.id_string = id_string
+	persistant_id, err := str.clone(get_id_from_id_string(id_string))
+	label := get_label_from_id_string(id_string)
+	box.id = persistant_id
+	box.label = label
 	box.config = config
 	if id_string != "root@root" {
 		box.parent = ui_state.parents_top
@@ -198,10 +198,18 @@ box_make :: proc(id_string: string, flags: Box_Flags, config: Box_Config) -> ^Bo
 		box.height = int(box.config.semantic_size.y.amount)
 	}
 	if box.config.semantic_size.x.type == .Fit_Text {
-		box.width = int(font_get_strings_rendered_len(get_name_from_id_string(box.id_string)))
+		if .Edit_Text in box.flags {
+			box.width = int(font_get_strings_rendered_len(box.data))
+		} else {
+			box.width = int(font_get_strings_rendered_len(box.label))
+		}
 	}
 	if box.config.semantic_size.y.type == .Fit_Text {
-		box.height = int(font_get_strings_rendered_height(get_name_from_id_string(box.id_string)))
+		if .Edit_Text in box.flags {
+			box.height = int(font_get_strings_rendered_height(box.data))
+		} else {
+			box.height = int(font_get_strings_rendered_height(box.label))
+		}
 	}
 	box.keep = true
 	return box
@@ -211,10 +219,12 @@ box_from_cache :: proc(id_string: string, flags: Box_Flags, config: Box_Config) 
 	box: ^Box
 	is_new: bool
 
-	if id_string in ui_state.box_cache {
-		box = ui_state.box_cache[id_string]
+	key := get_id_from_id_string(id_string)
+	if key in ui_state.box_cache {
+		box = ui_state.box_cache[key]
 		box.flags = flags
 		box.config = config
+		box.label = get_label_from_id_string(id_string)
 
 		// Boxes with fixed sizing have their size set upon creation, so if we're retrieving a box from the cache
 		// we need to manually re-set it's sizing info for later layout calculations.
@@ -223,23 +233,34 @@ box_from_cache :: proc(id_string: string, flags: Box_Flags, config: Box_Config) 
 		if box.config.semantic_size.x.type == .Fixed {box.width = int(box.config.semantic_size.x.amount)}
 		if box.config.semantic_size.y.type == .Fixed {box.height = int(box.config.semantic_size.y.amount)}
 		if box.config.semantic_size.x.type == .Fit_Text {
-			box.width = int(font_get_strings_rendered_len(get_name_from_id_string(box.id_string)))
+			if .Edit_Text in box.flags {
+				box.width =
+					font_get_strings_rendered_len(box.data) + box.config.padding.left + box.config.padding.right
+			} else {
+				box.width =
+					font_get_strings_rendered_len(box.label) + box.config.padding.left + box.config.padding.right
+			}
 		}
 		if box.config.semantic_size.y.type == .Fit_Text {
-			box.height = int(font_get_strings_rendered_height(get_name_from_id_string(box.id_string)))
+			if .Edit_Text in box.flags {
+				box.height =
+					font_get_strings_rendered_height(box.data) + box.config.padding.top + box.config.padding.bottom
+			} else {
+				box.height =
+					font_get_strings_rendered_height(box.label) + box.config.padding.top + box.config.padding.bottom
+			}
 		}
 		clear(&box.children)
 	} else {
 		is_new = true
-		persistant_id_string, err := str.clone(id_string)
-		new_box := box_make(persistant_id_string, flags, config)
-		ui_state.box_cache[persistant_id_string] = new_box
+		new_box := box_make(id_string, flags, config)
+		ui_state.box_cache[new_box.id] = new_box
 		box = new_box
 	}
 
 	// Re-establish parent-child link for boxes from the cache. If we didn't do this and we for example removed
 	// a box from the UI that was a child of some parent, that parent would still think it had that child.
-	if id_string != "root@root" && ui_state.parents_top != nil {
+	if key != "root" && ui_state.parents_top != nil {
 		if is_new {
 			// The box is new, box_make already parented it.
 		} else {
@@ -261,7 +282,11 @@ box_open_children :: proc(box: ^Box, child_layout: Box_Child_Layout) -> ^Box {
 	return box
 }
 
+// Takes in signals since this is automatically called at the end of creation various 'container' boxes.
+// And all box creation functions return the signals for the box.
 box_close_children :: proc(box: ^Box) {
+// box_close_children :: proc(signals: ^Box_Signals) {
+	// box := signals.box
 	assert(len(ui_state.parents_stack) > 0)
 	if box.config.semantic_size.x.type == .Fit_Children {
 		box.width = sizing_calc_fit_children_width(box^)
@@ -292,16 +317,24 @@ reset_ui_state :: proc() {
 	}
 	ui_state.active_box = nil
 	ui_state.hot_box = nil
+
+	// Collect keys to delete, can't iterate the map and delete in one loop.
+	keys_to_delete := make([dynamic]string, context.temp_allocator)
 	for key, box in ui_state.box_cache {
 		if !box.keep {
-			printfln("deleting box with id: {}", key)
-			delete(box.children)
-			delete_key(&ui_state.box_cache, key)
-			free(box)
-			delete(key)
+			append(&keys_to_delete, key)
 		}
 	}
-	// clear(&ui_state.box_cache)
+	for key in keys_to_delete {
+		box := ui_state.box_cache[key]
+		// delete(box.children) <-- was causing weird crashes, thought I'd leak memory without this, but don't seem to be.
+		delete_key(&ui_state.box_cache, key)
+		free(box)
+		delete(key)
+	}
+
+	clear(&ui_state.parents_stack)
+	ui_state.parents_top = nil
 }
 
 /* ============================ Signal Handling =========================== */
@@ -316,7 +349,7 @@ mouse_inside_box :: proc(box: ^Box, mouse: [2]i32) -> bool {
 
 box_signals :: proc(box: ^Box) -> Box_Signals {
 	// Return signals computed in previous frame if they exist
-	if stored_signals, ok := ui_state.next_frame_signals[box.id_string]; ok {
+	if stored_signals, ok := ui_state.next_frame_signals[box.id]; ok {
 		// Update box visual state
 		box.hot = stored_signals.hovering
 		box.active = stored_signals.pressed || stored_signals.clicked
@@ -384,7 +417,7 @@ compute_frame_signals :: proc(root: ^Box) {
 
 		// Get previous frame's signals
 		prev_signals: Box_Signals
-		if stored, ok := ui_state.next_frame_signals[box.id_string]; ok {
+		if stored, ok := ui_state.next_frame_signals[box.id]; ok {
 			prev_signals = stored
 		}
 
@@ -428,7 +461,7 @@ compute_frame_signals :: proc(root: ^Box) {
 				// Scrolling
 				if app.mouse.wheel.y != 0 {
 					next_signals.scrolled = true
-					printfln("scrolling on {}", box.id_string)
+					printfln("scrolling on {}", box.id)
 					if app.mouse.wheel.y > 0 {
 						next_signals.scrolled_up = true
 					} else if app.mouse.wheel.y < 0 {
@@ -442,7 +475,7 @@ compute_frame_signals :: proc(root: ^Box) {
 		if ui_state.active_box == box {
 			box.active = true
 		}
-		ui_state.next_frame_signals[box.id_string] = next_signals
+		ui_state.next_frame_signals[box.id] = next_signals
 	}
 
 }
@@ -451,14 +484,30 @@ compute_frame_signals :: proc(root: ^Box) {
 /* ============================ Layout  ============================== */
 // Calculates a boxes width based on the widths of it's children.
 sizing_calc_fit_children_width :: proc(box: Box) -> int {
+	// hello := "what"
+	// /*
+	// 	Any child of this box that is .fit-children will already be calculated so we shouldn't
+	// 	need to worry about that.
+	// */
+	// calc_width_on_axis :: proc(box: Box, total: int, widest: int) -> int {
+	// 	total := 0
+	// 	for child in box.children {
+	// 		if !child.config.position_absolute {
+	// 			total += child.width
+	// 		}
+	// 	}
+	// }
 	total := 0
 	switch box.child_layout.direction {
+
 	case .Horizontal:
 		for child in box.children {
 			if !child.config.position_absolute {
 				total += child.width
 			}
 		}
+		total += box.child_layout.gap_horizontal * (len(box.children) - 1)
+
 	case .Vertical:
 		widest := 0
 		for child in box.children {
@@ -468,8 +517,9 @@ sizing_calc_fit_children_width :: proc(box: Box) -> int {
 		}
 		total = widest
 	}
-	total += box.child_layout.gap_horizontal * (len(box.children) - 1)
+
 	total += box.config.padding.left + box.config.padding.right
+
 	return total
 }
 
@@ -677,8 +727,8 @@ sizing_calc_percent_width :: proc(box: ^Box) {
 			panic(
 				tprintf(
 					"A box with size type of .Fit cannot contain a child with size type of .Percent\nIn this case the parent box: {} has sizing type .Fit on it's x-axis and it has a child: {} with sizing type .Percent.",
-					box.parent.id_string,
-					box.id_string,
+					box.parent.id,
+					box.id,
 				),
 			)
 		}
@@ -703,8 +753,8 @@ sizing_calc_percent_height :: proc(box: ^Box) {
 			panic(
 				tprintf(
 					"A box with size type of .Fit cannot contain a child with size type of .Percent\nIn this case the parent box: {} has sizing type .Fit on it's y-axis and it has a child: {} with sizing type .Percent.",
-					box.parent.id_string,
-					box.id_string,
+					box.parent.id,
+					box.id,
 				),
 			)
 		}
@@ -790,12 +840,12 @@ position_boxes :: proc(root: ^Box) {
 		}
 		available_width :=
 			root.width -
-			((root.child_layout.gap_horizontal * (len(valid_children) - 1)) +
+			((total_child_width + root.child_layout.gap_horizontal * (len(valid_children) - 1)) +
 					root.config.padding.left +
 					root.config.padding.right)
 
 		half_width := available_width / 2
-		start_x := root.top_left.x + half_width
+		start_x := root.top_left.x + half_width + root.config.padding.left
 		place_siblings_horizontally(root^, valid_children[:], start_x, gap)
 	}
 
@@ -883,9 +933,11 @@ position_boxes :: proc(root: ^Box) {
 		for child in siblings {
 			total_children_height += child.height
 		}
-		available_height := root.height - ((len(siblings) - 1) * gap) - total_children_height
+		available_height :=
+			root.height -
+			((len(siblings) - 1) * gap + total_children_height + root.config.padding.top + root.config.padding.bottom)
 		half_height := available_height / 2
-		start_y := root.top_left.y + half_height
+		start_y := root.top_left.y + half_height + root.config.padding.top
 		place_siblings_vertically(root^, siblings[:], start_y, gap)
 	}
 
@@ -917,7 +969,7 @@ position_boxes :: proc(root: ^Box) {
 		available_height := root.height - (root.config.padding.top + root.config.padding.bottom)
 		for child in valid_children {
 			half_height_diff := (available_height - child.height) / 2
-			child.top_left.y = root.top_left.y + half_height_diff
+			child.top_left.y = root.top_left.y + root.config.padding.top + half_height_diff
 			child.bottom_right.y = child.top_left.y + child.height
 		}
 	}
@@ -934,7 +986,7 @@ position_boxes :: proc(root: ^Box) {
 	// Some of the more complicated positioning aren't implemented fully, but start, center and end are.
 	position_children :: proc(root: ^Box) {
 		// printfln("setting position for {}'s children", root.id_string)
-		if root.id_string == "root@root" {
+		if root.id == "root@root" {
 			root.top_left = {0, 0}
 			root.bottom_right = {app.wx, app.wy}
 		}

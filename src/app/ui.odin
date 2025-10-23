@@ -13,16 +13,10 @@ UI_State :: struct {
 	parents_stack:         [dynamic]^Box,
 	settings_toggled:      bool,
 	color_stack:           [dynamic]Color,
-	// ui_scale:              f32, // between 0.0 and 1.0.
-	// Used to tell the core layer to override some valu of a box that's in the cache.
-	// Useful for parts of the code where the box isn't easilly accessible (like in audio related stuff).
-	override_color:        bool,
-	override_rect:         bool,
 	quad_vbuffer:          ^u32,
 	quad_vabuffer:         ^u32,
 	quad_shader_program:   u32,
 	font_atlas_texture_id: u32,
-	// root_rect:             ^Rect,
 	frame_num:             u64,
 	hot_box:               ^Box,
 	active_box:            ^Box,
@@ -33,8 +27,6 @@ UI_State :: struct {
 	right_clicked_on:      ^Box,
 	// wav_rendering_data:    map[ma.sound][dynamic]Rect_Render_Data,
 	// the visual space between border of text box and the text inside.
-	text_box_padding:      u16,
-	keyboard_mode:         bool,
 	last_clicked_box:      ^Box,
 	last_clicked_box_time: time.Time,
 	next_frame_signals:    map[string]Box_Signals,
@@ -51,11 +43,17 @@ UI_State :: struct {
 		show_add_step_menu:    bool,
 		show_remove_step_menu: bool,
 	},
-	steps_vertical_offset: u32,
 	font_state:            Font_State,
-	// Used to calculate clipping rects and nested clipping rects for overflowing content.
-	// clipping_stack:        [dynamic]^Rect,
+	tab_num:               int,
+	// Indicates whether we triggered anything that would cause us to swap UI screens
+	// and therefore we need to clear the box cache.
+	changed_ui_screen:     bool,
+	// Maps text_boxes id's to text editing state. Neccessary when we have multiple
+	// text boxes on screen at one time.
+	text_editors_state:    map[string]Edit_Text_State,
+	sidebar_shown:         bool,
 }
+
 
 init_ui_state :: proc() -> ^UI_State {
 	ui_state.quad_vbuffer = new(u32)
@@ -72,12 +70,11 @@ init_ui_state :: proc() -> ^UI_State {
 	app.wx, app.wy = int(wx), int(wy)
 
 	ui_state.frame_num = 0
-	ui_state.text_box_padding = 10
 
 	// ui_state.steps_value_allocator = mem.arena_allocator(&ui_state.steps_value_arena)
 	// mem.arena_init(&ui_state.steps_value_arena, steps_arena_buffer[:])
 
-	font_init(&ui_state.font_state, 24)
+	font_init(&ui_state.font_state, 18)
 
 	gl.GenVertexArrays(1, ui_state.quad_vabuffer)
 	create_vbuffer(ui_state.quad_vbuffer, nil, 700_000)
@@ -123,80 +120,45 @@ init_ui_state :: proc() -> ^UI_State {
 	return ui_state
 }
 
+// Since I don't have any support for z-index stuff yet, I'm relying on a sort of painter algorithm,
+// where the things I want on top of other things (if they're floating) must be created after the things
+// they want to sit on top of. I.e. z-depth is kind of determined by creation order.
 create_ui :: proc() -> ^Box {
 	// This is the first step of the mark and sweep, any boxes which are not re-created this frame, will
 	// be removed from the cache at the end of the frame.
-	for key, box in ui_state.box_cache {
+	ui_state.changed_ui_screen = false
+	for _, box in ui_state.box_cache {
 		box.keep = false
 	}
+	// root: ^Box
 	root := box_from_cache("root@root", {}, {semantic_size = {{.Fixed, f32(app.wx)}, {.Fixed, f32(app.wy)}}})
 	box_open_children(root, {direction = .Vertical})
-	topbar()
-	// We hardcode the height of the topbar otherwise the layout get's extremely fucken annoying.
-	audio_tracks: {
-		audio_tracks_container := container(
-			"@all-tracks-container",
-			{semantic_size = {{.Fit_Children, 1}, {.Fixed, f32(app.wy - TOPBAR_HEIGHT)}}},
-		)
-		box_open_children(audio_tracks_container.box, {direction = .Horizontal, gap_horizontal = 3})
-		defer box_close_children(audio_tracks_container.box)
-		for i in 0 ..< 5 {
-			audio_track(u32(i), 250)
+
+
+	if ui_state.tab_num == 0 {
+		// We hardcode the height of the topbar otherwise the layout get's extremely fucken annoying.
+		topbar()
+		audio_tracks: {
+			audio_tracks_container := container(
+				"@all-tracks-container",
+				{semantic_size = {{.Fit_Children, 1}, {.Fixed, f32(app.wy - TOPBAR_HEIGHT)}}},
+			)
+			box_open_children(audio_tracks_container.box, {direction = .Horizontal, gap_horizontal = 3})
+			defer box_close_children(audio_tracks_container.box)
+			for i in 0 ..< 5 {
+				audio_track(u32(i), 250)
+			}
 		}
+		// if ui_state.context_menu.active {
+		// 	println("showing context menu")
+		// 	test_context_menu()
+		// }
+	} else {
+		topbar()
 	}
-	if ui_state.context_menu.active {
-		println("showing context menu")
-		test_context_menu()
+	if ui_state.sidebar_shown {
+		file_browser_menu()
 	}
-
-	// second_part: {
-	// 	container_2 := container("ha@container2", {semantic_size = {{.Grow, 1}, {.Grow, 1}}})
-	// 	box_open_children(container_2.box, Box_Child_Layout{direction = .Horizontal, gap_vertical = 10})
-	// 	defer box_close_children(container_2.box)
-
-	// 	button_text(
-	// 		tprintf("hey there {}@bitch", "nigga"),
-	// 		{background_color = {0.3, 1, 0.5, 1}, corner_radius = 1, semantic_size = {{.Grow, 1}, {.Grow, 1}}},
-	// 	)
-	// 	button_text(
-	// 		"button4@button4",
-	// 		{background_color = {1, 1, 0, 0.5}, corner_radius = 2, semantic_size = {{.Grow, 1}, {.Grow, 1}}},
-	// 	)
-	// 	button_text(
-	// 		"button4@button5",
-	// 		{background_color = {1, 1, 0, 0.5}, corner_radius = 20, semantic_size = {{.Grow, 1}, {.Grow, 1}}},
-	// 	)
-	// 	{
-	// 		other_container := container(
-	// 			"a@other_container",
-	// 			{background_color = {1, 1, 0, 0.5}, corner_radius = 2, semantic_size = {{.Grow, 1}, {.Grow, 1}}},
-	// 		)
-	// 		box_open_children(other_container.box, {direction = .Horizontal, gap_horizontal = 1})
-	// 		defer box_close_children(other_container.box)
-	// 		button_text(
-	// 			"somehing@alskdjfafd",
-	// 			{
-	// 				semantic_size = {{type = .Fixed, amount = 100}, {type = .Fixed, amount = 30}},
-	// 				background_color = {1, 1, 0.2, 1},
-	// 			},
-	// 		)
-	// 	}
-	// }
-
-	// third_part: {
-	// 	container_3 := container("ha@container3", {semantic_size = {{.Fixed, 100}, {.Fixed, 30}}})
-	// 	box_open_children(container_3.box, Box_Child_Layout{direction = .Vertical, gap_vertical = 10})
-	// 	defer box_close_children(container_3.box)
-
-	// 	button_text(
-	// 		"what@heyabutton5",
-	// 		{background_color = {1, 0, 0, 1}, corner_radius = 2, semantic_size = {{.Grow, 1}, {.Grow, 1}}},
-	// 	)
-	// 	button_text(
-	// 		"button4@button6",
-	// 		{background_color = {1, 0, 0, 1}, corner_radius = 2, semantic_size = {{.Grow, 1}, {.Grow, 1}}},
-	// 	)
-	// }
 	box_close_children(root)
 	sizing_calc_percent_width(root)
 	sizing_calc_percent_height(root)

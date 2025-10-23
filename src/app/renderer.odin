@@ -1,7 +1,8 @@
 package app
 import "core:math"
 import alg "core:math/linalg"
-import s "core:strings"
+import str "core:strings"
+import "core:time"
 import "core:unicode/utf8"
 import gl "vendor:OpenGL"
 // import ma "vendor:miniaudio"
@@ -64,13 +65,15 @@ get_default_rendering_data :: proc(box: Box) -> Rect_Render_Data {
 
 // sets circumstantial (hovering, clicked, etc) rendering data like radius, borders, etc
 get_boxes_rendering_data :: proc(box: Box) -> ^[dynamic]Rect_Render_Data {
+
+
 	render_data := new([dynamic]Rect_Render_Data, context.temp_allocator)
 	tl_color: Vec4_f32 = box.config.background_color
 	bl_color: Vec4_f32 = box.config.background_color
 	tr_color: Vec4_f32 = box.config.background_color
 	br_color: Vec4_f32 = box.config.background_color
 
-	is_button := s.contains(box.id_string, "button")
+	is_button := str.contains(box.id, "button")
 
 	if is_button {
 		bl_color -= {0.6, 0.6, 0.6, 0}
@@ -126,41 +129,54 @@ get_boxes_rendering_data :: proc(box: Box) -> ^[dynamic]Rect_Render_Data {
 
 	append(render_data, data)
 
-	/* These come after adding the main rect data since they have a higher 'z-order'. */
+	// ------ These come after adding the main rect data since they have a higher 'z-order'.
 
+	// Uses some heuristic time based property to determine if text cursor
+	// should be showing or not. Ultimately achieving blinking.
+	should_render_text_cursor :: proc() -> bool {
+		time_in_ms := time.now()._nsec / 1_000_000
+		// On for 0.5 second, off for a 0.5 a second
+		return (time_in_ms % (800)) < 500
+	}
+	// Tells you where the cursor should render. This function will need to be updated
+	// when we include various types of text positioning, right now all text is centered by default.
+	calc_cursor_pos :: proc(box: Box, text: string) -> int {
+		editor_state := ui_state.text_editors_state[box.id]
+		cursor_pos := editor_state.selection[0]
+		substr_len := font_get_strings_rendered_len(text[0:cursor_pos])
+		// Calculate offset gap between left edge of box and start of rendered text.
+		half_gap := (box.width - font_get_strings_rendered_len(text)) / 2
+		return box.top_left.x + half_gap + substr_len
+	}
 	// Add cursor inside text box. Blinking is kinda jank right now.
-	// if .Edit_Text in box.flags &&
-	//    should_render_text_cursor() &&
-	//    ui_state.last_active_box != nil &&
-	//    ui_state.last_active_box.id_string == box.id_string {
-	// 	color := Color{0, 0.5, 1, 1}
-	// 	cursor_x_coord :=
-	// 		box.rect.top_left.x +
-	// 		f32(ui_state.text_box_padding) +
-	// 		f32(word_rendered_length(box.value.(Step_Value_Type).(string)[:box.cursor_pos], box.font_size))
-	// 	cursor_data := Rect_Render_Data {
-	// 		top_left         = {cursor_x_coord, box.rect.top_left.y + 3},
-	// 		bottom_right     = {cursor_x_coord + 5, box.rect.bottom_right.y - 3},
-	// 		bl_color         = color,
-	// 		tl_color         = color,
-	// 		br_color         = color,
-	// 		tr_color         = color,
-	// 		border_thickness = 300,
-	// 		corner_radius    = 0,
-	// 		edge_softness    = 2,
-	// 	}
-	// 	append(render_data, cursor_data)
-	// }
+	if .Edit_Text in box.flags &&
+	   should_render_text_cursor() &&
+	   ui_state.last_active_box != nil &&
+	   ui_state.last_active_box.id == box.id {
+		color := Color{0, 0.5, 1, 1}
+		cursor_x_pos := f32(calc_cursor_pos(box, box.data))
+		cursor_data := Rect_Render_Data {
+			top_left         = {cursor_x_pos, f32(box.top_left.y)},
+			bottom_right     = {cursor_x_pos + 2.4, f32(box.bottom_right.y)},
+			bl_color         = color,
+			tl_color         = color,
+			br_color         = color,
+			tr_color         = color,
+			border_thickness = 300,
+			corner_radius    = 0,
+		}
+		append(render_data, cursor_data)
+	}
 
-	// if .Draw_Border in box.flags {
-	// 	border_rect := data
-	// 	border_rect.border_thickness = 0.6
-	// 	border_rect.bl_color = {0, 0, 0, 1}
-	// 	border_rect.tl_color = {0, 0, 0, 1}
-	// 	border_rect.tr_color = {0, 0, 0, 1}
-	// 	border_rect.br_color = {0, 0, 0, 1}
-	// 	append(render_data, border_rect)
-	// }
+	if .Draw_Border in box.flags {
+		border_rect := data
+		border_rect.border_thickness = 1
+		border_rect.bl_color = {0, 0, 0, 1}
+		border_rect.tl_color = {0, 0, 0, 1}
+		border_rect.tr_color = {0, 0, 0, 1}
+		border_rect.br_color = {0, 0, 0, 1}
+		append(render_data, border_rect)
+	}
 
 	// Add 2 rects to serve as outline indicators for the current step that's been edited.
 	// if val, is_step := box.metadata.(Step_Metadata); is_step {
@@ -584,6 +600,10 @@ get_text_quads :: proc(
 	allocator := context.allocator,
 ) -> [dynamic]Rect_Render_Data {
 	// Calculate baseline: (for now we just center text on both axis inside the box)
+	if str.contains(box.id, ".jpg") {
+		lol := "here for the breakpoint"
+		lol = ""
+	}
 	tallest_char := font_get_glyphs_tallest_glyph(glyph_buffer)
 	rendered_len := font_get_glyphs_rendered_len(glyph_buffer)
 	vertical_diff_half := (box.height - int(tallest_char)) / 2
@@ -632,7 +652,13 @@ collect_render_data_from_ui_tree :: proc(root: ^Box, render_data: ^[dynamic]Rect
 		append_elem(render_data, data)
 	}
 	if .Draw_Text in root.flags {
-		text := utf8.string_to_runes(get_name_from_id_string(root.id_string), context.temp_allocator)
+		text_to_render: string
+		if .Edit_Text in root.flags {
+			text_to_render = root.data
+		} else {
+			text_to_render = root.label
+		}
+		text := utf8.string_to_runes(text_to_render, context.temp_allocator)
 		shaped_glyphs := font_segment_and_shape_text(&ui_state.font_state.kb.font, text)
 		glyph_render_info := font_get_render_info(shaped_glyphs, context.temp_allocator)
 		glyph_rects := get_text_quads(root^, glyph_render_info[:], context.temp_allocator)

@@ -28,7 +28,7 @@ DLL_PATH :: "build/app." + dynlib.LIBRARY_FILE_EXTENSION
 
 
 App_API :: struct {
-	create:            proc() -> ^app.App_State,
+	create:            proc() -> ^app.App,
 	init:              proc(),
 	init_window:       proc(),
 	create_gl_context: proc(),

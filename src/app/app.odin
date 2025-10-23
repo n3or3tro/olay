@@ -13,31 +13,42 @@ aprintf :: fmt.aprintf
 tprintf :: fmt.tprintf
 tprintfln :: fmt.aprintfln
 
-App_State :: struct {
+Browser_File :: string
+
+Browser_Directory :: struct {
+	name:           string,
+	subdirectories: [dynamic]Browser_Directory,
+	files:          [dynamic]Browser_File,
+}
+
+App :: struct {
 	curr_parent:       ^Box,
 	parent_birthing:   bool,
 	ui_state:          ^UI_State,
 	mouse:             Mouse_State,
 	mouse_last_frame:  Mouse_State,
-	char_queue:        [32]sdl.Keycode,
+	char_queue:        [128]sdl.Keycode,
 	curr_chars_stored: u32,
 	keys_held:         [sdl.NUM_SCANCODES]bool,
 	window:            ^sdl.Window,
 	wx:                int,
 	wy:                int,
 	running:           bool,
+	audio:             ^Audio_State,
+	// For testing purposes we just store the path to the file, but in the future
+	browser_files:     [dynamic]string,
 }
 
 Window :: sdl.Window
 
 
 ui_state: ^UI_State
-app: ^App_State
+app: ^App
 
 
 @(export)
-app_create :: proc() -> ^App_State {
-	app = new(App_State)
+app_create :: proc() -> ^App {
+	app = new(App)
 	return app
 }
 
@@ -80,17 +91,21 @@ app_update :: proc() -> (all_good: bool) {
 	free_all(context.temp_allocator)
 	app.ui_state.frame_num += 1
 	app.curr_chars_stored = {}
-
+	// Probably need to add more stuff to clear here.
+	if ui_state.changed_ui_screen {
+		clear(&ui_state.box_cache)
+	}
 	return true
 }
 
 
 @(export)
-app_init :: proc() -> ^App_State {
+app_init :: proc() -> ^App {
 	app.ui_state = new(UI_State)
 	ui_state = app.ui_state
 	ui_state.parents_stack = make([dynamic]^Box)
 	init_ui_state()
+	// audio_init()
 	app.running = true
 	app_hot_reload(app)
 	return app
@@ -159,7 +174,7 @@ app_memory :: proc() -> rawptr {
 
 @(export)
 app_memory_size :: proc() -> int {
-	return size_of(App_State)
+	return size_of(App)
 }
 
 @(export)
@@ -179,8 +194,9 @@ app_wants_restart :: proc() -> bool {
 
 @(export)
 app_hot_reload :: proc(mem: rawptr) {
-	app = (^App_State)(mem)
+	app = (^App)(mem)
 	ui_state = app.ui_state
+	font_init(&ui_state.font_state, ui_state.font_state.font_size)
 }
 
 @(export)
@@ -190,7 +206,6 @@ app_shutdown :: proc() {
 	// delete_dynamic_array(app.ui_state.rect_stack)
 	delete_dynamic_array(app.ui_state.color_stack)
 	for key, val in app.ui_state.box_cache {
-		// delete_string(val.id_string)
 		delete(key)
 		free(val)
 	}
@@ -239,7 +254,6 @@ handle_input :: proc(event: sdl.Event) -> (exit, show_context_menu: bool) {
 		app.keys_held[event.key.keysym.scancode] = true
 	}
 	if etype == .KEYUP {
-		println("got key up ")
 		app.keys_held[event.key.keysym.scancode] = false
 	}
 	if etype == .MOUSEWHEEL {
@@ -247,7 +261,7 @@ handle_input :: proc(event: sdl.Event) -> (exit, show_context_menu: bool) {
 		app.mouse.wheel.y = cast(i8)event.wheel.y
 	}
 	if etype == .MOUSEBUTTONDOWN {
-		ui_state.keyboard_mode = false
+		// ui_state.keyboard_mode = false
 		switch event.button.button {
 		case sdl.BUTTON_LEFT:
 			if !app.mouse.left_pressed { 	// i.e. if left button wasn't pressed last frame
@@ -316,7 +330,7 @@ reset_mouse_state :: proc() {
 	if app.mouse.clicked {
 		// do this here because events are captured before ui is created,
 		// meaning context-menu.button1.signals.click will never be set.
-		printfln("last active box clicked on was: {}", ui_state.last_active_box.id_string)
+		printfln("last active box clicked on was: {}", ui_state.last_active_box.id)
 		// _, clicked_on_context_menu := ui_state.last_active_box.metadata.(Context_Menu_Metadata)
 		// if !clicked_on_context_menu {
 		// 	ui_state.context_menu.active = false

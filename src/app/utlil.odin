@@ -7,7 +7,7 @@ map_range :: proc(in_min, in_max, out_min, out_max, value: $T) -> T where intrin
 	return ((value - in_min) * (out_max - out_min) / (in_max - in_min)) + out_min
 }
 
-get_name_from_id_string :: proc(id_string: string) -> string {
+get_label_from_id_string :: proc(id_string: string) -> string {
 	to := s.index(id_string, "@")
 	if to == -1 {
 		return ""
@@ -24,7 +24,7 @@ print_ui_tree :: proc(root: ^Box, level: int) {
 	for _ in 0 ..< level {
 		print("  ")
 	}
-	printfln("{} - {} x {} - [{},{}]", root.id_string, root.width, root.height, root.top_left, root.bottom_right)
+	printfln("{} - {} x {} - [{},{}]", root.id, root.width, root.height, root.top_left, root.bottom_right)
 	for child in root.children {
 		print_ui_tree(child, level + 1)
 	}
