@@ -131,35 +131,33 @@ create_ui :: proc() -> ^Box {
 		box.keep = false
 	}
 	// root: ^Box
-	root := box_from_cache("root@root", {}, {semantic_size = {{.Fixed, f32(app.wx)}, {.Fixed, f32(app.wy)}}})
-	box_open_children(root, {direction = .Vertical})
-
+	root := child_container(
+		"root@root", 
+		{
+			semantic_size = {{.Fixed, f32(app.wx)}, {.Fixed, f32(app.wy)}}
+		},
+		{direction=.Vertical}
+	).box
 
 	if ui_state.tab_num == 0 {
 		// We hardcode the height of the topbar otherwise the layout get's extremely fucken annoying.
 		topbar()
 		audio_tracks: {
-			audio_tracks_container := container(
+			child_container(
 				"@all-tracks-container",
 				{semantic_size = {{.Fit_Children, 1}, {.Fixed, f32(app.wy - TOPBAR_HEIGHT)}}},
+				{direction = .Horizontal, gap_horizontal = 3}
 			)
-			box_open_children(audio_tracks_container.box, {direction = .Horizontal, gap_horizontal = 3})
-			defer box_close_children(audio_tracks_container.box)
 			for i in 0 ..< 5 {
 				audio_track(u32(i), 250)
 			}
 		}
-		// if ui_state.context_menu.active {
-		// 	println("showing context menu")
-		// 	test_context_menu()
-		// }
 	} else {
 		topbar()
 	}
 	if ui_state.sidebar_shown {
 		file_browser_menu()
 	}
-	box_close_children(root)
 	sizing_calc_percent_width(root)
 	sizing_calc_percent_height(root)
 	sizing_grow_growable_height(root)

@@ -284,9 +284,8 @@ box_open_children :: proc(box: ^Box, child_layout: Box_Child_Layout) -> ^Box {
 
 // Takes in signals since this is automatically called at the end of creation various 'container' boxes.
 // And all box creation functions return the signals for the box.
-box_close_children :: proc(box: ^Box) {
-// box_close_children :: proc(signals: ^Box_Signals) {
-	// box := signals.box
+box_close_children :: proc(signals: Box_Signals) {
+	box := signals.box
 	assert(len(ui_state.parents_stack) > 0)
 	if box.config.semantic_size.x.type == .Fit_Children {
 		box.width = sizing_calc_fit_children_width(box^)

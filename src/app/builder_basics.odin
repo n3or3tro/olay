@@ -16,11 +16,21 @@ button_text :: proc(id_string: string, config: Box_Config) -> Box_Signals {
 	return box_signals(box)
 }
 
-// @(deferred_out=box_close_children)
-container :: proc(id_string: string, config: Box_Config) -> Box_Signals {
+// A container that automatically opens for children and closes at the end of the scope it's called in.
+@(deferred_out=box_close_children)
+child_container :: proc(id_string: string, config: Box_Config, child_layout:Box_Child_Layout) -> Box_Signals {
 	box := box_from_cache(id_string, {.Draw}, config)
+	box_open_children(box, child_layout)
 	return box_signals(box)
 }
+
+// // A container that automatically opens for children but doesn't close. Necessary in cases where you want to create
+// container :: proc(id_string: string, config: Box_Config, child_layout:Box_Child_Layout) -> Box_Signals {
+// 	box := box_from_cache(id_string, {.Draw}, config)
+// 	box_open_children(box, child_layout)
+// 	return box_signals(box)
+// }
+
 
 Track_Steps_Signals :: struct {
 	volume, pitch, send1, send2: Box_Signals,
@@ -35,21 +45,20 @@ Track_Signals :: struct {
 
 audio_track :: proc(track_num: u32, track_width: f32) -> Track_Signals {
 	n_steps: f32 = 32
-	track_container := container(
+	track_container := child_container(
 		tprintf("@track-{}-container", track_num),
 		{semantic_size = {{.Fixed, track_width}, {.Percent, 1}}},
+		{direction = .Vertical, gap_vertical = 3}
 	)
-	box_open_children(track_container.box, {direction = .Vertical, gap_vertical = 3})
-	defer box_close_children(track_container.box)
-
 	step_signals: Track_Steps_Signals
 	steps: {
-		steps_container := container(
+		child_container(
 			tprintf("@track-steps-container-{}", track_num),
-			{semantic_size = {{.Fixed, track_width}, {.Percent, 0.7}}, background_color = {1, 0.5, 1, 1}},
+			{
+				semantic_size = {{.Fixed, track_width}, {.Percent, 0.7}}, 
+				background_color = {1, 0.5, 1, 1}},
+				{direction = .Vertical, gap_vertical = 0}
 		)
-		box_open_children(steps_container.box, {direction = .Vertical, gap_vertical = 0})
-		defer box_close_children(steps_container.box)
 
 		substep_config: Box_Config = {
 			semantic_size    = {{.Percent, 0.25}, {.Percent, 1}},
@@ -59,11 +68,11 @@ audio_track :: proc(track_num: u32, track_width: f32) -> Track_Signals {
 		}
 		substep_extra_flags := Box_Flags{.Draw_Border}
 		for i in 0 ..< 30 {
-			row_container := container(
+			child_container(
 				tprintf("@track-{}-row-{}-steps-container", track_num, i),
 				{semantic_size = {{.Fixed, track_width}, {.Percent, f32(1) / 32.0}}},
+				{direction = .Horizontal, gap_horizontal = 0}
 			)
-			box_open_children(row_container.box, {direction = .Horizontal, gap_horizontal = 0})
 			edit_text_box(
 				id("@track-{}-pitch-step-{}", track_num, i),
 				substep_config,
@@ -73,29 +82,23 @@ audio_track :: proc(track_num: u32, track_width: f32) -> Track_Signals {
 			edit_number_box(id("@track-{}-volume-step-{}", track_num, i), substep_config, 0, 100, substep_extra_flags)
 			edit_number_box(id("@track-{}-send1-step-{}", track_num, i), substep_config, 0, 100, substep_extra_flags)
 			edit_number_box(id("@track-{}-send2-step-{}", track_num, i), substep_config, 0, 100, substep_extra_flags)
-			box_close_children(row_container.box)
 		}
 	}
 
 	controls: {
-		controls_container := container(
+		controls_container := child_container(
 			tprintf("@track-{}-controls-container", track_num),
 			{semantic_size = {{.Fixed, track_width}, {.Percent, 0.3}}, background_color = {0.5, 0.7, 0.4, 1}},
-		)
-		box_open_children(
-			controls_container.box,
 			{direction = .Horizontal, alignment_horizontal = .Start, alignment_vertical = .End},
 		)
-		defer box_close_children(controls_container.box)
-
 		arm_button := button_text(
 			id("arm@track-{}-arm-button", track_num),
 			{semantic_size = {{.Percent, 0.333}, {.Fixed, 30}}, background_color = {1, 1, 0, 1}},
 		)
 		volume_slider := vertical_slider(
-			id("hey@track-{}-volume-slider", track_num), // volume_slider := button_text(
+			id("hey@track-{}-volume-slider", track_num), 
 			{
-				semantic_size = {{.Percent, 0.333}, {.Grow, 30}}, /*background_color = {1, 0, 0, 1}*/
+				semantic_size = {{.Percent, 0.333}, {.Grow, 30}}, 
 			},
 			&slider_value,
 			0,
@@ -105,8 +108,6 @@ audio_track :: proc(track_num: u32, track_width: f32) -> Track_Signals {
 			id("load@track-{}-load-sound-button", track_num),
 			{semantic_size = {{.Percent, 0.333}, {.Fixed, 30}}, background_color = {1, 0, 0.5, 1}},
 		)
-		// if volume_slider.grip.scrolled || volume_slider.track.scrolled {
-		// }
 	}
 	return Track_Signals{step_signals, {}}
 }
@@ -123,6 +124,7 @@ Text_Box_Type :: enum {
 	Number_Input,
 	Multi_Line,
 }
+
 edit_number_box :: proc(
 	id_string: string,
 	config: Box_Config,
@@ -183,8 +185,8 @@ edit_number_box :: proc(
 
 	text_container := box_from_cache(id_string, {.Clickable, .Draw, .Draw_Text, .Edit_Text} + extra_flags, config)
 	box_open_children(text_container, {direction = .Horizontal})
-	defer box_close_children(text_container)
 	container_signals := box_signals(text_container)
+	defer box_close_children(container_signals)
 
 	if ui_state.last_active_box != text_container do return container_signals
 
@@ -306,8 +308,8 @@ edit_text_box :: proc(
 
 	text_container := box_from_cache(id_string, {.Clickable, .Draw, .Draw_Text, .Edit_Text} + extra_flags, config)
 	box_open_children(text_container, {direction = .Horizontal})
-	defer box_close_children(text_container)
 	container_signals := box_signals(text_container)
+	defer box_close_children(container_signals)
 
 	if ui_state.last_active_box != text_container do return container_signals
 
@@ -360,10 +362,11 @@ vertical_slider :: proc(
 	min_val: f32,
 	max_val: f32,
 ) -> Slider_Signals {
-	slider_container := container(id("{}-container", get_id_from_id_string(id_string)), config)
-	box_open_children(slider_container.box, {direction = .Vertical, alignment_horizontal = .Center})
-	defer box_close_children(slider_container.box)
-
+	child_container(
+		id("{}-container", get_id_from_id_string(id_string)), 
+		config, 
+		{direction = .Vertical, alignment_horizontal = .Center}
+	)
 	track := box_from_cache(
 		id("{}-track", get_id_from_id_string(id_string)),
 		{.Clickable, .Draw, .Scrollable},
@@ -398,19 +401,20 @@ vertical_slider :: proc(
 Has to be placed in the root container to display properly.
 */
 topbar :: proc() {
-	topbar_container := container(
-	"@topbar",
-	{
-		semantic_size    = {{.Fixed, f32(app.wx)}, {.Fixed, TOPBAR_HEIGHT}},
-		background_color = {1, 1, 1, 0.8},
-		// padding = {top = 10, bottom = 5},
-	},
+	child_container(
+		"@topbar",
+		{
+			semantic_size    = {{.Fixed, f32(app.wx)}, {.Fixed, TOPBAR_HEIGHT}},
+			background_color = {1, 1, 1, 0.8},
+			// padding = {top = 10, bottom = 5},
+		},
+		{
+			direction = .Horizontal, 
+			alignment_horizontal = .End,
+			alignment_vertical = .Center,
+			gap_horizontal = 5
+		}
 	)
-	box_open_children(
-		topbar_container.box,
-		{direction = .Horizontal, alignment_horizontal = .End, alignment_vertical = .Center, gap_horizontal = 5},
-	)
-	defer box_close_children(topbar_container.box)
 	btn_config := Box_Config {
 		semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}},
 		background_color = {0.5, 0.7, 0.7, 1},
@@ -425,7 +429,6 @@ topbar :: proc() {
 		ui_state.tab_num = 1
 		ui_state.changed_ui_screen = true
 	}
-
 	side_bar_btn_id :=
 		ui_state.sidebar_shown ? "Close sidebar@top-bar-sidebar-close" : "Open sidebar@top-bar-sidebar-open"
 	if button_text(side_bar_btn_id, btn_config).clicked {
@@ -436,7 +439,7 @@ topbar :: proc() {
 
 // Can use mouse pos when summoned
 test_context_menu :: proc() {
-	context_menu_container := container(
+	context_menu_container := child_container(
 		"@context-menu",
 		{
 			semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}},
@@ -445,14 +448,9 @@ test_context_menu :: proc() {
 			position_absolute = true,
 			offset_from_parent = {f32(app.mouse.pos.x) / f32(app.wx), f32(app.mouse.pos.y) / f32(app.wy)},
 		},
-	)
-	btn_height: f32 = 30
-	box_open_children(
-		context_menu_container.box,
 		{direction = .Vertical, alignment_horizontal = .Center, gap_vertical = 3},
 	)
-	defer box_close_children(context_menu_container.box)
-
+	btn_height: f32 = 30
 	b1 := button_text(
 	"button1@conext-menu-1",
 	{semantic_size = {{.Fit_Text, 1}, {.Fit_Text, btn_height}}, background_color = {1, 0.5, 1, 1}},
@@ -469,7 +467,7 @@ handle_file_browser_interactions :: proc() {
 }
 
 file_browser_menu :: proc() {
-	menu := container(
+	child_container(
 		"@file-browser-container",
 		{
 			position_absolute = true,
@@ -478,23 +476,18 @@ file_browser_menu :: proc() {
 			background_color = {1, 0, 0.7, 1},
 			padding = {bottom = 5},
 		},
+		{direction = .Vertical}
 	)
-	box_open_children(menu.box, {direction = .Vertical})
-	defer box_close_children(menu.box)
 	top_menu: {
-		options_container := container(
+		child_container(
 			"@file-browser-options-container",
 			{
 				semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1.}},
 				padding = {10, 10, 10, 10},
 				background_color = {.5, .4, .423, 1},
 			},
-		)
-		box_open_children(
-			options_container.box,
 			{direction = .Horizontal, alignment_horizontal = .Center, alignment_vertical = .Center},
 		)
-		defer box_close_children(options_container.box)
 		btn_config := Box_Config {
 			background_color = {0.9, 0.8, 0.9, 1},
 			border_thickness = 3,
@@ -519,14 +512,15 @@ file_browser_menu :: proc() {
 		}
 	}
 	files_and_folders: {
-		hehe := container(
+		child_container(
 			"@browser-files-container",
 			{
 				semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}}, 
-				background_color = {.5, .4, .2, 1}},
+				background_color = {.5, .4, .2, 1}
+			},
+			{direction = .Vertical}
 		)
-		box_open_children(hehe.box, {direction = .Vertical})
-		defer box_close_children(hehe.box)
+
 		// Can see having issues with the index being in the id here.
 		for file, i in app.browser_files {
 			lol := Box_Config {
@@ -551,24 +545,27 @@ text :: proc(id_string: string, config: Box_Config) -> Box_Signals {
 }
 
 
-draggable_window :: proc(id_string: string, config: Box_Config) {
+@(deferred_out=box_close_children)
+draggable_window :: proc(id_string: string, config: Box_Config) -> Box_Signals {
 	// Probably want to store window positions even when they're closed.
-	cnt := container(id_string, {
-		position_absolute = true,
-		offset_from_parent = {.5, .5}
-	})
-	box_open_children(cnt.box, {
-		direction = .Vertical
-	})
-	defer box_close_children(cnt.box)
+	container := child_container(id_string, 
+		{
+			position_absolute = true,
+			offset_from_parent = {.5, .5}
+		},
+		{
+			direction = .Vertical
+		}
+	)
 
-	title_bar := box_from_cache(
-		id("title bar@{}-title-bar", cnt.box.id),
+	title_bar := box_signals(box_from_cache(
+		id("title bar@{}-title-bar", container.box.id),
 		{.Draggable, .Clickable},
 		{
 			semantic_size = {{.Percent, 1}, {.Fit_Text, 1}}, 
 			padding = {top = 5, bottom = 5}
 		},
-	)
-	title_bar_signals := box_signals(title_bar)
+	))
+	// title_bar_signals := box_signals(title_bar)
+	return title_bar
 }
