@@ -162,7 +162,7 @@ create_ui :: proc() -> ^Box {
 				}
 			)
 
-			for i in 0 ..< 5 {
+			for track, i in app.audio.tracks {
 				audio_track(u32(i), 250)
 			}
 		}
@@ -191,6 +191,18 @@ create_ui :: proc() -> ^Box {
 			direction = .Vertical,
 		})
 		file_browser_menu()
+	}
+
+	if button_text("+@add-track-button", 
+		{
+			position_floating =.Center_Right,
+			padding = {10,10,10,10},
+			border_thickness = 4,
+			semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}},
+			background_color = {0.987, 0.41234, 0.41234, 1}
+		}
+	).clicked {
+		track_add_new()
 	}
 
 	sizing_calc_percent_width(root)

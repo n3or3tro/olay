@@ -68,10 +68,9 @@ Init stuff that's specific to our app and not directly related to miniaudio stat
 audio_init :: proc() -> ^Audio_State {
 	audio_state := new(Audio_State)
 	audio_state.tracks = make([dynamic]Track)
-	n_tracks := 20
-	for i in 0 ..< n_tracks {
+	for i in 0 ..< 4 {
 		append(&audio_state.tracks, Track{})
-		audio_state.tracks[i].volume 	= f32(map_range(0.0, f64(n_tracks) * 10.0, 0.0, 100.0, f64(i + (i * 10.0))))
+		audio_state.tracks[i].volume 	= f32(map_range(0.0, f64(4) * 10.0, 0.0, 100.0, f64(i + (i * 10.0))))
 		audio_state.tracks[i].armed 	= true
 		audio_state.tracks[i].n_steps 	= 32
 		audio_state.tracks[i].send1 	= 0
@@ -163,6 +162,16 @@ audio_uninit_miniaudio :: proc() {
 		// free(app.audio.engine)
 		app.audio.engine = nil
 	}
+}
+
+track_add_new :: proc() { 
+		track : Track
+		track.volume 	= 70 
+		track.armed 	= true
+		track.n_steps 	= 32
+		track.send1 	= 0
+		track.send2 	= 0
+		append(&app.audio.tracks, track)
 }
 
 track_set_sound :: proc(path: cstring, which: u32) {

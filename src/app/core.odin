@@ -44,6 +44,9 @@ Position_Floating_Type :: enum {
 	Bottom_Center,
 	Bottom_Left,
 	Bottom_Right,
+	Center_Center,
+	Center_Left,
+	Center_Right,
 	Absolute_Pixel
 }
 
@@ -833,7 +836,7 @@ position_boxes :: proc(root: ^Box) {
 
 		case .Absolute_Pixel:
 			child.top_left = {int(child.config.position_floating_offset.x), int(child.config.position_floating_offset.y)}
-			child.bottom_right += child.top_left + {child.width, child.height}
+			child.bottom_right = child.top_left + {child.width, child.height}
 
 		case .Relative_Root:
 			width_diff := f32(parent.width - child.width)
@@ -857,7 +860,11 @@ position_boxes :: proc(root: ^Box) {
 			child.top_left = {child.parent.top_left.x + offset_x, child.parent.top_left.y + offset_y}
 			child.bottom_right = {child.top_left.x + child.width, child.top_left.y + child.height}
 
-		case .Bottom_Center, .Bottom_Left,.Bottom_Right, .Top_Center, .Top_Left, .Top_Right, .Not_Floating:
+		case .Center_Right:
+			child.top_left = {app.wx - child.width, (app.wy / 2) - (child.height/2)}
+			child.bottom_right = child.top_left + {child.width, child.height}
+		
+		case .Bottom_Center, .Bottom_Left,.Bottom_Right, .Top_Center, .Top_Left, .Top_Right, .Not_Floating, .Center_Center, .Center_Left:
 			panic(tprintf("Have not implemented position child with floating type: {}", child.config.position_floating))
 		}
 	}

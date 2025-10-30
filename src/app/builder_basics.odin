@@ -661,6 +661,18 @@ context_menu :: proc() {
 			button_text("Every 6th@context-remove-6th", btn_config)
 			button_text("Every 8th@context-remove-8th", btn_config)
 		}
+
+		delete_track_button :=  button_text(
+			"delete@conext-menu-3",
+			{
+				semantic_size = {{.Grow, 1}, {.Fit_Text, btn_height}}, 
+				background_color = {0.3, 0.7, 0.3, 1},
+				padding = {10,10,10,10},
+			},
+		) 
+		if delete_track_button.clicked { 
+			printfln("deletring track that contains {}",ui_state.right_clicked_on.id)
+		}
 	}
 	context_menu_container := child_container(
 		"@context-menu",
