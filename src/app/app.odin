@@ -54,14 +54,13 @@ app_create :: proc() -> ^App {
 
 @(export)
 app_update :: proc() -> (all_good: bool) {
-	// root_rect := app.ui_state.root_rect
 	if register_resize() {
 		printfln("changing screen res to : {} x {}", app.wx, app.wy)
 		set_shader_vec2(ui_state.quad_shader_program, "screen_res", {f32(app.wx), f32(app.wy)})
 	}
 	event: sdl.Event
 	reset_mouse_state()
-	show_context_menu, exit: bool
+	show_context_menu, exit := ui_state.context_menu.active, false
 	for sdl.PollEvent(&event) {
 		exit, show_context_menu = handle_input(event)
 		if exit {
@@ -72,17 +71,16 @@ app_update :: proc() -> (all_good: bool) {
 	root := create_ui()
 	if show_context_menu {
 		ui_state.context_menu.active = true
-		println("shoudl show context menu")
+	} 
+	else {
+		ui_state.context_menu.active = false
 	}
-	// else {
-	// 	ui_state.context_menu.active = false
-	// }
+
 	rect_render_data := make([dynamic]Rect_Render_Data, context.temp_allocator)
 	collect_render_data_from_ui_tree(root, &rect_render_data)
 	if ui_state.frame_num > 0 {
 		render_ui(rect_render_data)
 	}
-	// clear_dynamic_array(&ui_state.temp_boxes)
 	delete(rect_render_data)
 
 	sdl.GL_SwapWindow(app.window)
@@ -93,11 +91,18 @@ app_update :: proc() -> (all_good: bool) {
 	app.curr_chars_stored = {}
 	// Probably need to add more stuff to clear here.
 	if ui_state.changed_ui_screen {
-		clear(&ui_state.box_cache)
+		ui_state.last_hot_box = nil
+		ui_state.last_active_box = nil
+		ui_state.last_clicked_box = nil
+		ui_state.right_clicked_on = nil
+		ui_state.dragged_window = nil
+		ui_state.mouse_down_on = nil
+		// This doesn't reclaim the memory the map used to store the values. Just resets metadata
+		// so that memory can be overwritten.
+		clear(&ui_state.next_frame_signals)
 	}
 	return true
 }
-
 
 @(export)
 app_init :: proc() -> ^App {
@@ -105,7 +110,7 @@ app_init :: proc() -> ^App {
 	ui_state = app.ui_state
 	ui_state.parents_stack = make([dynamic]^Box)
 	init_ui_state()
-	// audio_init()
+	app.audio = audio_init()
 	app.running = true
 	app_hot_reload(app)
 	return app
@@ -113,13 +118,10 @@ app_init :: proc() -> ^App {
 
 @(export)
 app_init_gl :: proc() {
-
 }
 
 @(export)
-// app_init_window :: proc() -> (^sdl.Window, sdl.GLContext) {
 app_init_window :: proc() {
-	// sdl.Init({.AUDIO, .EVENTS, .TIMER})
 	sdl.Init({.EVENTS})
 	window_flags := sdl.WINDOW_OPENGL | sdl.WINDOW_RESIZABLE | sdl.WINDOW_ALLOW_HIGHDPI | sdl.WINDOW_UTILITY
 	app.window = sdl.CreateWindow(
@@ -197,6 +199,14 @@ app_hot_reload :: proc(mem: rawptr) {
 	app = (^App)(mem)
 	ui_state = app.ui_state
 	font_init(&ui_state.font_state, ui_state.font_state.font_size)
+	audio_init_miniaudio(app.audio)
+}
+
+// This needs to run before we unload the DLL due to miniaudio spawning background threads that will
+// continue to run after we've unloaded the DLL and crash the program.
+@(export)
+app_unload_miniaudio :: proc() {
+	audio_uninit_miniaudio()
 }
 
 @(export)
@@ -236,14 +246,16 @@ app_shutdown :: proc() {
 }
 
 handle_input :: proc(event: sdl.Event) -> (exit, show_context_menu: bool) {
+	show_context_menu = ui_state.context_menu.active
 	etype := event.type
-	app.mouse_last_frame = app.mouse
 	if etype == .QUIT {
 		exit = true
 	}
 	if etype == .MOUSEMOTION {
-		app.mouse.last_pos = app.mouse.pos
-		sdl.GetMouseState(&app.mouse.pos.x, &app.mouse.pos.y)
+		mouse_x, mouse_y:i32
+		sdl.GetMouseState(&mouse_x, &mouse_y)
+		app.mouse.pos.x = int(mouse_x)
+		app.mouse.pos.y = int(mouse_y)
 	}
 	// We cannot just rely on querying the current 'keys held down' for typing in input fields,
 	// since order matters and querying some matrix of keys down does NOT preserve input order.
@@ -261,13 +273,13 @@ handle_input :: proc(event: sdl.Event) -> (exit, show_context_menu: bool) {
 		app.mouse.wheel.y = cast(i8)event.wheel.y
 	}
 	if etype == .MOUSEBUTTONDOWN {
-		// ui_state.keyboard_mode = false
 		switch event.button.button {
 		case sdl.BUTTON_LEFT:
 			if !app.mouse.left_pressed { 	// i.e. if left button wasn't pressed last frame
 				app.mouse.drag_start = app.mouse.pos
 				app.mouse.dragging = true
 				app.mouse.drag_done = false
+				// show_context_menu = false
 			}
 			app.mouse.left_pressed = true
 		case sdl.BUTTON_RIGHT:
@@ -279,19 +291,19 @@ handle_input :: proc(event: sdl.Event) -> (exit, show_context_menu: bool) {
 		case sdl.BUTTON_LEFT:
 			if app.mouse.left_pressed {
 				app.mouse.clicked = true
-
 			}
 			app.mouse.left_pressed = false
 			app.mouse.drag_end = app.mouse.pos
 			app.mouse.dragging = false
 			app.mouse.drag_done = true
-		// app.dragging_window = false
+			show_context_menu = false
 		case sdl.BUTTON_RIGHT:
 			println("right button up ")
 			if app.mouse.right_pressed { 	// i.e. A right click was performed.
 				app.mouse.right_clicked = true
 				show_context_menu = true
-				// ui_state.context_menu.pos = Vec2{f32(app.mouse.pos.x), f32(app.mouse.pos.y)}
+				println("setting context menu to show")
+				ui_state.context_menu.pos = Vec2_f32{f32(app.mouse.pos.x), f32(app.mouse.pos.y)}
 			}
 			app.mouse.right_pressed = false
 		}
@@ -306,6 +318,7 @@ handle_input :: proc(event: sdl.Event) -> (exit, show_context_menu: bool) {
 	// 		set_track_sound(event.drop.file, which)
 	// 	}
 	// }
+
 	return exit, show_context_menu
 }
 
@@ -320,13 +333,15 @@ register_resize :: proc() -> bool {
 		set_shader_vec2(ui_state.quad_shader_program, "screen_res", {f32(app.wx), f32(app.wy)})
 		return true
 	}
-	// printfln("new window dimensions are: {} x {}", app.wx^, app.wy^)
+
+	// Recalc where floating windows should go.
+
 	return false
 }
 
 reset_mouse_state :: proc() {
 	app.mouse.wheel = {0, 0}
-	app.mouse.last_pos = app.mouse.pos
+	app.mouse_last_frame = app.mouse
 	if app.mouse.clicked {
 		// do this here because events are captured before ui is created,
 		// meaning context-menu.button1.signals.click will never be set.

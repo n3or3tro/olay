@@ -12,6 +12,7 @@ MAX_TRACK_STEPS :: 256
 
 Track :: struct {
 	sound:          ^ma.sound,
+	sound_path:		string, 
 	armed:          bool,
 	volume:         f32,
 	// PCM data is used only for rendering waveforms atm.
@@ -23,7 +24,10 @@ Track :: struct {
 	// Actual amount of steps in the track.
 	n_steps:        u32,
 	// Could make this dynamic, but for now we'll just limit the max amount of steps.
-	step_pitches:   [MAX_TRACK_STEPS]f32,
+	pitches:   [MAX_TRACK_STEPS]f32,
+	volumes: 	[MAX_TRACK_STEPS]f32,
+	send1: 	[MAX_TRACK_STEPS]f32,
+	send2: 	[MAX_TRACK_STEPS]f32,
 	selected_steps: [MAX_TRACK_STEPS]bool,
 }
 
@@ -34,7 +38,7 @@ Audio_State :: struct {
 	engine:              ^ma.engine,
 	// For some reason this thing needs to be globally accessible (at least according to the docs),
 	// Perhaps we can localize it later.
-	delay:               ma.delay_node,
+	// delay:               ma.delay_node,
 	// for now there will be a fixed amount of channels, but irl this will be dynamic.
 	// channels are a miniaudio idea of basically audio processing groups. need to dive deeper into this
 	// as it probably will help in designging the audio processing stuff.
@@ -47,22 +51,57 @@ Audio_State :: struct {
 SOUND_FILE_LOAD_FLAGS: ma.sound_flags = {.DECODE, .NO_SPATIALIZATION}
 N_AUDIO_GROUPS :: 1
 
+/*
+We need to free and nil out all pointers in our Odin code that pointed into Miniaudio data, as 
+when we hot reload, this data is no longer valid. Any state related to our app, we can keep and
+re-use once hot reload is complete.
+*/
+audio_hot_reload :: proc(old_state: ^Audio_State) { 
+	app.audio.playing = false
+	audio_uninit_miniaudio()
+	audio_init_miniaudio(old_state)
+}
 
+/*
+Init stuff that's specific to our app and not directly related to miniaudio state.
+*/
 audio_init :: proc() -> ^Audio_State {
 	audio_state := new(Audio_State)
 	audio_state.tracks = make([dynamic]Track)
+	n_tracks := 20
+	for i in 0 ..< n_tracks {
+		append(&audio_state.tracks, Track{})
+		audio_state.tracks[i].volume 	= f32(map_range(0.0, f64(n_tracks) * 10.0, 0.0, 100.0, f64(i + (i * 10.0))))
+		audio_state.tracks[i].armed 	= true
+		audio_state.tracks[i].n_steps 	= 32
+		audio_state.tracks[i].send1 	= 0
+		audio_state.tracks[i].send2 	= 0
+	}
+	audio_state.bpm = 120
+
+	return audio_state
+}
+
+/*
+Init just the miniaudio related things, this is seperated since we must re-init miniaudio when we
+hot reload, where as our own audio state for tracks and stuff, can persist.
+*/
+audio_init_miniaudio :: proc(audio_state: ^Audio_State) { 
+	println("initing mini audio")
 	engine := new(ma.engine)
 
-	for i in 0 ..< MAX_TRACKS {
-		append(&audio_state.tracks, Track{})
-		audio_state.tracks[i].volume = max(f32(i + (i * 10)), 100)
-		audio_state.tracks[i].armed = true
-		audio_state.tracks[i].n_steps = 32
-	}
+	// config := ma.engine_config_init()
+	// rm_config := ma.resource_manager_config_init()
+	// rm_config.jobThreadCount = 0
+	// resource_manager := new(ma.resource_manager)
+	// res := ma.resource_manager_init(&rm_config, resource_manager)
+	// assert (res == .SUCCESS)
 
 	// Engine config is set by default when you init the engine, but can be manually set.
+	// engine_config := ma.engine_config_init()
 	res := ma.engine_init(nil, engine)
 	assert(res == .SUCCESS)
+
 	sound_group_config := ma.sound_group_config {
 		flags = SOUND_FILE_LOAD_FLAGS,
 	}
@@ -71,28 +110,70 @@ audio_init :: proc() -> ^Audio_State {
 		res = ma.sound_group_init_ex(engine, &sound_group_config, audio_state.audio_groups[i])
 		assert(res == .SUCCESS)
 	}
+
 	app.audio = audio_state
 	audio_state.engine = engine
 
-	// init_delay(0.5, 0.3)
-	when ODIN_OS == .Windows {
-		println("c:\\Music\\tracker\\3.wav loading...")
-		track_set_sound("c:\\users\\n3or3tro\\Music\\tracker\\3.wav", 0)
-	} else {
-		track_set_sound("/home/lucas/Music/test_sounds/the-create-vol-4/loops/01-save-the-day.wav", 0)
+	// // init_delay(0.5, 0.3)
+	// when ODIN_OS == .Windows {
+	// 	println("c:\\Music\\tracker\\3.wav loading...")
+	// 	track_set_sound("c:\\users\\n3or3tro\\Music\\tracker\\3.wav", 0)
+	// } else {
+	// 	track_set_sound("/home/lucas/Music/test_sounds/the-create-vol-4/loops/01-save-the-day.wav", 0)
+	// }
+}
+
+/*
+Only call when you want to completely destroy all audio state and start anew.
+*/
+audio_uninit :: proc() { 
+	audio_uninit_miniaudio()
+	delete(app.audio.tracks)
+	free(app.audio)
+}
+
+/*
+Uninit just miniaudio related data. Neccessary when hot-reloading.
+*/
+audio_uninit_miniaudio :: proc() {
+	if app.audio != nil && app.audio.engine != nil { 
+		for &track in app.audio.tracks { 
+			if track.sound != nil { 
+				ma.sound_stop(track.sound)
+				ma.sound_uninit(track.sound)
+				// Might need to call the specific miniaudio free function.
+				free(track.sound)
+				track.sound = nil
+			}
+			// PCM data is probably fine to live across frames. Since we're going to reload
+			// the sounds of each track and therefore PCM data would be correct.
+			// delete(track.pcm_data.left_channel)
+			// delete(track.pcm_data.right_channel)
+		}
+		for group, i in app.audio.audio_groups { 
+			if group != nil {
+				ma.sound_group_stop(group)
+				ma.sound_group_uninit(group)
+				free(group)
+				app.audio.audio_groups[i] = nil
+			}
+		}
+		ma.engine_stop(app.audio.engine)
+		ma.engine_uninit(app.audio.engine)
+		// free(app.audio.engine)
+		app.audio.engine = nil
 	}
-	app.audio.bpm = 120
-	return audio_state
 }
 
 track_set_sound :: proc(path: cstring, which: u32) {
-	if app.audio.tracks[which].sound != nil {
-		ma.sound_uninit(app.audio.tracks[which].sound)
+	track := &app.audio.tracks[which]
+	if track.sound != nil {
+		ma.sound_uninit(track.sound)
+		delete(track.sound_path)
 	}
 	new_sound := new(ma.sound)
 
-	// need to connect sound into node graph
-
+	// Need to connect sound into node graph.
 	res := ma.sound_init_from_file(
 		app.audio.engine,
 		path,
@@ -102,14 +183,11 @@ track_set_sound :: proc(path: cstring, which: u32) {
 		nil,
 		new_sound,
 	)
-	if res != .SUCCESS {
-		println(res)
-		panic("fuck")
-	}
-	// assert(res == .SUCCESS)
+	assert(res == .SUCCESS)
 
-	ma.node_attach_output_bus(cast(^ma.node)new_sound, 0, cast(^ma.node)&app.audio.delay, 0)
+	// ma.node_attach_output_bus(cast(^ma.node)new_sound, 0, cast(^ma.node)&app.audio.delay, 0)
 	app.audio.tracks[which].sound = new_sound
+	app.audio.tracks[which].sound_path = str.clone_from_cstring(path)
 }
 
 sound_toggle_playing :: proc(sound: ^ma.sound) {
@@ -222,20 +300,20 @@ pitch_difference :: proc(from: string, to: string) -> f32 {
 	return f32(total_diff)
 }
 
-delay_init :: proc(delay_time: f32, decay_time: f32) {
-	channels := ma.engine_get_channels(app.audio.engine)
-	sample_rate := ma.engine_get_sample_rate(app.audio.engine)
-	config := ma.delay_node_config_init(channels, sample_rate, u32(f32(sample_rate) * delay_time), decay_time)
-	println(config)
-	res := ma.delay_node_init(ma.engine_get_node_graph(app.audio.engine), &config, nil, &app.audio.delay)
-	if res != .SUCCESS {
-		println(res)
-		panic("")
-	}
+// delay_init :: proc(delay_time: f32, decay_time: f32) {
+// 	channels := ma.engine_get_channels(app.audio.engine)
+// 	sample_rate := ma.engine_get_sample_rate(app.audio.engine)
+// 	config := ma.delay_node_config_init(channels, sample_rate, u32(f32(sample_rate) * delay_time), decay_time)
+// 	println(config)
+// 	res := ma.delay_node_init(ma.engine_get_node_graph(app.audio.engine), &config, nil, &app.audio.delay)
+// 	if res != .SUCCESS {
+// 		println(res)
+// 		panic("")
+// 	}
 
-	res = ma.node_attach_output_bus(cast(^ma.node)(&app.audio.delay), 0, ma.engine_get_endpoint(app.audio.engine), 0)
-	assert(res == .SUCCESS)
-}
+// 	res = ma.node_attach_output_bus(cast(^ma.node)(&app.audio.delay), 0, ma.engine_get_endpoint(app.audio.engine), 0)
+// 	assert(res == .SUCCESS)
+// }
 
 delay_enable :: proc() {
 }

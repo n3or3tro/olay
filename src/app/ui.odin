@@ -4,6 +4,7 @@ import "core:mem"
 import "core:time"
 import gl "vendor:OpenGL"
 import sdl "vendor:sdl2"
+// import"core:mem"
 
 id :: fmt.tprintf
 UI_State :: struct {
@@ -36,7 +37,7 @@ UI_State :: struct {
 	// Helps to stop clicks registering when you start outside an element and release on top of it.
 	mouse_down_on:         ^Box,
 	context_menu:          struct {
-		// pos:                   Vec2,
+		pos:                   Vec2_f32,
 		active:                bool,
 		show_fill_note_menu:   bool,
 		show_remove_note_menu: bool,
@@ -52,6 +53,12 @@ UI_State :: struct {
 	// text boxes on screen at one time.
 	text_editors_state:    map[string]Edit_Text_State,
 	sidebar_shown:         bool,
+	dragged_window:	       ^Box,
+	drag_offset:	       [2]int,
+	// Stores offset_from_parent for every draggable window. The whole draggable window thing will
+	// break if we have a draggable window whose inside some box that ISNT the root. I.e. draggable windows
+	// only work if they're declared as a direct child of the root.
+	draggable_window_offsets : map[string][2]f32
 }
 
 
@@ -138,32 +145,81 @@ create_ui :: proc() -> ^Box {
 		},
 		{direction=.Vertical}
 	).box
-
+	root.keep = true
+	topbar()
 	if ui_state.tab_num == 0 {
-		// We hardcode the height of the topbar otherwise the layout get's extremely fucken annoying.
-		topbar()
 		audio_tracks: {
 			child_container(
 				"@all-tracks-container",
-				{semantic_size = {{.Fit_Children, 1}, {.Fixed, f32(app.wy - TOPBAR_HEIGHT)}}},
-				{direction = .Horizontal, gap_horizontal = 3}
+				{
+					semantic_size = {{.Fit_Children, 1}, 
+					// We hardcode the height of the topbar otherwise the layout gets annoying.
+					{.Fixed, f32(app.wy - TOPBAR_HEIGHT)}}
+				},
+				{
+					direction = .Horizontal,
+					gap_horizontal = 3
+				}
 			)
+
 			for i in 0 ..< 5 {
 				audio_track(u32(i), 250)
 			}
 		}
 	} else {
-		topbar()
+		checkbox_res := multi_button_set("@test-radio-buttons", 
+		{
+			semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}},
+		}, 
+		{
+			direction =.Vertical,
+			gap_horizontal = 20,
+			gap_vertical = 10
+		}, 
+		false, []int{8,2,10,14,27, 4242, 23423, 123,4747})
+		if len(checkbox_res) > 0 { 
+			printfln("selection was: {}", checkbox_res[:])
+		}
 	}
+
+	if ui_state.context_menu.active { 
+		context_menu()
+	}
+
 	if ui_state.sidebar_shown {
+		draggable_window("File browser@file-browser-dragging-container", {
+			direction = .Vertical,
+		})
 		file_browser_menu()
 	}
+
 	sizing_calc_percent_width(root)
 	sizing_calc_percent_height(root)
 	sizing_grow_growable_height(root)
 	sizing_grow_growable_width(root)
-
+	recalc_fit_children_sizing(root)
 	position_boxes(root)
+	// Handle dragging the open window(s)
+	if ui_state.dragged_window != nil { 
+		container := ui_state.dragged_window
+		actual_id := container.id
+
+		mouse_delta_x := f32(app.mouse.pos.x - app.mouse_last_frame.pos.x) 
+		mouse_delta_y := f32(app.mouse.pos.y - app.mouse_last_frame.pos.y) 
+
+		// This will break if the containers parent width and height arent fixed / arent
+		// calculated before the child is. Which is often the case with our bottom up sizing passes.
+		width_diff := f32(container.parent.width - container.width)
+		height_diff := f32(container.parent.height - container.height)
+
+
+		// Given as a f32 from 0 - 1 since that's how floating box positioning works.
+		parent_offset_delta_x:= f32(mouse_delta_x) / width_diff
+		parent_offset_delta_y:= f32(mouse_delta_y) / height_diff
+
+		ui_state.draggable_window_offsets[actual_id] += {parent_offset_delta_x, parent_offset_delta_y}
+	} 
+	flow_z_positions(root)
 	compute_frame_signals(root)
 	return root
 }

@@ -33,6 +33,7 @@ App_API :: struct {
 	init_window:       proc(),
 	create_gl_context: proc(),
 	load_gl_procs:     proc(),
+	unload_miniaudio:  proc(),
 	update:            proc() -> bool,
 	memory:            proc() -> rawptr,
 	memory_size:       proc() -> int,
@@ -71,6 +72,17 @@ when PROFILING {
 }
 
 api: App_API
+
+main :: proc() {
+	when MODE_HOT_RELOAD {
+		run_hot_reload_mode()
+	}
+
+	// Can't figure out how to profile in hot-reload debug mode so we only profile in release mode.
+	when MODE_RELEASE {
+		run_release_mode()
+	}
+}
 
 run_release_mode :: proc() {
 	when ODIN_DEBUG {
@@ -114,17 +126,6 @@ run_release_mode :: proc() {
 	app.app_shutdown()
 }
 
-main :: proc() {
-	when MODE_HOT_RELOAD {
-		run_hot_reload_mode()
-	}
-
-	// Can't figure out how to profile in hot-reload debug mode so we only profile in release mode.
-	when MODE_RELEASE {
-		run_release_mode()
-	}
-}
-
 run_hot_reload_mode :: proc() {
 	when ODIN_DEBUG {
 		track: mem.Tracking_Allocator
@@ -149,7 +150,10 @@ run_hot_reload_mode :: proc() {
 	api.init()
 	for {
 		if should_reload() {
-			println("need to reload")
+			println("unloading miniaudio")
+			api.unload_miniaudio()
+			// time.sleep(time.Millisecond * 2000)
+			println("done unloading miniaudio")
 			old_mem := api.memory()
 			load_dll()
 			api.hot_reload(old_mem)
