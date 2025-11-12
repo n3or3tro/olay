@@ -1,14 +1,15 @@
 package app
-import os "core:os/os2"
-import "core:sort"
 import "base:intrinsics"
+import "core:sort"
 
-import "core:encoding/base32"
 import "core:strconv"
 import str "core:strings"
 import "core:text/edit"
 import "core:unicode"
 import sdl "vendor:sdl2"
+import md5 "core:crypto/legacy/md5"
+import "core:bytes"
+import "core:hash"
 
 slider_value: f32 = 0
 
@@ -19,7 +20,7 @@ text :: proc(id_string: string, config: Box_Config) -> Box_Signals {
 	return box_signals(b)
 }
 
-button_text :: proc(id_string: string, config: Box_Config) -> Box_Signals {
+text_button :: proc(id_string: string, config: Box_Config) -> Box_Signals {
 	box := box_from_cache(id_string, {.Clickable, .Active_Animation, .Draw, .Text_Center, .Draw_Text}, config)
 	return box_signals(box)
 }
@@ -30,20 +31,17 @@ button :: proc(id_string: string, config: Box_Config) -> Box_Signals {
 }
 
 // A container that automatically opens for children and closes at the end of the scope it's called in.
-@(deferred_out=box_close_children)
-child_container :: proc(id_string: string, config: Box_Config, child_layout:Box_Child_Layout, extra_flags := Box_Flags{}) -> Box_Signals {
+@(deferred_out = box_close_children)
+child_container :: proc(
+	id_string: string,
+	config: Box_Config,
+	child_layout: Box_Child_Layout,
+	extra_flags := Box_Flags{},
+) -> Box_Signals {
 	box := box_from_cache(id_string, {.Draw} + extra_flags, config)
 	box_open_children(box, child_layout)
 	return box_signals(box)
 }
-
-// // A container that automatically opens for children but doesn't close. Necessary in cases where you want to create
-// container :: proc(id_string: string, config: Box_Config, child_layout:Box_Child_Layout) -> Box_Signals {
-// 	box := box_from_cache(id_string, {.Draw}, config)
-// 	box_open_children(box, child_layout)
-// 	return box_signals(box)
-// }
-
 
 Track_Steps_Signals :: struct {
 	volume, pitch, send1, send2: Box_Signals,
@@ -56,12 +54,10 @@ Track_Signals :: struct {
 	controller: Track_Controller_Signals,
 }
 
-
-
 Edit_Text_State :: struct {
 	selection:  [2]int,
 	// The Odin package `text/edit` state.
-	edit_state: edit.State,
+	// edit_state: edit.State,
 	// Could maybe store the string data here, but we'll store it in the box for now.
 }
 
@@ -69,31 +65,41 @@ Text_Box_Type :: enum {
 	Generic_One_Line,
 	Pitch,
 	Volume,
-	Send,
+	Send1,
+	Send2,
 	Generic_Number,
 	Multi_Line,
 }
 
-audio_track :: proc(track_num: u32, track_width: f32) -> Track_Signals {
+audio_track :: proc(track_num: int, track_width: f32) -> Track_Signals {
 	track := &app.audio.tracks[track_num]
-	n_steps: f32 = 32
+	n_steps := 32
 	track_container := child_container(
 		id("@track-{}-container", track_num),
 		{semantic_size = {{.Fixed, track_width}, {.Percent, 1}}},
-		{direction = .Vertical, gap_vertical = 3}
+		{direction = .Vertical, gap_vertical = 3},
 	)
+
+	track_label: {
+		child_container(
+			id("@track-{}-label-container", track_num),
+			{semantic_size = {{.Fixed, track_width}, {.Fit_Children, 1}}, padding = {left = 30}},
+			{direction = .Horizontal, alignment_horizontal = .Center, alignment_vertical = .Center},
+		)
+		text(id("{} - @track-{}-num", track_num, track_num), {semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}}})
+		edit_text_box(
+			id("@track-{}-name", track_num),
+			{semantic_size = {{.Grow, 1}, {.Fixed, 50}}, background_color = {0.5, 0.2, 0.345, 0.2}},
+			.Generic_One_Line,
+		)
+	}
 
 	step_signals: Track_Steps_Signals
 	steps: {
 		child_container(
 			id("@track-steps-container-{}", track_num),
-			{
-				semantic_size = {{.Fixed, track_width}, {.Percent, 0.7}}, 
-				background_color = {1, 0.5, 1, 1}
-			},
-			{
-				direction = .Vertical, gap_vertical = 0
-			}
+			{semantic_size = {{.Fixed, track_width}, {.Percent, 0.7}}, background_color = {1, 0.5, 1, 1}},
+			{direction = .Vertical, gap_vertical = 0},
 		)
 
 		substep_config: Box_Config = {
@@ -101,61 +107,96 @@ audio_track :: proc(track_num: u32, track_width: f32) -> Track_Signals {
 			background_color = {1, 0.5, 0, 1},
 			border_thickness = 1,
 			border_color     = {0, 0, 0.5, 1},
-			type			 = .Track_Step,
+			type             = .Track_Step,
 		}
-		substep_extra_flags := Box_Flags{.Draw_Border}
-		for i in 0 ..< 30 {
+		substep_extra_flags := Box_Flags{.Draw_Border, .Track_Step}
+
+		for i in 0 ..< N_TRACK_STEPS {
 			child_container(
 				id("@track-{}-row-{}-steps-container", track_num, i),
-				{
-					semantic_size = {{.Fixed, track_width}, 
-					{.Percent, f32(1) / 32.0}}
-				},
-				{direction = .Horizontal, gap_horizontal = 0}
+				{semantic_size = {{.Fixed, track_width}, {.Percent, f32(1) / N_TRACK_STEPS}}},
+				{direction = .Horizontal, gap_horizontal = 0},
 			)
-			edit_text_box(
+
+			pitch_box := edit_text_box(
 				id("@track-{}-pitch-step-{}", track_num, i),
 				substep_config,
 				.Pitch,
 				substep_extra_flags,
+				metadata = Metadata_Track_Step {
+					track = track_num,
+					step  = i,
+					type  = .Pitch,
+				}
 			)
-			edit_number_box(id("@track-{}-volume-step-{}", track_num, i), substep_config, 0, 100, .Volume,  substep_extra_flags)
-			edit_number_box(id("@track-{}-send1-step-{}", track_num, i), substep_config, 0, 100, .Send, substep_extra_flags)
-			edit_number_box(id("@track-{}-send2-step-{}", track_num, i), substep_config, 0, 100, .Send, substep_extra_flags)
+
+			volume_box := edit_number_box(
+				id("@track-{}-volume-step-{}", track_num, i),
+				substep_config,
+				0,
+				100,
+				substep_extra_flags,
+				Metadata_Track_Step {
+					track = track_num,
+					step  = i,
+					type  = .Volume,
+				}
+			)
+
+			send1_box := edit_number_box(
+				id("@track-{}-send1-step-{}", track_num, i),
+				substep_config,
+				0,
+				100,
+				substep_extra_flags,
+				Metadata_Track_Step {
+					track = track_num,
+					step  = i,
+					type  = .Send1,
+				}
+			)
+
+			send2_box := edit_number_box(
+				id("@track-{}-send2-step-{}", track_num, i),
+				substep_config,
+				0,
+				100,
+				substep_extra_flags,
+				Metadata_Track_Step {
+					track = track_num,
+					step  = i,
+					type  = .Send2,
+				}
+			)
+
+			if pitch_box.double_clicked ||
+			   volume_box.double_clicked ||
+			   send1_box.double_clicked ||
+			   send2_box.double_clicked {
+				box_siblings_toggle_select(pitch_box.box^)
+			}
 		}
 	}
 
 	controls: {
 		controls_container := child_container(
 			id("@track-{}-controls-container", track_num),
-			{
-				semantic_size = {{.Fixed, track_width}, {.Percent, 0.3}}, 
-				background_color = {0.5, 0.7, 0.4, 1}
-			},
-			{
-				direction = .Horizontal, 
-				alignment_horizontal = .Start, 
-				alignment_vertical = .End
-			},
+			{semantic_size = {{.Fixed, track_width}, {.Percent, 0.3}}, background_color = {0.5, 0.7, 0.4, 1}},
+			{direction = .Horizontal, alignment_horizontal = .Start, alignment_vertical = .End},
 		)
-		arm_button := button_text(
+		arm_button := text_button(
 			id("arm@track-{}-arm-button", track_num),
-			{
-				semantic_size = {{.Percent, 0.333}, {.Fixed, 30}}, 
-				background_color = {1, 1, 0, 1}
-			},
+			{semantic_size = {{.Percent, 0.333}, {.Fixed, 30}}, background_color = {1, 1, 0, 1}},
 		)
 		// printfln("This track volume is: {}", track.volume)
 		volume_slider := vertical_slider(
-			id("hey@track-{}-volume-slider", track_num), 
-			{
-				semantic_size = {{.Percent, 0.333}, {.Grow, 30}}, 
-			},
+			id("hey@track-{}-volume-slider", track_num),
+			{semantic_size = {{.Percent, 0.333}, {.Grow, 30}}},
 			&track.volume,
 			0,
 			100,
 		)
-		load_sound_button := button_text(
+		load_sound_button := text_button(
 			id("load@track-{}-load-sound-button", track_num),
 			{semantic_size = {{.Percent, 0.333}, {.Fixed, 30}}, background_color = {1, 0, 0.5, 1}},
 		)
@@ -163,12 +204,28 @@ audio_track :: proc(track_num: u32, track_width: f32) -> Track_Signals {
 	return Track_Signals{step_signals, {}}
 }
 
+/*
+Takes in any box and activates that box and all of it's siblings.
+*/
+box_siblings_toggle_select :: proc(box: Box) {
+	for sibling in box.parent.children {
+		sibling.selected = !sibling.selected
+	}
+}
+
+box_siblings_set_select :: proc(box: Box, activate: bool) {
+	for sibling in box.parent.children {
+		sibling.selected = activate
+	}
+}
+
 edit_number_box :: proc(
 	id_string: string,
 	config: Box_Config,
 	min_val, max_val: int,
-	text_box_type: Text_Box_Type,
+	// text_box_type: Text_Box_Type,
 	extra_flags := Box_Flags{},
+	metadata := Box_Metadata{},
 ) -> Box_Signals {
 	handle_input :: proc(state: ^Edit_Text_State, editor: ^edit.State, box: ^Box, min_val, max_val: int) -> string {
 		for i := u32(0); i < app.curr_chars_stored; i += 1 {
@@ -191,12 +248,14 @@ edit_number_box :: proc(
 				curr_val := strconv.atoi(curr_str_val)
 				new_val := min(curr_val + 1, max_val)
 				res_buffer := make([]byte, 50, context.temp_allocator)
+				app.curr_chars_stored = 0
 				return strconv.itoa(res_buffer, new_val)
 			case .DOWN:
 				curr_str_val := str.to_string(editor.builder^)
 				curr_val := strconv.atoi(curr_str_val)
 				new_val := max(curr_val - 1, min_val)
 				res_buffer := make([]byte, 10, context.temp_allocator)
+				app.curr_chars_stored = 0
 				return strconv.itoa(res_buffer, new_val)
 			case:
 				char := rune(keycode)
@@ -222,57 +281,122 @@ edit_number_box :: proc(
 		return str.to_string(editor.builder^)
 	}
 
-	text_container := box_from_cache(id_string, {.Clickable, .Draw, .Draw_Text, .Edit_Text} + extra_flags, config)
-	if text_container.first_frame { 
-		if text_box_type == .Volume { 
-			text_container.data = str.clone("50")
+	flags: Box_Flags
+	if step_metadata, ok := metadata.(Metadata_Track_Step); ok {
+		flags = {.Track_Step}
+	}
+
+	box_signals := child_container(
+		id_string,
+		config,
+		{direction = .Horizontal},
+		{.Clickable, .Draw, .Draw_Text, .Edit_Text} + extra_flags + flags,
+	)
+	box := box_signals.box
+	box.metadata = metadata
+
+	// If this widget is for an audio track step, and we're creating it for the first time (like after switching tabs),
+	// pull it's value from the audio state.
+	if box.first_frame { 
+		tmp_buf : [32]byte
+		if step_metadata, ok := metadata.(Metadata_Track_Step); ok { 
+			track_num := step_metadata.track
+			step_num := step_metadata.step
+			switch step_metadata.type {
+			case .Volume:
+				curr_volume := int(app.audio.tracks[track_num].volumes[step_num])
+				box.data = str.clone(strconv.itoa(tmp_buf[:], curr_volume))
+			case .Send1:
+				curr_send1 := int(app.audio.tracks[track_num].send1[step_num])
+				box.data = str.clone(strconv.itoa(tmp_buf[:], curr_send1))
+			case .Send2:
+				curr_send2 := int(app.audio.tracks[track_num].send2[step_num])
+				box.data = str.clone(strconv.itoa(tmp_buf[:], curr_send2))
+			case .Pitch:
+				panic("Set type = .Pitch in Box_Metadata when creating a number box.")
+			}
+		} else { 
+			box.data = str.clone(strconv.itoa(tmp_buf[:], min_val))
 		}
-		if text_box_type == .Send {
-			text_container.data = str.clone("0")
+	} else { // box.data should be populated if it's existed before
+		if box.data == "" {
+			panic(tprintf("It wasn't the first frame and box.data for {} was == \"\"", box.id))
 		}
 	}
-	box_open_children(text_container, {direction = .Horizontal})
-	container_signals := box_signals(text_container)
-	defer box_close_children(container_signals)
 
-	if ui_state.last_active_box != text_container do return container_signals
+	if box_signals.clicked {
+		box.active = !box.active
+	}
+	if ui_state.last_active_box != box do return box_signals
 
 	// All text/edit state and the string buffers used when editing are temporary,
 	// So we need to permanently allocate the resulting final string at some point so it can
 	// be stored across frames. We also need to store each text editors state across frames.
+	builder:= str.builder_make()
 	editor: edit.State
-	edit.init(&editor, context.temp_allocator, context.temp_allocator)
-	builder := str.builder_make(context.temp_allocator)
-	str.write_string(&builder, text_container.data)
+	edit.init(&editor, context.allocator, context.allocator)
 	edit.setup_once(&editor, &builder)
 	edit.begin(&editor, 0, &builder)
+	edit.input_text(&editor, box.data)
 
 	existing_edit_box := true
-	actual_id := get_id_from_id_string(id_string)
-	if !(actual_id in ui_state.text_editors_state) {
-		ui_state.text_editors_state[actual_id] = Edit_Text_State{}
-		text_container.data = "0"
+	if !(box.id in ui_state.text_editors_state) {
+		ui_state.text_editors_state[box.id] = Edit_Text_State{}
 		existing_edit_box = false
 	}
-	state := &ui_state.text_editors_state[actual_id]
+	state := &ui_state.text_editors_state[box.id]
 	editor.selection = state.selection
 
 	new_data: string
-	new_data = handle_input(state, &editor, text_container, min_val, max_val)
-	if existing_edit_box && len(text_container.data) > 0 {
-		delete(text_container.data)
+	new_data = handle_input(state, &editor, box, min_val, max_val)
+
+	tmp_buf: [50]byte
+	new_data_as_int := strconv.atoi(new_data)
+	if  new_data_as_int > max_val {
+		new_data = strconv.itoa(tmp_buf[:], max_val)
+	} else if new_data_as_int < min_val {
+		new_data = strconv.itoa(tmp_buf[:], min_val)
 	}
-	text_container.data = str.clone(new_data)
+	// Unlike pitches, we can basically always immediately update the audio state for 
+	// a step whose value is a number because we clip the number to range on each
+	// keystroke.
+	if step_metadata, ok := box.metadata.(Metadata_Track_Step); ok { 
+		// Convert again incase we range-bounded the value in the prev conditional.
+		new_num := strconv.atoi(new_data)
+		track := step_metadata.track
+		step := step_metadata.step
+		switch step_metadata.type { 
+		case .Volume:
+			app.audio.tracks[track].volumes[step] = new_num
+		case .Send1:
+			app.audio.tracks[track].send1[step] = new_num
+		case .Send2:
+			app.audio.tracks[track].send2[step] = new_num
+		case .Pitch:
+			panic("This shouldn't happen :)")
+		}
+	} else { 
+	}
+
+	if existing_edit_box && len(box.data) > 0 {
+		println("[B DELETE]", box.id, "old data:", box.data, "old ptr:", raw_data(box.data))
+		delete(box.data)
+	}
+	box.data = str.clone(new_data)
+	println("[C SET]", box.id, "new data:", box.data, "new ptr:", raw_data(box.data), "from new_data:", new_data)
+
 	edit.end(&editor)
 	edit.destroy(&editor)
-	return container_signals
+	return box_signals
 }
 
 edit_text_box :: proc(
 	id_string: string,
 	config: Box_Config,
+	// Don't like having both text_box_type and metadata args...
 	text_box_type: Text_Box_Type,
 	extra_flags := Box_Flags{},
+	metadata := Box_Metadata{},
 ) -> Box_Signals {
 	// Handles input and returns the new string from the editor.
 	handle_generic_single_line_input :: proc(state: ^Edit_Text_State, editor: ^edit.State, box: ^Box) -> string {
@@ -354,37 +478,63 @@ edit_text_box :: proc(
 		return str.to_string(editor.builder^)
 	}
 
-	text_container := box_from_cache(id_string, {.Clickable, .Draw, .Draw_Text, .Edit_Text} + extra_flags, config)
-	// Set default data if it's the first time this edit box was created.
-	if text_container.first_frame { 
-		if text_box_type == .Pitch { 
-			text_container.data = str.clone("C3")
+	text_container_signals := child_container(
+		id_string,
+		config,
+		{direction = .Horizontal},
+		{.Clickable, .Draw, .Draw_Text, .Edit_Text} + extra_flags,
+	)
+	text_container := text_container_signals.box
+
+	if text_box_type == .Pitch {
+		if step_metadata, ok := metadata.(Metadata_Track_Step); ok { 
+			text_container.metadata = metadata
+		} else { 
+			panic("When trying to create a edit_text_box, passed in the wrong metadata type.")
+		}
+		if text_container.first_frame {
+			println("pulling text_container.data from audio state pitch")
+			// Pull data from audio state, as it's the source of truth.
+			track_num := text_container.metadata.(Metadata_Track_Step).track
+			step_num := text_container.metadata.(Metadata_Track_Step).step
+			text_container.data = str.clone(get_note_from_num(app.audio.tracks[track_num].pitches[step_num]))
 		}
 	}
-	box_open_children(text_container, {direction = .Horizontal})
-	container_signals := box_signals(text_container)
-	defer box_close_children(container_signals)
 
-	if ui_state.last_active_box != text_container do return container_signals
+	if ui_state.last_active_box != text_container do return text_container_signals
 
 	// All text/edit state and the string buffers used when editing are temporary,
 	// So we need to permanently allocate the resulting final string at some point so it can
 	// be stored across frames. We also need to store each text editors state across frames.
+
+	// builder := str.builder_make()
+	// editor: edit.State
+
+	// Not sure if generating a unique ID is neccessary, but we shall do it anyway for now.
+	// bytes_buffer: bytes.Buffer
+	// defer bytes.buffer_destroy(&bytes_buffer)
+	// bytes.buffer_init_string(&bytes_buffer, id_string)
+	// byts := bytes.buffer_to_bytes(&bytes_buffer)
+	// editor_id := u64(hash.crc32(byts))
+
+	// edit.init(&editor, context.allocator, context.allocator)
+	// edit.setup_once(&editor, &builder)
+	// edit.begin(&editor, editor_id, &builder)
+	// edit.input_text(&editor, text_container.data)
+
+	builder := str.builder_make()
 	editor: edit.State
-	edit.init(&editor, context.temp_allocator, context.temp_allocator)
-	builder := str.builder_make(context.temp_allocator)
-	str.write_string(&builder, text_container.data)
-	edit.setup_once(&editor, &builder)
+	edit.init(&editor, context.allocator, context.allocator)
+	// edit.setup_once(&editor, &builder)
 	edit.begin(&editor, 0, &builder)
-
-
+	edit.input_text(&editor, text_container.data)
+	
 	existing_edit_box := true
-	actual_id := get_id_from_id_string(id_string)
-	if !(actual_id in ui_state.text_editors_state) {
-		ui_state.text_editors_state[actual_id] = Edit_Text_State{}
+	if !(text_container.id in ui_state.text_editors_state) {
+		ui_state.text_editors_state[text_container.id] = Edit_Text_State{}
 		existing_edit_box = false
 	}
-	state := &ui_state.text_editors_state[actual_id]
+	state := &ui_state.text_editors_state[text_container.id]
 	editor.selection = state.selection
 
 	new_data: string
@@ -393,6 +543,14 @@ edit_text_box :: proc(
 		new_data = handle_generic_single_line_input(state, &editor, text_container)
 	case .Pitch:
 		new_data = handle_pitch_input(state, &editor, text_container)
+		// Only update audio state if the string the user entered, actually represents a valid pitch.
+		// If not, the last valid pitch is still the current pitch, regardless if the textbox says
+		// something like: Y#4
+		if valid_pitch(new_data) {
+			track_num := text_container.metadata.(Metadata_Track_Step).track
+			step_num := text_container.metadata.(Metadata_Track_Step).step
+			app.audio.tracks[track_num].pitches[step_num] = get_pitch_from_note(new_data)
+		}
 	}
 
 	if existing_edit_box && len(text_container.data) > 0 {
@@ -400,9 +558,10 @@ edit_text_box :: proc(
 	}
 
 	text_container.data = str.clone(new_data)
+
 	edit.end(&editor)
 	edit.destroy(&editor)
-	return container_signals
+	return text_container_signals
 }
 
 Slider_Signals :: struct {
@@ -418,9 +577,9 @@ vertical_slider :: proc(
 	max_val: f32,
 ) -> Slider_Signals {
 	child_container(
-		id("{}-container", get_id_from_id_string(id_string)), 
-		config, 
-		{direction = .Vertical, alignment_horizontal = .Center}
+		id("{}-container", get_id_from_id_string(id_string)),
+		config,
+		{direction = .Vertical, alignment_horizontal = .Center},
 	)
 	track := box_from_cache(
 		id("{}-track", get_id_from_id_string(id_string)),
@@ -448,7 +607,7 @@ vertical_slider :: proc(
 			slider_value^ = clamp(slider_value^ - 1, min_val, max_val)
 		} else if track_signals.scrolled_down || grip_signals.scrolled_down {
 			slider_value^ = clamp(slider_value^ + 1, min_val, max_val)
-		} else { 
+		} else {
 			printfln("neither scrolled up NOR down :(")
 		}
 		printfln("slider value after scroll: {}", slider_value^)
@@ -467,12 +626,7 @@ topbar :: proc() {
 			background_color = {1, 1, 1, 0.8},
 			// padding = {top = 10, bottom = 5},
 		},
-		{
-			direction = .Horizontal, 
-			alignment_horizontal = .End,
-			alignment_vertical = .Center,
-			gap_horizontal = 5
-		}
+		{direction = .Horizontal, alignment_horizontal = .End, alignment_vertical = .Center, gap_horizontal = 5},
 	)
 	btn_config := Box_Config {
 		semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}},
@@ -480,17 +634,17 @@ topbar :: proc() {
 		corner_radius = 5,
 		padding = {top = 7, bottom = 7, left = 2, right = 2},
 	}
-	if button_text("Default layout@top-bar-default", btn_config).clicked {
+	if text_button("Default layout@top-bar-default", btn_config).clicked {
 		ui_state.tab_num = 0
 		ui_state.changed_ui_screen = true
 	}
-	if button_text("Test layout@top-bar-test", btn_config).clicked {
+	if text_button("Test layout@top-bar-test", btn_config).clicked {
 		ui_state.tab_num = 1
 		ui_state.changed_ui_screen = true
 	}
 	side_bar_btn_id :=
 		ui_state.sidebar_shown ? "Close sidebar@top-bar-sidebar-close" : "Open sidebar@top-bar-sidebar-open"
-	if button_text(side_bar_btn_id, btn_config).clicked {
+	if text_button(side_bar_btn_id, btn_config).clicked {
 		ui_state.sidebar_shown = !ui_state.sidebar_shown
 	}
 
@@ -500,69 +654,68 @@ topbar :: proc() {
 	Used for radio buttons and checkbox groups only allows for strings or number arguments for now.
 */
 multi_button_set :: proc(
-					id_string: string, config: Box_Config, child_layout: Box_Child_Layout, 
-					exclusive: bool = true, values: []$T, allocator:=context.allocator
-				) -> [dynamic]T 
-				where intrinsics.type_is_string(T) || intrinsics.type_is_numeric(T) 
-{ 
+	id_string: string,
+	config: Box_Config,
+	child_layout: Box_Child_Layout,
+	exclusive: bool = true,
+	values: []$T,
+	allocator := context.allocator,
+) -> [dynamic]T where intrinsics.type_is_string(T) ||
+	intrinsics.type_is_numeric(T) {
 	set_id := get_id_from_id_string(id_string)
-	child_container(
-		id("@{}-container", set_id), 
-		config,
-		child_layout,
-	)
+	child_container(id("@{}-container", set_id), config, child_layout)
 
-	Res_Type :: struct { 
+	Res_Type :: struct {
 		signals: Box_Signals,
-		value: T
+		value:   T,
 	}
 	buttons := make([]Res_Type, len(values), context.temp_allocator)
 
 	// --- Draw buttons and store them in a buffer so we can query their signals.
-	for value, i in values { 
-		child_container(id("@{}-item-{}", set_id, i), {}, {direction= .Horizontal, gap_horizontal = 5})
-		b:=button(
-			tprintf("@{}-button-{}", value, set_id, i), 
+	for value, i in values {
+		child_container(id("@{}-item-{}", set_id, i), {}, {direction = .Horizontal, gap_horizontal = 5})
+		b := button(
+			tprintf("@{}-button-{}", value, set_id, i),
 			{
-				semantic_size={{.Fit_Text, 1}, {.Fit_Text, 1}},
-				padding={10, 10, 10, 10}, 
-				background_color={.5,.7,.8,1}
-			}
+				semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}},
+				padding = {10, 10, 10, 10},
+				background_color = {.5, .7, .8, 1},
+			},
 		)
 		val_str_buf := make([]u8, 50, context.temp_allocator)
-		val_as_str : string
-		if intrinsics.type_is_numeric(T) { 
-			if intrinsics.type_is_float(T) { 
+		val_as_str: string
+		if intrinsics.type_is_numeric(T) {
+			if intrinsics.type_is_float(T) {
 				// format strings are inefficient.
 				val_as_str = tprintf("{}", value)
-			} else if  intrinsics.type_is_integer(T) { 
+			} else if intrinsics.type_is_integer(T) {
 				val_as_str = strconv.itoa(val_str_buf, value)
 			}
 		}
-		text(id("{}@{}-text-{}", val_as_str, set_id, i), {semantic_size={{.Fit_Text, 1}, {.Fit_Text, 1}}})
-		buttons[i] = {b, value} 
+		text(id("{}@{}-text-{}", val_as_str, set_id, i), {semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}}})
+		buttons[i] = {b, value}
 	}
 
 	/*
 		If this is NOT the first frame this button set has existed, there's a chance some of the buttons have been 
 		selected, in which case, we visually indicate this..
 	*/
-	for button in buttons { 
-		if button.signals.box.selected { 
+	for button in buttons {
+		if button.signals.box.selected {
 			button.signals.box.config.background_color = {1, 0.5, 1, 1}
 		}
 	}
 
 	results := make([dynamic]T, allocator)
-	for button in buttons { 
+	for button in buttons {
 		if button.signals.clicked {
 			button.signals.box.selected = !button.signals.box.selected
 			if button.signals.box.selected {
 				append(&results, button.value)
 				if exclusive {
 					// --- 'Switch off' sibling radio buttons.
-					for other_button in buttons { 
-						if button != other_button { 
+					for other_button in buttons {
+						if button != other_button {
 							other_button.signals.box.selected = false
 						}
 					}
@@ -574,67 +727,104 @@ multi_button_set :: proc(
 	return results
 }
 
+set_nth_child_select :: proc(track_num, nth: int, selected: bool) {
+	// Is inefficient to traverse all boxes in the UI but should be okay for now.
+	root, ok := ui_state.box_cache["root"]
+	if !ok {
+		panic("Failed to get box with id 'root'")
+	}
+	boxes := box_tree_to_list(root, context.temp_allocator)
+	for box in boxes {
+		switch metadata in box.metadata {
+		case Metadata_Track_Step:
+			if metadata.track != track_num do continue
+			if metadata.step % nth == 0 do box.selected = selected
+		}
+	}
+}
+
 context_menu :: proc() {
-	track_steps_context_menu :: proc() { 
+	track_steps_context_menu :: proc(box: ^Box) {
 		btn_height: f32 = 30
-		add_button := button_text(
+		add_button := text_button(
 			"add@conext-menu-1",
 			{
-				semantic_size = {{.Grow, 1}, {.Fit_Text, btn_height}}, 
+				semantic_size = {{.Grow, 1}, {.Fit_Text, btn_height}},
 				background_color = {1, 0.5, 0.7, 1},
-				padding = {10,10,10,10},
+				padding = {10, 10, 10, 10},
 			},
 		)
 
-		remove_button := button_text(
+		remove_button := text_button(
 			"remove@conext-menu-2",
 			{
-				semantic_size = {{.Fit_Text, 1}, {.Fit_Text, btn_height}}, 
+				semantic_size = {{.Fit_Text, 1}, {.Fit_Text, btn_height}},
 				background_color = {1, 0.7, 0.3, 1},
-				padding = {10,10,10,10},
+				padding = {10, 10, 10, 10},
 			},
 		)
 		add_submenu_id := "@add-step-hover-container"
 		add_submenu_hovered := false
-		if submenu_box, ok := ui_state.box_cache[add_submenu_id[1:]]; ok { 
+		if submenu_box, ok := ui_state.box_cache[add_submenu_id[1:]]; ok {
 			add_submenu_hovered = mouse_inside_box(submenu_box, app.mouse.pos)
 		}
-		if add_button.hovering || add_submenu_hovered { 
-			hover_container := child_container(add_submenu_id, 
+		if add_button.hovering || add_submenu_hovered {
+			hover_container := child_container(
+				add_submenu_id,
 				{
 					position_floating = .Absolute_Pixel,
-					position_floating_offset = {
-						f32(add_button.box.bottom_right.x),
-						f32(add_button.box.top_left.y),
-					},
+					position_floating_offset = {f32(add_button.box.bottom_right.x), f32(add_button.box.top_left.y)},
 					semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}},
 					z_index = 20,
 				},
-				{
-					direction =.Vertical,
-					gap_vertical = 2,
-				},
-				{.Clickable}
+				{direction = .Vertical, gap_vertical = 2},
+				{.Clickable},
 			)
-			btn_config := Box_Config { 
-				semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}},
+			btn_config := Box_Config {
+				semantic_size    = {{.Fit_Text, 1}, {.Fit_Text, 1}},
 				background_color = {0.734, 0.9235, 0.984, 1},
-				padding = {10, 10, 10, 10},
-			}			
-			button_text("Every 2nd@context-add-2nd", btn_config)
-			button_text("Every 3rd@context-add-3rd", btn_config)
-			button_text("Every 4th@context-add-4th", btn_config)
-			button_text("Every 6th@context-add-6th", btn_config)
-			button_text("Every 8th@context-add-8th", btn_config)
+				padding          = {10, 10, 10, 10},
+			}
+			if text_button("All steps@context-add-all", btn_config).clicked {
+				track_num := box.metadata.(Metadata_Track_Step).track
+				set_nth_child_select(track_num, 1, true)
+				ui_state.clicked_on_context_menu = true
+			}
+			if text_button("Every 2nd@context-add-2nd", btn_config).clicked {
+				track_num := box.metadata.(Metadata_Track_Step).track
+				set_nth_child_select(track_num, 2, true)
+				ui_state.clicked_on_context_menu = true
+			}
+			if text_button("Every 3rd@context-add-3rd", btn_config).clicked {
+				track_num := box.metadata.(Metadata_Track_Step).track
+				set_nth_child_select(track_num, 3, true)
+				ui_state.clicked_on_context_menu = true
+			}
+			if text_button("Every 4th@context-add-4th", btn_config).clicked {
+				track_num := box.metadata.(Metadata_Track_Step).track
+				set_nth_child_select(track_num, 4, true)
+				ui_state.clicked_on_context_menu = true
+			}
+			if text_button("Every 6th@context-add-6th", btn_config).clicked {
+				track_num := box.metadata.(Metadata_Track_Step).track
+				set_nth_child_select(track_num, 6, true)
+				ui_state.clicked_on_context_menu = true
+			}
+			if text_button("Every 8th@context-add-8th", btn_config).clicked {
+				track_num := box.metadata.(Metadata_Track_Step).track
+				set_nth_child_select(track_num, 8, true)
+				ui_state.clicked_on_context_menu = true
+			}
 		}
 
 		remove_submenu_id := "@remove-step-hover-container"
 		remove_submenu_hovered := false
-		if submenu_box, ok := ui_state.box_cache[remove_submenu_id[1:]]; ok { 
+		if submenu_box, ok := ui_state.box_cache[remove_submenu_id[1:]]; ok {
 			remove_submenu_hovered = mouse_inside_box(submenu_box, app.mouse.pos)
 		}
-		if remove_button.hovering || remove_submenu_hovered { 
-			hover_container := child_container(remove_submenu_id, 
+		if remove_button.hovering || remove_submenu_hovered {
+			hover_container := child_container(
+				remove_submenu_id,
 				{
 					position_floating = .Absolute_Pixel,
 					position_floating_offset = {
@@ -644,34 +834,59 @@ context_menu :: proc() {
 					semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}},
 					z_index = 20,
 				},
-				{
-					direction =.Vertical,
-					gap_vertical = 2,
-				},
-				{.Clickable}
+				{direction = .Vertical, gap_vertical = 2},
+				{.Clickable},
 			)
-			btn_config := Box_Config { 
-				semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}},
+			btn_config := Box_Config {
+				semantic_size    = {{.Fit_Text, 1}, {.Fit_Text, 1}},
 				background_color = {0.934, 0.135, 0.484, 1},
-				padding = {10, 10, 10, 10},
-			}			
-			button_text("Every 2nd@context-remove-2nd", btn_config)
-			button_text("Every 3rd@context-remove-3rd", btn_config)
-			button_text("Every 4th@context-remove-4th", btn_config)
-			button_text("Every 6th@context-remove-6th", btn_config)
-			button_text("Every 8th@context-remove-8th", btn_config)
+				padding          = {10, 10, 10, 10},
+			}
+			if text_button("All steps@context-remove-all", btn_config).clicked {
+				track_num := box.metadata.(Metadata_Track_Step).track
+				set_nth_child_select(track_num, 1, false)
+				ui_state.clicked_on_context_menu = true
+			}
+			if text_button("Every 2nd@context-remove-2nd", btn_config).clicked {
+				track_num := box.metadata.(Metadata_Track_Step).track
+				set_nth_child_select(track_num, 2, false)
+				ui_state.clicked_on_context_menu = true
+			}
+			if text_button("Every 3rd@context-remove-3rd", btn_config).clicked {
+				track_num := box.metadata.(Metadata_Track_Step).track
+				set_nth_child_select(track_num, 3, false)
+				ui_state.clicked_on_context_menu = true
+			}
+			if text_button("Every 4th@context-remove-4th", btn_config).clicked {
+				track_num := box.metadata.(Metadata_Track_Step).track
+				set_nth_child_select(track_num, 4, false)
+				ui_state.clicked_on_context_menu = true
+			}
+			if text_button("Every 6th@context-remove-6th", btn_config).clicked {
+				track_num := box.metadata.(Metadata_Track_Step).track
+				set_nth_child_select(track_num, 6, false)
+				ui_state.clicked_on_context_menu = true
+
+			}
+			if text_button("Every 8th@context-remove-8th", btn_config).clicked {
+				track_num := box.metadata.(Metadata_Track_Step).track
+				set_nth_child_select(track_num, 8, false)
+				ui_state.clicked_on_context_menu = true
+
+			}
 		}
 
-		delete_track_button :=  button_text(
+		delete_track_button := text_button(
 			"delete@conext-menu-3",
 			{
-				semantic_size = {{.Grow, 1}, {.Fit_Text, btn_height}}, 
+				semantic_size = {{.Grow, 1}, {.Fit_Text, btn_height}},
 				background_color = {0.3, 0.7, 0.3, 1},
-				padding = {10,10,10,10},
+				padding = {10, 10, 10, 10},
 			},
-		) 
-		if delete_track_button.clicked { 
-			printfln("deletring track that contains {}",ui_state.right_clicked_on.id)
+		)
+		if delete_track_button.clicked {
+			track_delete(box.metadata.(Metadata_Track_Step).track)
+			printfln("deletring track that contains {}", ui_state.right_clicked_on.id)
 		}
 	}
 	context_menu_container := child_container(
@@ -687,11 +902,15 @@ context_menu :: proc() {
 		{direction = .Vertical, alignment_horizontal = .Center, gap_vertical = 3},
 	)
 
-	switch ui_state.right_clicked_on.config.type { 
-		case .None:
-			text("Context menu not implemented for this box type @ alskdjfalskdjfladf", {semantic_size={{.Fit_Text, 1}, {.Fit_Text, 1}}})
-		case .Track_Step:
-			track_steps_context_menu()
+	switch metadata in ui_state.right_clicked_on.metadata {
+	case Metadata_Track_Step:
+		println("right clicked on a track step")
+		track_steps_context_menu(ui_state.right_clicked_on)
+	case:
+		text(
+			"Context menu not implemented for this box type @ alskdjfalskdjfladf",
+			{semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}}},
+		)
 	}
 }
 
@@ -704,7 +923,7 @@ file_browser_menu :: proc() {
 			padding = {bottom = 5},
 			z_index = 10,
 		},
-		{direction = .Vertical}
+		{direction = .Vertical},
 	)
 	top_menu: {
 		child_container(
@@ -723,9 +942,9 @@ file_browser_menu :: proc() {
 			semantic_size    = {{.Fit_Text, 1}, {.Fit_Text, 1}},
 			corner_radius    = 0,
 		}
-		option_load := button_text("Add@browser-options-folder-button", btn_config)
-		option_sort := button_text("Sort@browser-options-sort-button", btn_config)
-		option_flip := button_text("Flip@browser-options-flip-button", btn_config)
+		option_load := text_button("Add@browser-options-folder-button", btn_config)
+		option_sort := text_button("Sort@browser-options-sort-button", btn_config)
+		option_flip := text_button("Flip@browser-options-flip-button", btn_config)
 		if option_load.clicked {
 			res, ok := file_dialog_windows(true, context.temp_allocator)
 			if !ok {
@@ -745,11 +964,8 @@ file_browser_menu :: proc() {
 	files_and_folders: {
 		child_container(
 			"@browser-files-container",
-			{
-				semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}}, 
-				background_color = {.5, .4, .2, 1}
-			},
-			{direction = .Vertical}
+			{semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}}, background_color = {.5, .4, .2, 1}},
+			{direction = .Vertical},
 		)
 
 		// Can see having issues with the index being in the id here.
@@ -770,26 +986,26 @@ file_browser_menu :: proc() {
 	}
 }
 
-@(deferred_out=box_close_children)
-draggable_window :: proc(id_string: string, child_layout:Box_Child_Layout) -> Box_Signals {
+@(deferred_out = box_close_children)
+draggable_window :: proc(id_string: string, child_layout: Box_Child_Layout) -> Box_Signals {
 	// Probably want to store window positions even when they're closed.
 	actual_id := get_id_from_id_string(id_string)
 	offset_from_parent := Vec2_f32{.5, .5}
-	if actual_id in ui_state.draggable_window_offsets { 
+	if actual_id in ui_state.draggable_window_offsets {
 		offset_from_parent = ui_state.draggable_window_offsets[actual_id]
 	} else {
 		ui_state.draggable_window_offsets[actual_id] = offset_from_parent
 	}
 	container := box_from_cache(
-			id_string, 
-			{},  
-			{
-				position_floating = .Relative_Parent,
-				position_floating_offset = offset_from_parent,
-				semantic_size = {{.Fit_Children, 1},{.Fit_Children, 1}},
-				z_index = 20,
-			}
-		)
+		id_string,
+		{},
+		{
+			position_floating = .Relative_Parent,
+			position_floating_offset = offset_from_parent,
+			semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}},
+			z_index = 20,
+		},
+	)
 	container_signals := box_signals(container)
 	box_open_children(container, child_layout)
 
@@ -797,19 +1013,19 @@ draggable_window :: proc(id_string: string, child_layout:Box_Child_Layout) -> Bo
 		id("Title bar@{}-title-bar", get_id_from_id_string(id_string)),
 		{.Draggable, .Clickable, .Draw_Text, .Draw},
 		{
-			semantic_size = {{.Grow, 100}, {.Fit_Text, 1}}, 
+			semantic_size = {{.Grow, 100}, {.Fit_Text, 1}},
 			padding = {top = 5, bottom = 5},
-			background_color = {.5,.2,.3,1},
+			background_color = {.5, .2, .3, 1},
 			z_index = container.z_index,
 		},
 	)
 
 	bar_signals := box_signals(title_bar)
 
-	if bar_signals.dragging { 
+	if bar_signals.dragging {
 		// printfln("dragging {}", container.id)
 		ui_state.dragged_window = container
-	} else { 
+	} else {
 		// printfln("NOT dragging {}", container.id)
 		ui_state.dragged_window = nil
 	}

@@ -9,8 +9,8 @@ import "core:unicode/utf8"
 import gl "vendor:OpenGL"
 import sdl "vendor:sdl2"
 
-WINDOW_HEIGHT :: 2000
-WINDOW_WIDTH :: 1500
+WINDOW_HEIGHT :: 1000
+WINDOW_WIDTH :: 500
 // Most children a box can have (created for alloc reasons, etc).
 MAX_CHILDREN :: 1024
 
@@ -111,6 +111,18 @@ Box_Size :: struct {
 	amount: f32,
 }
 
+Metadata_Track_Step :: struct { 
+	track: 	int,
+	step: 	int, 
+	type: 	enum { 
+		Pitch, Volume, Send1, Send2
+	}
+}
+
+Box_Metadata :: union {
+	Metadata_Track_Step
+}
+
 Box_Flag :: enum {
 	Clickable,
 	Scrollable,
@@ -121,6 +133,7 @@ Box_Flag :: enum {
 	Text_Left,
 	Text_Right,
 	Edit_Text,
+	Track_Step,
 	Draw_Border,
 	Draw_Background,
 	Draw_Drop_Shadow,
@@ -131,10 +144,6 @@ Box_Flag :: enum {
 	Fixed_Width,
 	Floating_X,
 	No_Offset, //
-}
-
-Box_Metadata :: enum {
-
 }
 
 // Used in places like context menu handling where we need to know what type of UI 
@@ -167,6 +176,9 @@ Box :: struct {
 	parent:       ^Box,
 	// For boxes that need data associated with them, e.g: edit_text_boxes.
 	data:         string,
+	// Temporary field I'm using while debugging tracker step mem corruption issue. 
+	// It will act as the backing buffer of the box.data string.
+	data_buffer:        [64]byte, // Delete after, don't use this in production.
 	width:        int,
 	height:       int,
 	top_left:     Vec2_int,
@@ -174,6 +186,7 @@ Box :: struct {
 	z_index:      int,
 	// next:         ^Box, // Sibling, aka, on the same level of the UI tree. Have the same parent.
 	keep:         bool, // Indicates whether we keep this box across frame boundaries.
+	metadata: 	  Box_Metadata,
 }
 
 Box_Signals :: struct {
@@ -210,6 +223,7 @@ Mouse_State :: struct {
 	right_clicked: bool, // whether mouse was right clicked in this frame.
 }
 
+/* ======================= Start Core Box Code ========================= */
 box_make :: proc(id_string: string, flags: Box_Flags, config: Box_Config) -> ^Box {
 	box: ^Box
 
@@ -342,44 +356,127 @@ box_close_children :: proc(signals: Box_Signals) {
 		ui_state.parents_top = nil
 	}
 }
+/* ======================= End Core Box Code ========================= */
 
-reset_ui_state :: proc() {
-	/* 
-		I think maybe I don't want to actually reset this each frame, for exmaple,
-		if a user selected some input field on one frame, then it should still be active
-		on the next fram
-	*/
-	if ui_state.active_box != nil {
-		ui_state.last_active_box = ui_state.active_box
-	}
-	if ui_state.hot_box != nil {
-		ui_state.last_hot_box = ui_state.hot_box
-	}
-	ui_state.active_box = nil
-	ui_state.hot_box = nil
 
-	// --- Sweep phase of mark and sweep box memory management.
 
-	// Collect keys to delete, can't iterate the map and delete in one loop I think....
-	keys_to_delete := make([dynamic]string, context.temp_allocator)
-	for key, box in ui_state.box_cache {
-		if !box.keep {
-			append(&keys_to_delete, key)
-		}
-	}
-	for key in keys_to_delete {
-		box := ui_state.box_cache[key]
-		// delete(box.children) <-- was causing weird crashes, thought I'd leak memory without this, but don't seem to be.
-		delete_key(&ui_state.box_cache, key)
-		free(box)
-		delete(key)
-	}
-
-	clear(&ui_state.parents_stack)
-	ui_state.parents_top = nil
-}
 
 /* ============================ Signal Handling =========================== */
+handle_input :: proc(event: sdl.Event) -> (exit, show_context_menu: bool) {
+	show_context_menu = ui_state.context_menu.active
+	etype := event.type
+
+	if etype == .QUIT {
+		exit = true
+	}
+
+	if etype == .MOUSEMOTION {
+		mouse_x, mouse_y:i32
+		sdl.GetMouseState(&mouse_x, &mouse_y)
+		app.mouse.pos.x = int(mouse_x)
+		app.mouse.pos.y = int(mouse_y)
+	}
+
+	// We cannot just rely on querying the current 'keys held down' for typing in input fields,
+	// since order matters and querying some matrix of keys down does NOT preserve input order.
+	// It would work for querying if we're in the state to trigger some keyboard shortcut however.
+	if etype == .KEYDOWN {
+		app.char_queue[app.curr_chars_stored] = event.key.keysym.sym
+		app.curr_chars_stored += 1
+		app.keys_held[event.key.keysym.scancode] = true
+	}
+
+	if etype == .KEYUP {
+		app.keys_held[event.key.keysym.scancode] = false
+	}
+
+	if etype == .MOUSEWHEEL {
+		app.mouse.wheel.x = cast(i8)event.wheel.x
+		app.mouse.wheel.y = cast(i8)event.wheel.y
+	}
+
+	if etype == .MOUSEBUTTONDOWN {
+		switch event.button.button {
+		case sdl.BUTTON_LEFT:
+			if !app.mouse.left_pressed { 	// i.e. if left button wasn't pressed last frame
+				app.mouse.drag_start = app.mouse.pos
+				app.mouse.dragging = true
+				app.mouse.drag_done = false
+				// show_context_menu = false
+			}
+			app.mouse.left_pressed = true
+		case sdl.BUTTON_RIGHT:
+			app.mouse.right_pressed = true
+		}
+	}
+
+	if etype == .MOUSEBUTTONUP {
+		switch event.button.button {
+		case sdl.BUTTON_LEFT:
+			if app.mouse.left_pressed {
+				app.mouse.clicked = true
+			}
+			app.mouse.left_pressed = false
+			app.mouse.drag_end = app.mouse.pos
+			app.mouse.dragging = false
+			app.mouse.drag_done = true
+		case sdl.BUTTON_RIGHT:
+			println("right button up ")
+			if app.mouse.right_pressed { 	// i.e. A right click was performed.
+				app.mouse.right_clicked = true
+				show_context_menu = true
+				ui_state.context_menu.pos = Vec2_f32{f32(app.mouse.pos.x), f32(app.mouse.pos.y)}
+			}
+			app.mouse.right_pressed = false
+		}
+	}
+
+	// if etype == .DROPFILE {
+	// 	which, on_track := dropped_on_track()
+	// 	if on_track {
+	// 		printfln("file was dropped on track {}", which)
+	// 	}
+	// 	assert(on_track)
+	// 	if on_track {
+	// 		set_track_sound(event.drop.file, which)
+	// 	}
+	// }
+
+	return exit, show_context_menu
+}
+
+register_resize :: proc() -> bool {
+	old_width, old_height := app.wx, app.wy
+	new_width, new_height: i32
+	sdl.GetWindowSize(app.window, &new_width, &new_height)
+	app.wx = int(new_width)
+	app.wy = int(new_height)
+	if old_width != app.wx || old_height != app.wy {
+		gl.Viewport(0, 0, i32(app.wx), i32(app.wy))
+		set_shader_vec2(ui_state.quad_shader_program, "screen_res", {f32(app.wx), f32(app.wy)})
+		return true
+	}
+
+	// Recalc where floating windows should go.
+
+	return false
+}
+
+reset_mouse_state :: proc() {
+	app.mouse.wheel = {0, 0}
+	app.mouse_last_frame = app.mouse
+	if app.mouse.clicked {
+		// do this here because events are captured before ui is created,
+		// meaning context-menu.button1.signals.click will never be set.
+		// printfln("last active box clicked on was: {}", ui_state.last_active_box.id)
+		// _, clicked_on_context_menu := ui_state.last_active_box.metadata.(Context_Menu_Metadata)
+		// if !clicked_on_context_menu {
+		// 	ui_state.context_menu.active = false
+		// }
+	}
+	app.mouse.clicked = false
+	app.mouse.right_clicked = false
+}
 
 mouse_inside_box :: proc(box: ^Box, mouse: [2]int) -> bool {
 	mousex := int(mouse.x)
@@ -396,6 +493,14 @@ box_signals :: proc(box: ^Box) -> Box_Signals {
 		box.hot = stored_signals.hovering
 		box.active = stored_signals.pressed || stored_signals.clicked
 		box.signals = stored_signals
+		// if box.signals.clicked { 
+		// 	if .Track_Step in box.flags { 
+		// 		box.selected = !box.selected
+		// 		for sibling in box_get_siblings(box^, context.temp_allocator) { 
+		// 			sibling.selected = box.selected
+		// 		}
+		// 	}
+		// }
 		return stored_signals
 	} else {
 		this_frame_signals: Box_Signals
@@ -407,19 +512,6 @@ box_signals :: proc(box: ^Box) -> Box_Signals {
 		box.signals = this_frame_signals
 		return this_frame_signals
 	}
-}
-
-// Parses UI tree of boxes and gives you back a flat list.
-box_tree_to_list :: proc(root: ^Box, allocator := context.allocator) -> [dynamic]^Box {
-	recurse_and_add :: proc(box: ^Box, list: ^[dynamic]^Box) {
-		append_elem(list, box)
-		for child in box.children {
-			recurse_and_add(child, list)
-		}
-	}
-	list := make([dynamic]^Box, allocator)
-	recurse_and_add(root, &list)
-	return list
 }
 
 compute_frame_signals :: proc(root: ^Box) {
@@ -512,8 +604,8 @@ compute_frame_signals :: proc(root: ^Box) {
 					}
 				}
 			}
-
 		}
+
 		// Maintain active state even if not hot
 		if ui_state.active_box == box {
 			box.active = true
@@ -521,6 +613,19 @@ compute_frame_signals :: proc(root: ^Box) {
 		ui_state.next_frame_signals[box.id] = next_signals
 	}
 
+}
+
+// Parses UI tree of boxes and gives you back a flat list.
+box_tree_to_list :: proc(root: ^Box, allocator := context.allocator) -> [dynamic]^Box {
+	recurse_and_add :: proc(box: ^Box, list: ^[dynamic]^Box) {
+		append_elem(list, box)
+		for child in box.children {
+			recurse_and_add(child, list)
+		}
+	}
+	list := make([dynamic]^Box, allocator)
+	recurse_and_add(root, &list)
+	return list
 }
 
 // z-position is set to 0 as default, any box which still has 0 after creation, will inherit the z-index of it's parent.
@@ -826,6 +931,7 @@ non_floating_children :: proc(box: ^Box, allocator := context.temp_allocator) ->
 /*
 Sizing on the x-axis and y-axis happens on 2 different passes.
 I.e. we place the x co-ords of some root's children and then we place their y co-ord in 2 seperate procs.
+We continue like this from the root down to all leaves.
 */
 position_boxes :: proc(root: ^Box) {
 
@@ -1119,3 +1225,16 @@ position_boxes :: proc(root: ^Box) {
 	position_children(root)
 }
 /* ============================ END LAYOUT CODE ============================== */
+
+box_get_siblings :: proc(box: Box, allocator:=context.allocator) -> [dynamic]^Box { 
+	res := make([dynamic]^Box, allocator)
+	for child in box.parent.children { 
+		append(&res, child)
+	}
+	return res
+}
+
+
+/* ============================ START PLATFORM LAYER CODE ============================== */
+
+/* ============================ END PLATFORM LAYER CODE ============================== */

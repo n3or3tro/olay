@@ -7,6 +7,7 @@ import str "core:strings"
 import "core:time"
 import ma "vendor:miniaudio"
 
+N_TRACK_STEPS :: 32
 MAX_TRACKS :: 256
 MAX_TRACK_STEPS :: 256
 
@@ -20,14 +21,17 @@ Track :: struct {
 		left_channel:  [dynamic]f32,
 		right_channel: [dynamic]f32,
 	},
+	name: string,	// Name / label of this track.
+	track_num: int, // Number ID of this track
 	curr_step:      u32,
 	// Actual amount of steps in the track.
 	n_steps:        u32,
 	// Could make this dynamic, but for now we'll just limit the max amount of steps.
-	pitches:   [MAX_TRACK_STEPS]f32,
-	volumes: 	[MAX_TRACK_STEPS]f32,
-	send1: 	[MAX_TRACK_STEPS]f32,
-	send2: 	[MAX_TRACK_STEPS]f32,
+	pitches:   [MAX_TRACK_STEPS]int, // 1 = C#3, 2 = D3, 0 = C3, -1 = B3, -2 = A#3, etc
+	// Not sure if these should be floats or ints....
+	volumes: 	[MAX_TRACK_STEPS]int,
+	send1: 	[MAX_TRACK_STEPS]int,
+	send2: 	[MAX_TRACK_STEPS]int,
 	selected_steps: [MAX_TRACK_STEPS]bool,
 }
 
@@ -69,16 +73,20 @@ audio_init :: proc() -> ^Audio_State {
 	audio_state := new(Audio_State)
 	audio_state.tracks = make([dynamic]Track)
 	for i in 0 ..< 4 {
-		append(&audio_state.tracks, Track{})
-		audio_state.tracks[i].volume 	= f32(map_range(0.0, f64(4) * 10.0, 0.0, 100.0, f64(i + (i * 10.0))))
-		audio_state.tracks[i].armed 	= true
-		audio_state.tracks[i].n_steps 	= 32
-		audio_state.tracks[i].send1 	= 0
-		audio_state.tracks[i].send2 	= 0
+		track_add_new(audio_state)
 	}
 	audio_state.bpm = 120
 
 	return audio_state
+}
+
+/*
+Only call when you want to completely destroy all audio state and start anew.
+*/
+audio_uninit :: proc() { 
+	audio_uninit_miniaudio()
+	delete(app.audio.tracks)
+	free(app.audio)
 }
 
 /*
@@ -123,15 +131,6 @@ audio_init_miniaudio :: proc(audio_state: ^Audio_State) {
 }
 
 /*
-Only call when you want to completely destroy all audio state and start anew.
-*/
-audio_uninit :: proc() { 
-	audio_uninit_miniaudio()
-	delete(app.audio.tracks)
-	free(app.audio)
-}
-
-/*
 Uninit just miniaudio related data. Neccessary when hot-reloading.
 */
 audio_uninit_miniaudio :: proc() {
@@ -164,14 +163,17 @@ audio_uninit_miniaudio :: proc() {
 	}
 }
 
-track_add_new :: proc() { 
+track_add_new :: proc(audio_state: ^Audio_State) { 
 		track : Track
-		track.volume 	= 70 
+		track.volume 	= 50 
 		track.armed 	= true
-		track.n_steps 	= 32
-		track.send1 	= 0
-		track.send2 	= 0
-		append(&app.audio.tracks, track)
+		track.n_steps 	= N_TRACK_STEPS
+		for &volume in track.volumes { 
+			volume = 50
+		}
+		// Other step values are 0 by default.
+		// track.name = "Default name"
+		append(&audio_state.tracks, track)
 }
 
 track_set_sound :: proc(path: cstring, which: u32) {
@@ -277,54 +279,9 @@ toggle_all_audio_playing :: proc() {
 // 	}
 // }
 
-// returns number of semitones between 2 notes.
-pitch_difference :: proc(from: string, to: string) -> f32 {
-	chromatic_scale := make(map[string]int, context.temp_allocator)
-	chromatic_scale["C"] = 0
-	chromatic_scale["C#"] = 1
-	chromatic_scale["D"] = 2
-	chromatic_scale["D#"] = 3
-	chromatic_scale["E"] = 4
-	chromatic_scale["F"] = 5
-	chromatic_scale["F#"] = 6
-	chromatic_scale["G"] = 7
-	chromatic_scale["G#"] = 8
-	chromatic_scale["A"] = 9
-	chromatic_scale["A#"] = 10
-	chromatic_scale["B"] = 11
-
-	from_octave := strconv.atoi(from[len(from) - 1:])
-	to_octave := strconv.atoi(to[len(to) - 1:])
-
-	octave_diff := from_octave - to_octave
-
-	from_is_sharp := str.contains(from, "#")
-	to_is_sharp := str.contains(to, "#")
-
-	from_note := from_is_sharp ? chromatic_scale[from[0:2]] : chromatic_scale[from[0:1]]
-	to_note := to_is_sharp ? chromatic_scale[to[0:2]] : chromatic_scale[to[0:1]]
-
-	octave_diff_in_semitones := octave_diff * 12
-	total_diff := octave_diff_in_semitones - (-1 * (from_note - to_note))
-	return f32(total_diff)
-}
-
-// delay_init :: proc(delay_time: f32, decay_time: f32) {
-// 	channels := ma.engine_get_channels(app.audio.engine)
-// 	sample_rate := ma.engine_get_sample_rate(app.audio.engine)
-// 	config := ma.delay_node_config_init(channels, sample_rate, u32(f32(sample_rate) * delay_time), decay_time)
-// 	println(config)
-// 	res := ma.delay_node_init(ma.engine_get_node_graph(app.audio.engine), &config, nil, &app.audio.delay)
-// 	if res != .SUCCESS {
-// 		println(res)
-// 		panic("")
-// 	}
-
-// 	res = ma.node_attach_output_bus(cast(^ma.node)(&app.audio.delay), 0, ma.engine_get_endpoint(app.audio.engine), 0)
-// 	assert(res == .SUCCESS)
-// }
-
-delay_enable :: proc() {
+track_delete :: proc(track_num: int) { 
+	printfln("removing track {}", track_num)
+	ordered_remove(&app.audio.tracks, track_num)
 }
 // This indirection is here coz I was thinking about cachine the pcm wav rendering data,
 // since it's a little expensive to re-calc every frame.
@@ -368,6 +325,37 @@ track_store_pcm_data :: proc(track: u32) {
 	app.audio.tracks[track].pcm_data.right_channel = right_channel
 }
 
+// returns number of semitones between 2 notes.
+pitch_difference :: proc(from: string, to: string) -> f32 {
+	chromatic_scale := make(map[string]int, context.temp_allocator)
+	chromatic_scale["C"] = 0
+	chromatic_scale["C#"] = 1
+	chromatic_scale["D"] = 2
+	chromatic_scale["D#"] = 3
+	chromatic_scale["E"] = 4
+	chromatic_scale["F"] = 5
+	chromatic_scale["F#"] = 6
+	chromatic_scale["G"] = 7
+	chromatic_scale["G#"] = 8
+	chromatic_scale["A"] = 9
+	chromatic_scale["A#"] = 10
+	chromatic_scale["B"] = 11
+
+	from_octave := strconv.atoi(from[len(from) - 1:])
+	to_octave := strconv.atoi(to[len(to) - 1:])
+
+	octave_diff := from_octave - to_octave
+
+	from_is_sharp := str.contains(from, "#")
+	to_is_sharp := str.contains(to, "#")
+
+	from_note := from_is_sharp ? chromatic_scale[from[0:2]] : chromatic_scale[from[0:1]]
+	to_note := to_is_sharp ? chromatic_scale[to[0:2]] : chromatic_scale[to[0:1]]
+
+	octave_diff_in_semitones := octave_diff * 12
+	total_diff := octave_diff_in_semitones - (-1 * (from_note - to_note))
+	return f32(total_diff)
+}
 
 up_one_semitone :: proc(curr_note: string) -> string {
 	if len(curr_note) < 2 {
@@ -423,4 +411,85 @@ down_one_semitone :: proc(curr_note: string) -> string {
 		panic("fuck1")
 	}
 	return new_value
+}
+
+valid_pitch :: proc(s: string) -> bool { 
+	s_len := len(s)
+
+	if s_len != 2 && s_len != 3 {
+		return false
+	} 
+	else if s_len == 2 { 
+		if !str.contains("ABCDEFGabcdefg", s[0:1]) { 
+			return false
+		}
+		if !str.contains("0123456789", s[1:2]) { 
+			return false
+		}
+		return true
+	}
+	else if s_len == 3 {
+		if !str.contains("ABCDEFGabcdefg", s[0:1]) { 
+			return false
+		}
+		if s[1] != '#' { 
+			return false
+		}
+		if !str.contains("0123456789", s[2:3]) { 
+			return false
+		}
+		return true
+	} 
+	return false
+}
+
+/*
+Pitches are stored as ints, but represented and edited throughout the UI as strings. So These 2 functions below
+help swap to and fro.
+*/
+get_pitch_from_note :: proc(pitch: string) -> int{ 
+	return int(pitch_difference("C3", pitch))
+}
+set_pitch_from_note :: proc(track, step: int, pitch: string) { 
+	app.audio.tracks[track].pitches[step] = int(pitch_difference("C3", pitch))
+}
+
+get_note_from_num :: proc(pitch: int) -> string{ 
+	if pitch > 0 { 
+		// We're up from C3
+		curr_note := "C3"
+		for i in 0 ..< pitch { 
+			curr_note = up_one_semitone(curr_note)
+		}
+		return curr_note
+	}
+	else if pitch < 0 { 
+		// We're down from C3
+		curr_note := "C3"
+		for i in 0 ..< -1*pitch { 
+			curr_note = down_one_semitone(curr_note)
+		}
+		return curr_note
+	}
+	else {
+		return "C3"
+	}
+}
+
+// delay_init :: proc(delay_time: f32, decay_time: f32) {
+// 	channels := ma.engine_get_channels(app.audio.engine)
+// 	sample_rate := ma.engine_get_sample_rate(app.audio.engine)
+// 	config := ma.delay_node_config_init(channels, sample_rate, u32(f32(sample_rate) * delay_time), decay_time)
+// 	println(config)
+// 	res := ma.delay_node_init(ma.engine_get_node_graph(app.audio.engine), &config, nil, &app.audio.delay)
+// 	if res != .SUCCESS {
+// 		println(res)
+// 		panic("")
+// 	}
+
+// 	res = ma.node_attach_output_bus(cast(^ma.node)(&app.audio.delay), 0, ma.engine_get_endpoint(app.audio.engine), 0)
+// 	assert(res == .SUCCESS)
+// }
+
+delay_enable :: proc() {
 }

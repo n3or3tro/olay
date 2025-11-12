@@ -29,6 +29,7 @@ UI_State :: struct {
 	// wav_rendering_data:    map[ma.sound][dynamic]Rect_Render_Data,
 	// the visual space between border of text box and the text inside.
 	last_clicked_box:      ^Box,
+	clicked_on_context_menu: bool,
 	last_clicked_box_time: time.Time,
 	next_frame_signals:    map[string]Box_Signals,
 	// Used to help with the various bugs I was having related to input for box.value and mutating box.value.
@@ -133,11 +134,10 @@ init_ui_state :: proc() -> ^UI_State {
 create_ui :: proc() -> ^Box {
 	// This is the first step of the mark and sweep, any boxes which are not re-created this frame, will
 	// be removed from the cache at the end of the frame.
-	ui_state.changed_ui_screen = false
 	for _, box in ui_state.box_cache {
 		box.keep = false
 	}
-	// root: ^Box
+	ui_state.changed_ui_screen = false
 	root := child_container(
 		"root@root", 
 		{
@@ -163,23 +163,46 @@ create_ui :: proc() -> ^Box {
 			)
 
 			for track, i in app.audio.tracks {
-				audio_track(u32(i), 250)
+				audio_track(i, 250)
 			}
 		}
-	} else {
-		checkbox_res := multi_button_set("@test-radio-buttons", 
-		{
-			semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}},
-		}, 
-		{
-			direction =.Vertical,
-			gap_horizontal = 20,
-			gap_vertical = 10
-		}, 
-		false, []int{8,2,10,14,27, 4242, 23423, 123,4747})
-		if len(checkbox_res) > 0 { 
-			printfln("selection was: {}", checkbox_res[:])
+		if text_button(
+			"+@add-track-button", 
+			{
+				position_floating =.Center_Right,
+				padding = {10,10,10,10},
+				border_thickness = 4,
+				semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}},
+				background_color = {0.987, 0.41234, 0.41234, 1}
+			}
+		).clicked {
+			track_add_new(app.audio)
 		}
+	} else {
+		multi_button_set(
+			"@test-radio-buttons", 
+			{
+				semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}},
+			}, 
+			{
+				direction =.Vertical,
+				gap_horizontal = 20,
+				gap_vertical = 10
+			}, 
+			false, 
+			[]int{8,2,10,14,27, 4242, 23423, 123,4747}
+		)
+		cfg := Box_Config { 
+			semantic_size = {{.Fixed, 300}, {.Fixed, 50}},
+			border_thickness = 4,
+			background_color = {0.5, 1, 1, 0.7}
+		}
+		edit_number_box("what@flaksjdf", cfg, 0, 100, {.Draw_Text, .Draw, .Draw_Border, .Edit_Text})
+		edit_number_box("hey@lkjslkj", cfg, 5, 200)
+		edit_number_box("fuck@asldlll", cfg, 20, 300)
+		edit_number_box("lol@flaskjdf", cfg, 50, 400)
+		// edit_text_box("@zxcvcxv", {cfg}, .Pitch)
+		// edit_text_box("@zxcvcxv", {cfg}, .Pitch)
 	}
 
 	if ui_state.context_menu.active { 
@@ -193,17 +216,6 @@ create_ui :: proc() -> ^Box {
 		file_browser_menu()
 	}
 
-	if button_text("+@add-track-button", 
-		{
-			position_floating =.Center_Right,
-			padding = {10,10,10,10},
-			border_thickness = 4,
-			semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}},
-			background_color = {0.987, 0.41234, 0.41234, 1}
-		}
-	).clicked {
-		track_add_new()
-	}
 
 	sizing_calc_percent_width(root)
 	sizing_calc_percent_height(root)
@@ -234,4 +246,62 @@ create_ui :: proc() -> ^Box {
 	flow_z_positions(root)
 	compute_frame_signals(root)
 	return root
+}
+
+/* 
+Reset state that was set in the current frame.
+This is called at the end of every frame after all logical UI stuff has happened.
+*/
+reset_ui_state :: proc() {
+	/* 
+		I think maybe I don't want to actually reset this each frame, for exmaple,
+		if a user selected some input field on one frame, then it should still be active
+		on the next fram
+	*/
+	if ui_state.active_box != nil {
+		ui_state.last_active_box = ui_state.active_box
+	}
+	if ui_state.hot_box != nil {
+		ui_state.last_hot_box = ui_state.hot_box
+	}
+	ui_state.active_box = nil
+	ui_state.hot_box = nil
+
+	// if app.mouse_last_frame.clicked && !ui_state.clicked_on_context_menu { 
+	if app.mouse_last_frame.clicked {
+		ui_state.context_menu.active = false
+	}
+	ui_state.clicked_on_context_menu = false
+
+	// --- Sweep phase of mark and sweep box memory management.
+
+	// Collect keys to delete, can't iterate the map and delete in one loop I think....
+	keys_to_delete := make([dynamic]string, context.temp_allocator)
+	for key, box in ui_state.box_cache {
+		if !box.keep {
+			append(&keys_to_delete, key)
+		}
+	}
+
+	for key in keys_to_delete {
+		box := ui_state.box_cache[key]
+
+		// Delete editor state related to box if it exists
+		// if .Edit_Text in box.flags { 
+		// 	delete_key(&ui_state.text_editors_state, box.id)
+		// }
+
+		// delete(box.children) <-- was causing weird crashes, thought I'd leak memory without this, but seems to be fine.
+		delete_key(&ui_state.box_cache, key)
+		free(box)
+		delete(key)
+	}
+
+	clear(&ui_state.parents_stack)
+	ui_state.parents_top = nil
+
+	// // Need to check 
+	// if !ui_state.clicked_on_context_menu && app.mouse.clicked { 
+	// 	ui_state.context_menu.active = false
+	// }
 }

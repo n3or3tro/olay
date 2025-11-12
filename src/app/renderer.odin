@@ -65,8 +65,6 @@ get_default_rendering_data :: proc(box: Box) -> Rect_Render_Data {
 
 // sets circumstantial (hovering, clicked, etc) rendering data like radius, borders, etc
 get_boxes_rendering_data :: proc(box: Box) -> ^[dynamic]Rect_Render_Data {
-
-
 	render_data := new([dynamic]Rect_Render_Data, context.temp_allocator)
 	tl_color: Vec4_f32 = box.config.background_color
 	bl_color: Vec4_f32 = box.config.background_color
@@ -651,12 +649,17 @@ collect_render_data_from_ui_tree :: proc(root: ^Box, render_data: ^[dynamic]Rect
 	for data in boxes_rendering_data {
 		append_elem(render_data, data)
 	}
-	if .Draw_Text in root.flags {
+	draw_text: if .Draw_Text in root.flags {
 		text_to_render: string
 		if .Edit_Text in root.flags {
 			text_to_render = root.data
 		} else {
 			text_to_render = root.label
+		}
+		if .Track_Step in root.flags { 
+			if !root.selected { 
+				break draw_text
+			}
 		}
 		text := utf8.string_to_runes(text_to_render, context.temp_allocator)
 		shaped_glyphs := font_segment_and_shape_text(&ui_state.font_state.kb.font, text)
