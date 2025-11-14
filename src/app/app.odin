@@ -1,5 +1,7 @@
 package app
 import "core:fmt"
+import "core:thread"
+import "core:time"
 import gl "vendor:OpenGL"
 import sdl "vendor:sdl2"
 
@@ -54,6 +56,7 @@ app_create :: proc() -> ^App {
 
 @(export)
 app_update :: proc() -> (all_good: bool) {
+	start := time.now()
 	if register_resize() {
 		printfln("changing screen res to : {} x {}", app.wx, app.wy)
 		set_shader_vec2(ui_state.quad_shader_program, "screen_res", {f32(app.wx), f32(app.wy)})
@@ -81,7 +84,7 @@ app_update :: proc() -> (all_good: bool) {
 	if ui_state.frame_num > 0 {
 		render_ui(rect_render_data)
 	}
-	delete(rect_render_data)
+	// delete(rect_render_data)
 
 	sdl.GL_SwapWindow(app.window)
 
@@ -101,6 +104,13 @@ app_update :: proc() -> (all_good: bool) {
 		// so that memory can be overwritten.
 		clear(&ui_state.next_frame_signals)
 	}
+	max_frame_time_ns: f64 = 1_000_000 * 200 
+	// max_frame_time_ns: f64 = 1_000_000 * 8.3333 
+	frame_time := f64(time.now()._nsec - start._nsec)
+	time_to_wait := time.Duration(max_frame_time_ns - frame_time)
+	// if time_to_wait > 0 {
+	// 	time.accurate_sleep(time_to_wait)
+	// }
 	return true
 }
 

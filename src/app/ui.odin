@@ -137,6 +137,7 @@ create_ui :: proc() -> ^Box {
 	for _, box in ui_state.box_cache {
 		box.keep = false
 	}
+	// ui_state.tab_num = 1
 	ui_state.changed_ui_screen = false
 	root := child_container(
 		"root@root", 
@@ -146,7 +147,7 @@ create_ui :: proc() -> ^Box {
 		{direction=.Vertical}
 	).box
 	root.keep = true
-	topbar()
+	// topbar()
 	if ui_state.tab_num == 0 {
 		audio_tracks: {
 			child_container(
@@ -179,25 +180,25 @@ create_ui :: proc() -> ^Box {
 			track_add_new(app.audio)
 		}
 	} else {
-		multi_button_set(
-			"@test-radio-buttons", 
-			{
-				semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}},
-			}, 
-			{
-				direction =.Vertical,
-				gap_horizontal = 20,
-				gap_vertical = 10
-			}, 
-			false, 
-			[]int{8,2,10,14,27, 4242, 23423, 123,4747}
-		)
+		// multi_button_set(
+		// 	"@test-radio-buttons", 
+		// 	{
+		// 		semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}},
+		// 	}, 
+		// 	{
+		// 		direction =.Vertical,
+		// 		gap_horizontal = 20,
+		// 		gap_vertical = 10
+		// 	}, 
+		// 	false, 
+		// 	[]int{8,2,10,14,27, 4242, 23423, 123,4747}
+		// )
 		cfg := Box_Config { 
 			semantic_size = {{.Fixed, 300}, {.Fixed, 50}},
 			border_thickness = 4,
 			background_color = {0.5, 1, 1, 0.7}
 		}
-		edit_number_box("what@flaksjdf", cfg, 0, 100, {.Draw_Text, .Draw, .Draw_Border, .Edit_Text})
+		edit_number_box("what@flaksjdf", cfg, 0, 100)
 		edit_number_box("hey@lkjslkj", cfg, 5, 200)
 		edit_number_box("fuck@asldlll", cfg, 20, 300)
 		edit_number_box("lol@flaskjdf", cfg, 50, 400)
@@ -243,6 +244,7 @@ create_ui :: proc() -> ^Box {
 
 		ui_state.draggable_window_offsets[actual_id] += {parent_offset_delta_x, parent_offset_delta_y}
 	} 
+	// debug_dump_number_box_cache()
 	flow_z_positions(root)
 	compute_frame_signals(root)
 	return root
@@ -293,15 +295,24 @@ reset_ui_state :: proc() {
 
 		// delete(box.children) <-- was causing weird crashes, thought I'd leak memory without this, but seems to be fine.
 		delete_key(&ui_state.box_cache, key)
+		// delete(key)
 		free(box)
-		delete(key)
 	}
 
 	clear(&ui_state.parents_stack)
 	ui_state.parents_top = nil
+}
 
-	// // Need to check 
-	// if !ui_state.clicked_on_context_menu && app.mouse.clicked { 
-	// 	ui_state.context_menu.active = false
-	// }
+// Helper from codex
+debug_dump_number_box_cache :: proc() {
+	println("---- edit boxes ----")
+	for key, box in ui_state.box_cache {
+		if .Edit_Text in box.flags {
+			printfln("key={} label={} ptr={} data={}",
+				key,
+				box.label,
+				cast(uintptr)box,
+				box.data.(int))
+		}
+	}
 }

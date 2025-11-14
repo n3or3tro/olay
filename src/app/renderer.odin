@@ -66,6 +66,7 @@ get_default_rendering_data :: proc(box: Box) -> Rect_Render_Data {
 // sets circumstantial (hovering, clicked, etc) rendering data like radius, borders, etc
 get_boxes_rendering_data :: proc(box: Box) -> ^[dynamic]Rect_Render_Data {
 	render_data := new([dynamic]Rect_Render_Data, context.temp_allocator)
+	// render_data := new([dynamic]Rect_Render_Data)
 	tl_color: Vec4_f32 = box.config.background_color
 	bl_color: Vec4_f32 = box.config.background_color
 	tr_color: Vec4_f32 = box.config.background_color
@@ -151,8 +152,9 @@ get_boxes_rendering_data :: proc(box: Box) -> ^[dynamic]Rect_Render_Data {
 	   should_render_text_cursor() &&
 	   ui_state.last_active_box != nil &&
 	   ui_state.last_active_box.id == box.id {
+		box_data_string := box_data_get_as_string(box.data, context.temp_allocator)
 		color := Color{0, 0.5, 1, 1}
-		cursor_x_pos := f32(calc_cursor_pos(box, box.data))
+		cursor_x_pos := f32(calc_cursor_pos(box, box_data_string))
 		cursor_data := Rect_Render_Data {
 			top_left         = {cursor_x_pos, f32(box.top_left.y)},
 			bottom_right     = {cursor_x_pos + 2.4, f32(box.bottom_right.y)},
@@ -643,34 +645,35 @@ get_text_quads :: proc(
 	return glyph_rects
 }
 
-collect_render_data_from_ui_tree :: proc(root: ^Box, render_data: ^[dynamic]Rect_Render_Data) {
+collect_render_data_from_ui_tree :: proc(box: ^Box, render_data: ^[dynamic]Rect_Render_Data) {
 	// Box may need multiple 'rects' to be rendered to achieve desired affect.
-	boxes_rendering_data := get_boxes_rendering_data(root^)
+	boxes_rendering_data := get_boxes_rendering_data(box^)
 	for data in boxes_rendering_data {
-		append_elem(render_data, data)
+		append(render_data, data)
 	}
-	draw_text: if .Draw_Text in root.flags {
+
+	draw_text: if .Draw_Text in box.flags {
 		text_to_render: string
-		if .Edit_Text in root.flags {
-			text_to_render = root.data
+		if .Edit_Text in box.flags {
+			text_to_render = box_data_get_as_string(box.data, context.temp_allocator)
 		} else {
-			text_to_render = root.label
+			text_to_render = box.label
 		}
-		if .Track_Step in root.flags { 
-			if !root.selected { 
+		if .Track_Step in box.flags { 
+			if !box.selected { 
 				break draw_text
 			}
 		}
 		text := utf8.string_to_runes(text_to_render, context.temp_allocator)
 		shaped_glyphs := font_segment_and_shape_text(&ui_state.font_state.kb.font, text)
 		glyph_render_info := font_get_render_info(shaped_glyphs, context.temp_allocator)
-		glyph_rects := get_text_quads(root^, glyph_render_info[:], context.temp_allocator)
+		glyph_rects := get_text_quads(box^, glyph_render_info[:], context.temp_allocator)
 		for rect in glyph_rects {
 			append_elem(render_data, rect)
 		}
 	}
 	delete_dynamic_array(boxes_rendering_data^)
-	for child in root.children {
+	for child in box.children {
 		collect_render_data_from_ui_tree(child, render_data)
 	}
 }

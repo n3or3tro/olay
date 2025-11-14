@@ -169,7 +169,8 @@ font_segment_and_shape_text :: proc(font: ^kb.font, text: []rune, allocator := c
 	// Because the segmenting code is not breaking up the input string if it finds a new line,
 	// we just cache the whole string instead of runs, words, lines etc, which would probably be
 	// better.
-	state.shaped_string_cache[key] = glyph_buffer
+	persistent_key := str.clone(key)
+	state.shaped_string_cache[persistent_key] = glyph_buffer
 	return glyph_buffer
 }
 
@@ -208,6 +209,7 @@ font_add_shaped_run :: proc(
 		    &glyph_count,
 		    glyph_capacity,
 	    ) {
+		// panic("resized temp glyph buffer")
 		err := resize_dynamic_array(&temp_glyph_buffer, state.RequiredGlyphCapacity)
 		assert(err == .None, "resizing dynamic array of temp_glyph_buffer failed.")
 		glyph_capacity = state.RequiredGlyphCapacity

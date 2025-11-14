@@ -135,12 +135,12 @@ audio_track :: proc(track_num: int, track_width: f32) -> Track_Signals {
 				substep_config,
 				0,
 				100,
-				substep_extra_flags,
 				Metadata_Track_Step {
 					track = track_num,
 					step  = i,
 					type  = .Volume,
-				}
+				},
+				substep_extra_flags,
 			)
 
 			send1_box := edit_number_box(
@@ -148,12 +148,12 @@ audio_track :: proc(track_num: int, track_width: f32) -> Track_Signals {
 				substep_config,
 				0,
 				100,
-				substep_extra_flags,
 				Metadata_Track_Step {
 					track = track_num,
 					step  = i,
 					type  = .Send1,
-				}
+				},
+				substep_extra_flags,
 			)
 
 			send2_box := edit_number_box(
@@ -161,12 +161,12 @@ audio_track :: proc(track_num: int, track_width: f32) -> Track_Signals {
 				substep_config,
 				0,
 				100,
-				substep_extra_flags,
 				Metadata_Track_Step {
 					track = track_num,
 					step  = i,
 					type  = .Send2,
-				}
+				},
+				substep_extra_flags,
 			)
 
 			if pitch_box.double_clicked ||
@@ -188,7 +188,6 @@ audio_track :: proc(track_num: int, track_width: f32) -> Track_Signals {
 			id("arm@track-{}-arm-button", track_num),
 			{semantic_size = {{.Percent, 0.333}, {.Fixed, 30}}, background_color = {1, 1, 0, 1}},
 		)
-		// printfln("This track volume is: {}", track.volume)
 		volume_slider := vertical_slider(
 			id("hey@track-{}-volume-slider", track_num),
 			{semantic_size = {{.Percent, 0.333}, {.Grow, 30}}},
@@ -223,11 +222,10 @@ edit_number_box :: proc(
 	id_string: string,
 	config: Box_Config,
 	min_val, max_val: int,
-	// text_box_type: Text_Box_Type,
-	extra_flags := Box_Flags{},
 	metadata := Box_Metadata{},
+	extra_flags := Box_Flags{},
 ) -> Box_Signals {
-	handle_input :: proc(state: ^Edit_Text_State, editor: ^edit.State, box: ^Box, min_val, max_val: int) -> string {
+	handle_input :: proc(editor: ^edit.State, box: ^Box, min_val, max_val: int) -> string {
 		for i := u32(0); i < app.curr_chars_stored; i += 1 {
 			keycode := app.char_queue[i]
 			#partial switch keycode {
@@ -249,14 +247,14 @@ edit_number_box :: proc(
 				new_val := min(curr_val + 1, max_val)
 				res_buffer := make([]byte, 50, context.temp_allocator)
 				app.curr_chars_stored = 0
-				return strconv.itoa(res_buffer, new_val)
+				return strconv.itoa(res_buffer[:], new_val)
 			case .DOWN:
 				curr_str_val := str.to_string(editor.builder^)
 				curr_val := strconv.atoi(curr_str_val)
 				new_val := max(curr_val - 1, min_val)
 				res_buffer := make([]byte, 10, context.temp_allocator)
 				app.curr_chars_stored = 0
-				return strconv.itoa(res_buffer, new_val)
+				return strconv.itoa(res_buffer[:], new_val)
 			case:
 				char := rune(keycode)
 				if unicode.is_number(char) {
@@ -270,15 +268,22 @@ edit_number_box :: proc(
 						edit.move_to(editor, .Start)
 						edit.delete_to(editor, .End)
 						res_buffer := make([]byte, 10, context.temp_allocator)
-						new_str_val := strconv.itoa(res_buffer, curr_val)
+						new_str_val := strconv.itoa(res_buffer[:], curr_val)
 						edit.input_text(editor, new_str_val)
 					}
 				}
 			}
 		}
 		app.curr_chars_stored = 0
-		state.selection = editor.selection
 		return str.to_string(editor.builder^)
+	}
+
+	increment_number :: proc() { 
+
+	}
+
+	decrement_number :: proc() { 
+
 	}
 
 	flags: Box_Flags
@@ -286,114 +291,118 @@ edit_number_box :: proc(
 		flags = {.Track_Step}
 	}
 
-	box_signals := child_container(
+	// box_signals := child_container(
+	// 	id_string,
+	// 	config,
+	// 	{direction = .Horizontal},
+	// 	{.Clickable, .Draw, .Draw_Text, .Edit_Text} + extra_flags + flags,
+	// )
+	box := box_from_cache(
 		id_string,
-		config,
-		{direction = .Horizontal},
 		{.Clickable, .Draw, .Draw_Text, .Edit_Text} + extra_flags + flags,
+		config,
 	)
-	box := box_signals.box
+	box_signals := box_signals(box)
+	box_open_children(box, {direction = .Horizontal})
+	defer box_close_children(box_signals)
 	box.metadata = metadata
 
 	// If this widget is for an audio track step, and we're creating it for the first time (like after switching tabs),
 	// pull it's value from the audio state.
 	if box.first_frame { 
-		tmp_buf : [32]byte
 		if step_metadata, ok := metadata.(Metadata_Track_Step); ok { 
 			track_num := step_metadata.track
 			step_num := step_metadata.step
 			switch step_metadata.type {
 			case .Volume:
-				curr_volume := int(app.audio.tracks[track_num].volumes[step_num])
-				box.data = str.clone(strconv.itoa(tmp_buf[:], curr_volume))
+				box.data = app.audio.tracks[track_num].volumes[step_num]
 			case .Send1:
-				curr_send1 := int(app.audio.tracks[track_num].send1[step_num])
-				box.data = str.clone(strconv.itoa(tmp_buf[:], curr_send1))
+				box.data = app.audio.tracks[track_num].send1[step_num]
 			case .Send2:
-				curr_send2 := int(app.audio.tracks[track_num].send2[step_num])
-				box.data = str.clone(strconv.itoa(tmp_buf[:], curr_send2))
+				box.data = app.audio.tracks[track_num].send2[step_num]
 			case .Pitch:
 				panic("Set type = .Pitch in Box_Metadata when creating a number box.")
 			}
 		} else { 
-			box.data = str.clone(strconv.itoa(tmp_buf[:], min_val))
+			box.data = min_val
 		}
 	} else { // box.data should be populated if it's existed before
-		if box.data == "" {
-			panic(tprintf("It wasn't the first frame and box.data for {} was == \"\"", box.id))
+		if box.data == nil {
+			panic(tprintf("It wasn't the first frame and box.data for {} was nil", box.id))
 		}
+		// NEW: Log the box.data value for cached boxes
+		// if box.metadata.(Metadata_Track_Step).track == 0 { 
+		// 	printf("Cached box %s has data=%v\n", box.id, box.data)
+		// }
 	}
 
-	if box_signals.clicked {
-		box.active = !box.active
-	}
+	if box_signals.clicked do box.active = !box.active
+
 	if ui_state.last_active_box != box do return box_signals
+
+	if box_signals.scrolled { 
+		println("scrolling on box")
+	}
 
 	// All text/edit state and the string buffers used when editing are temporary,
 	// So we need to permanently allocate the resulting final string at some point so it can
 	// be stored across frames. We also need to store each text editors state across frames.
-	builder:= str.builder_make()
+	builder := str.builder_make(context.temp_allocator)
 	editor: edit.State
-	edit.init(&editor, context.allocator, context.allocator)
+	edit.init(&editor, context.temp_allocator, context.temp_allocator)
 	edit.setup_once(&editor, &builder)
 	edit.begin(&editor, 0, &builder)
-	edit.input_text(&editor, box.data)
+	// Since we re-create the editor every frame, we need to re-populate it's initial data 
+	// with the current value from box.data
+	tmp_buf: [32]byte
+	box_data_string := strconv.itoa(tmp_buf[:], box.data.(int))
+	edit.input_text(&editor, box_data_string)
 
+	// If this box hasn't been edited before, create a new edit state and store it
+	// so we can remember things like, where the cursor is for this box.
 	existing_edit_box := true
 	if !(box.id in ui_state.text_editors_state) {
 		ui_state.text_editors_state[box.id] = Edit_Text_State{}
 		existing_edit_box = false
 	}
-	state := &ui_state.text_editors_state[box.id]
+
+	state := ui_state.text_editors_state[box.id]
 	editor.selection = state.selection
 
-	new_data: string
-	new_data = handle_input(state, &editor, box, min_val, max_val)
+	new_data_string := handle_input(&editor, box, min_val, max_val)
 
-	tmp_buf: [50]byte
-	new_data_as_int := strconv.atoi(new_data)
-	if  new_data_as_int > max_val {
-		new_data = strconv.itoa(tmp_buf[:], max_val)
-	} else if new_data_as_int < min_val {
-		new_data = strconv.itoa(tmp_buf[:], min_val)
-	}
+	ui_state.text_editors_state[box.id] = {selection=editor.selection}
+	
+	new_data := strconv.atoi(new_data_string)
+	new_data = clamp(new_data, min_val, max_val)
+	
 	// Unlike pitches, we can basically always immediately update the audio state for 
 	// a step whose value is a number because we clip the number to range on each
-	// keystroke.
+	// frame and the input handling function only allows numbers into the data.
 	if step_metadata, ok := box.metadata.(Metadata_Track_Step); ok { 
-		// Convert again incase we range-bounded the value in the prev conditional.
-		new_num := strconv.atoi(new_data)
 		track := step_metadata.track
 		step := step_metadata.step
 		switch step_metadata.type { 
 		case .Volume:
-			app.audio.tracks[track].volumes[step] = new_num
+			app.audio.tracks[track].volumes[step] = new_data
 		case .Send1:
-			app.audio.tracks[track].send1[step] = new_num
+			app.audio.tracks[track].send1[step] = new_data
 		case .Send2:
-			app.audio.tracks[track].send2[step] = new_num
+			app.audio.tracks[track].send2[step] = new_data
 		case .Pitch:
 			panic("This shouldn't happen :)")
 		}
 	} else { 
 	}
-
-	if existing_edit_box && len(box.data) > 0 {
-		println("[B DELETE]", box.id, "old data:", box.data, "old ptr:", raw_data(box.data))
-		delete(box.data)
-	}
-	box.data = str.clone(new_data)
-	println("[C SET]", box.id, "new data:", box.data, "new ptr:", raw_data(box.data), "from new_data:", new_data)
+	box.data = new_data
 
 	edit.end(&editor)
-	edit.destroy(&editor)
 	return box_signals
 }
 
 edit_text_box :: proc(
 	id_string: string,
 	config: Box_Config,
-	// Don't like having both text_box_type and metadata args...
 	text_box_type: Text_Box_Type,
 	extra_flags := Box_Flags{},
 	metadata := Box_Metadata{},
@@ -499,6 +508,11 @@ edit_text_box :: proc(
 			step_num := text_container.metadata.(Metadata_Track_Step).step
 			text_container.data = str.clone(get_note_from_num(app.audio.tracks[track_num].pitches[step_num]))
 		}
+	} else {
+		// Since we ALWAYS delete the previous box.data on a keystroke, a new text box needs an empty "" allocated.
+		if text_container.first_frame { 
+			text_container.data = str.clone("")
+		}
 	}
 
 	if ui_state.last_active_box != text_container do return text_container_signals
@@ -506,28 +520,12 @@ edit_text_box :: proc(
 	// All text/edit state and the string buffers used when editing are temporary,
 	// So we need to permanently allocate the resulting final string at some point so it can
 	// be stored across frames. We also need to store each text editors state across frames.
-
-	// builder := str.builder_make()
-	// editor: edit.State
-
-	// Not sure if generating a unique ID is neccessary, but we shall do it anyway for now.
-	// bytes_buffer: bytes.Buffer
-	// defer bytes.buffer_destroy(&bytes_buffer)
-	// bytes.buffer_init_string(&bytes_buffer, id_string)
-	// byts := bytes.buffer_to_bytes(&bytes_buffer)
-	// editor_id := u64(hash.crc32(byts))
-
-	// edit.init(&editor, context.allocator, context.allocator)
-	// edit.setup_once(&editor, &builder)
-	// edit.begin(&editor, editor_id, &builder)
-	// edit.input_text(&editor, text_container.data)
-
-	builder := str.builder_make()
+	builder := str.builder_make(context.temp_allocator)
 	editor: edit.State
-	edit.init(&editor, context.allocator, context.allocator)
-	// edit.setup_once(&editor, &builder)
+	edit.init(&editor, context.temp_allocator, context.temp_allocator)
+	edit.setup_once(&editor, &builder)
 	edit.begin(&editor, 0, &builder)
-	edit.input_text(&editor, text_container.data)
+	edit.input_text(&editor, text_container.data.(string))
 	
 	existing_edit_box := true
 	if !(text_container.id in ui_state.text_editors_state) {
@@ -553,8 +551,8 @@ edit_text_box :: proc(
 		}
 	}
 
-	if existing_edit_box && len(text_container.data) > 0 {
-		delete(text_container.data)
+	if existing_edit_box && len(text_container.data.(string)) > 0 {
+		delete(text_container.data.(string))
 	}
 
 	text_container.data = str.clone(new_data)

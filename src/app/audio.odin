@@ -297,8 +297,6 @@ track_store_pcm_data :: proc(track: u32) {
 
 	// Code will break if you pass in a .wav file that doesn't have 2 channels.
 	buf := make([dynamic]f32, n_frames * 2, context.temp_allocator) // assuming stereo
-	defer delete(buf)
-
 	frames_read: u64
 
 	data_source := ma.sound_get_data_source(sound)

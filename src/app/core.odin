@@ -1,5 +1,6 @@
 package app
 import "core:flags"
+import "core:strconv"
 import "core:fmt"
 import "core:math/rand"
 import "core:mem"
@@ -155,6 +156,12 @@ Box_Type :: enum {
 
 Box_Flags :: bit_set[Box_Flag]
 
+Box_Data :: union {
+	string, 
+	int,
+	f64,
+}
+
 Box :: struct {
 	first_frame:  bool,
 	id:           string,
@@ -175,7 +182,7 @@ Box :: struct {
 	child_layout: Box_Child_Layout,
 	parent:       ^Box,
 	// For boxes that need data associated with them, e.g: edit_text_boxes.
-	data:         string,
+	data:         Box_Data,
 	// Temporary field I'm using while debugging tracker step mem corruption issue. 
 	// It will act as the backing buffer of the box.data string.
 	data_buffer:        [64]byte, // Delete after, don't use this in production.
@@ -228,7 +235,8 @@ box_make :: proc(id_string: string, flags: Box_Flags, config: Box_Config) -> ^Bo
 	box: ^Box
 
 	if id_string == "spacer@spacer" {
-		box = new(Box, context.temp_allocator)
+		// box = new(Box, context.temp_allocator)
+		box = new(Box)
 	} else {
 		box = new(Box)
 	}
@@ -251,14 +259,16 @@ box_make :: proc(id_string: string, flags: Box_Flags, config: Box_Config) -> ^Bo
 	}
 	if box.config.semantic_size.x.type == .Fit_Text {
 		if .Edit_Text in box.flags {
-			box.width = int(font_get_strings_rendered_len(box.data))
+			data_as_string := box_data_get_as_string(box.data, context.temp_allocator)
+			box.width = int(font_get_strings_rendered_len(data_as_string))
 		} else {
 			box.width = int(font_get_strings_rendered_len(box.label))
 		}
 	}
 	if box.config.semantic_size.y.type == .Fit_Text {
 		if .Edit_Text in box.flags {
-			box.height = int(font_get_strings_rendered_height(box.data))
+			data_as_string := box_data_get_as_string(box.data, context.temp_allocator)
+			box.height = int(font_get_strings_rendered_height(data_as_string))
 		} else {
 			box.height = int(font_get_strings_rendered_height(box.label))
 		}
@@ -289,8 +299,9 @@ box_from_cache :: proc(id_string: string, flags: Box_Flags, config: Box_Config) 
 		if box.config.semantic_size.y.type == .Fixed {box.height = int(box.config.semantic_size.y.amount)}
 		if box.config.semantic_size.x.type == .Fit_Text {
 			if .Edit_Text in box.flags {
+				data_as_string := box_data_get_as_string(box.data, context.temp_allocator)
 				box.width =
-					font_get_strings_rendered_len(box.data) + box.config.padding.left + box.config.padding.right
+					font_get_strings_rendered_len(data_as_string) + box.config.padding.left + box.config.padding.right
 			} else {
 				box.width =
 					font_get_strings_rendered_len(box.label) + box.config.padding.left + box.config.padding.right
@@ -298,8 +309,9 @@ box_from_cache :: proc(id_string: string, flags: Box_Flags, config: Box_Config) 
 		}
 		if box.config.semantic_size.y.type == .Fit_Text {
 			if .Edit_Text in box.flags {
+				data_as_string := box_data_get_as_string(box.data, context.temp_allocator)
 				box.height =
-					font_get_strings_rendered_height(box.data) + box.config.padding.top + box.config.padding.bottom
+					font_get_strings_rendered_height(data_as_string) + box.config.padding.top + box.config.padding.bottom
 			} else {
 				box.height =
 					font_get_strings_rendered_height(box.label) + box.config.padding.top + box.config.padding.bottom
@@ -309,6 +321,7 @@ box_from_cache :: proc(id_string: string, flags: Box_Flags, config: Box_Config) 
 	} else {
 		is_new = true
 		new_box := box_make(id_string, flags, config)
+		// printfln("[box-cache] new    key={} ptr={} label={}", key, cast(uintptr)new_box, new_box.label)
 		ui_state.box_cache[new_box.id] = new_box
 		box = new_box
 	}
@@ -357,7 +370,6 @@ box_close_children :: proc(signals: Box_Signals) {
 	}
 }
 /* ======================= End Core Box Code ========================= */
-
 
 
 
@@ -728,7 +740,6 @@ sizing_grow_growable_width :: proc(box: ^Box) {
 	case .Horizontal:
 		remaining_width := box.width - (box.config.padding.left + box.config.padding.right)
 		growable_children := make([dynamic]^Box, allocator = context.temp_allocator)
-		defer delete(growable_children)
 		for child in box.children {
 			if child.config.position_floating != .Not_Floating {
 				continue
@@ -795,7 +806,6 @@ sizing_grow_growable_height :: proc(box: ^Box) {
 	switch box.child_layout.direction {
 	case .Vertical:
 		growable_children := make([dynamic]^Box, allocator = context.temp_allocator)
-		defer delete(growable_children)
 		remaining_height := box.height
 		for child in box.children {
 			if child.config.position_floating != .Not_Floating{
