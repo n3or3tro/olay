@@ -7,9 +7,7 @@ import str "core:strings"
 import "core:text/edit"
 import "core:unicode"
 import sdl "vendor:sdl2"
-import md5 "core:crypto/legacy/md5"
-import "core:bytes"
-import "core:hash"
+
 
 slider_value: f32 = 0
 
@@ -56,9 +54,6 @@ Track_Signals :: struct {
 
 Edit_Text_State :: struct {
 	selection:  [2]int,
-	// The Odin package `text/edit` state.
-	// edit_state: edit.State,
-	// Could maybe store the string data here, but we'll store it in the box for now.
 }
 
 Text_Box_Type :: enum {
@@ -74,12 +69,12 @@ Text_Box_Type :: enum {
 audio_track :: proc(track_num: int, track_width: f32) -> Track_Signals {
 	track := &app.audio.tracks[track_num]
 	n_steps := 32
+
 	track_container := child_container(
 		id("@track-{}-container", track_num),
 		{semantic_size = {{.Fixed, track_width}, {.Percent, 1}}},
 		{direction = .Vertical, gap_vertical = 3},
 	)
-
 	track_label: {
 		child_container(
 			id("@track-{}-label-container", track_num),
@@ -89,7 +84,7 @@ audio_track :: proc(track_num: int, track_width: f32) -> Track_Signals {
 		text(id("{} - @track-{}-num", track_num, track_num), {semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}}})
 		edit_text_box(
 			id("@track-{}-name", track_num),
-			{semantic_size = {{.Grow, 1}, {.Fixed, 50}}, background_color = {0.5, 0.2, 0.345, 0.2}},
+			{semantic_size = {{.Grow, 1}, {.Fixed, 30}}, color = {0.5, 0.2, 0.345, 0.2}},
 			.Generic_One_Line,
 		)
 	}
@@ -98,13 +93,13 @@ audio_track :: proc(track_num: int, track_width: f32) -> Track_Signals {
 	steps: {
 		child_container(
 			id("@track-steps-container-{}", track_num),
-			{semantic_size = {{.Fixed, track_width}, {.Percent, 0.7}}, background_color = {1, 0.5, 1, 1}},
+			{semantic_size = {{.Fixed, track_width}, {.Percent, 0.7}}, color = {1, 0.5, 1, 1}},
 			{direction = .Vertical, gap_vertical = 0},
 		)
 
 		substep_config: Box_Config = {
 			semantic_size    = {{.Percent, 0.25}, {.Percent, 1}},
-			background_color = {1, 0.5, 0, 1},
+			color = {1, 0.5, 0, 1},
 			border_thickness = 1,
 			border_color     = {0, 0, 0.5, 1},
 			type             = .Track_Step,
@@ -181,23 +176,24 @@ audio_track :: proc(track_num: int, track_width: f32) -> Track_Signals {
 	controls: {
 		controls_container := child_container(
 			id("@track-{}-controls-container", track_num),
-			{semantic_size = {{.Fixed, track_width}, {.Percent, 0.3}}, background_color = {0.5, 0.7, 0.4, 1}},
+			{semantic_size = {{.Fixed, track_width}, {.Percent, 0.3}}, color = {0.5, 0.7, 0.4, 1}},
 			{direction = .Horizontal, alignment_horizontal = .Start, alignment_vertical = .End},
 		)
 		arm_button := text_button(
 			id("arm@track-{}-arm-button", track_num),
-			{semantic_size = {{.Percent, 0.333}, {.Fixed, 30}}, background_color = {1, 1, 0, 1}},
+			{semantic_size = {{.Percent, 0.333}, {.Fixed, 30}}, color = {1, 1, 0, 1}},
 		)
 		volume_slider := vertical_slider(
 			id("hey@track-{}-volume-slider", track_num),
 			{semantic_size = {{.Percent, 0.333}, {.Grow, 30}}},
+			// {semantic_size = {{.Fixed, 30}, {.Fixed, 200}}},
 			&track.volume,
 			0,
 			100,
 		)
 		load_sound_button := text_button(
 			id("load@track-{}-load-sound-button", track_num),
-			{semantic_size = {{.Percent, 0.333}, {.Fixed, 30}}, background_color = {1, 0, 0.5, 1}},
+			{semantic_size = {{.Percent, 0.333}, {.Fixed, 30}}, color = {1, 0, 0.5, 1}},
 		)
 	}
 	return Track_Signals{step_signals, {}}
@@ -291,20 +287,13 @@ edit_number_box :: proc(
 		flags = {.Track_Step}
 	}
 
-	// box_signals := child_container(
-	// 	id_string,
-	// 	config,
-	// 	{direction = .Horizontal},
-	// 	{.Clickable, .Draw, .Draw_Text, .Edit_Text} + extra_flags + flags,
-	// )
-	box := box_from_cache(
+	box_signals := child_container(
 		id_string,
-		{.Clickable, .Draw, .Draw_Text, .Edit_Text} + extra_flags + flags,
 		config,
+		{direction = .Horizontal},
+		{.Clickable, .Draw, .Draw_Text, .Edit_Text} + extra_flags + flags,
 	)
-	box_signals := box_signals(box)
-	box_open_children(box, {direction = .Horizontal})
-	defer box_close_children(box_signals)
+	box := box_signals.box
 	box.metadata = metadata
 
 	// If this widget is for an audio track step, and we're creating it for the first time (like after switching tabs),
@@ -582,7 +571,7 @@ vertical_slider :: proc(
 	track := box_from_cache(
 		id("{}-track", get_id_from_id_string(id_string)),
 		{.Clickable, .Draw, .Scrollable},
-		{semantic_size = {{.Percent, 0.5}, {.Percent, 1}}, background_color = {1, 1, 1, 1}},
+		{semantic_size = {{.Percent, 0.5}, {.Percent, 1}}, color = {1, 1, 1, 1}},
 	)
 	track_signals := box_signals(track)
 
@@ -591,7 +580,7 @@ vertical_slider :: proc(
 		{.Clickable, .Draggable, .Draw},
 		{
 			semantic_size = {{.Percent, 0.7}, {.Percent, 0.1}},
-			background_color = {0, 0.1, 0.7, 1},
+			color = {0, 0.1, 0.7, 1},
 			position_floating = .Relative_Parent,
 			position_floating_offset = {0.5, map_range(min_val, max_val, 0, 1, slider_value^)},
 		},
@@ -621,14 +610,14 @@ topbar :: proc() {
 		"@topbar",
 		{
 			semantic_size    = {{.Fixed, f32(app.wx)}, {.Fixed, TOPBAR_HEIGHT}},
-			background_color = {1, 1, 1, 0.8},
+			color = {1, 1, 1, 0.8},
 			// padding = {top = 10, bottom = 5},
 		},
 		{direction = .Horizontal, alignment_horizontal = .End, alignment_vertical = .Center, gap_horizontal = 5},
 	)
 	btn_config := Box_Config {
 		semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}},
-		background_color = {0.5, 0.7, 0.7, 1},
+		color = {0.5, 0.7, 0.7, 1},
 		corner_radius = 5,
 		padding = {top = 7, bottom = 7, left = 2, right = 2},
 	}
@@ -677,7 +666,7 @@ multi_button_set :: proc(
 			{
 				semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}},
 				padding = {10, 10, 10, 10},
-				background_color = {.5, .7, .8, 1},
+				color = {.5, .7, .8, 1},
 			},
 		)
 		val_str_buf := make([]u8, 50, context.temp_allocator)
@@ -700,7 +689,7 @@ multi_button_set :: proc(
 	*/
 	for button in buttons {
 		if button.signals.box.selected {
-			button.signals.box.config.background_color = {1, 0.5, 1, 1}
+			button.signals.box.config.color = {1, 0.5, 1, 1}
 		}
 	}
 
@@ -748,7 +737,7 @@ context_menu :: proc() {
 			"add@conext-menu-1",
 			{
 				semantic_size = {{.Grow, 1}, {.Fit_Text, btn_height}},
-				background_color = {1, 0.5, 0.7, 1},
+				color = {1, 0.5, 0.7, 1},
 				padding = {10, 10, 10, 10},
 			},
 		)
@@ -757,7 +746,7 @@ context_menu :: proc() {
 			"remove@conext-menu-2",
 			{
 				semantic_size = {{.Fit_Text, 1}, {.Fit_Text, btn_height}},
-				background_color = {1, 0.7, 0.3, 1},
+				color = {1, 0.7, 0.3, 1},
 				padding = {10, 10, 10, 10},
 			},
 		)
@@ -780,7 +769,7 @@ context_menu :: proc() {
 			)
 			btn_config := Box_Config {
 				semantic_size    = {{.Fit_Text, 1}, {.Fit_Text, 1}},
-				background_color = {0.734, 0.9235, 0.984, 1},
+				color = {0.734, 0.9235, 0.984, 1},
 				padding          = {10, 10, 10, 10},
 			}
 			if text_button("All steps@context-add-all", btn_config).clicked {
@@ -837,7 +826,7 @@ context_menu :: proc() {
 			)
 			btn_config := Box_Config {
 				semantic_size    = {{.Fit_Text, 1}, {.Fit_Text, 1}},
-				background_color = {0.934, 0.135, 0.484, 1},
+				color = {0.934, 0.135, 0.484, 1},
 				padding          = {10, 10, 10, 10},
 			}
 			if text_button("All steps@context-remove-all", btn_config).clicked {
@@ -878,7 +867,7 @@ context_menu :: proc() {
 			"delete@conext-menu-3",
 			{
 				semantic_size = {{.Grow, 1}, {.Fit_Text, btn_height}},
-				background_color = {0.3, 0.7, 0.3, 1},
+				color = {0.3, 0.7, 0.3, 1},
 				padding = {10, 10, 10, 10},
 			},
 		)
@@ -892,7 +881,7 @@ context_menu :: proc() {
 		{
 			semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}},
 			padding = {2, 2, 2, 2},
-			background_color = {0.5, 0.2, 1, 0.5},
+			color = {0.5, 0.2, 1, 0.5},
 			position_floating = .Absolute_Pixel,
 			position_floating_offset = {f32(ui_state.context_menu.pos.x), f32(ui_state.context_menu.pos.y)},
 			z_index = 100,
@@ -917,7 +906,7 @@ file_browser_menu :: proc() {
 		"@file-browser-container",
 		{
 			semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}},
-			background_color = {1, 0, 0.7, 1},
+			color = {1, 0, 0.7, 1},
 			padding = {bottom = 5},
 			z_index = 10,
 		},
@@ -929,12 +918,12 @@ file_browser_menu :: proc() {
 			{
 				semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1.}},
 				padding = {10, 10, 10, 10},
-				background_color = {.5, .4, .423, 1},
+				color = {.5, .4, .423, 1},
 			},
 			{direction = .Horizontal, alignment_horizontal = .Center, alignment_vertical = .Center},
 		)
 		btn_config := Box_Config {
-			background_color = {0.9, 0.8, 0.9, 1},
+			color = {0.9, 0.8, 0.9, 1},
 			border_thickness = 3,
 			padding          = {10, 10, 10, 10},
 			semantic_size    = {{.Fit_Text, 1}, {.Fit_Text, 1}},
@@ -962,7 +951,7 @@ file_browser_menu :: proc() {
 	files_and_folders: {
 		child_container(
 			"@browser-files-container",
-			{semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}}, background_color = {.5, .4, .2, 1}},
+			{semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}}, color = {.5, .4, .2, 1}},
 			{direction = .Vertical},
 		)
 
@@ -970,7 +959,7 @@ file_browser_menu :: proc() {
 		for file, i in app.browser_files {
 			lol := Box_Config {
 				semantic_size    = {{.Fit_Text, 1}, {.Fit_Text, 1}},
-				background_color = {1, 2, 3, 1},
+				color = {1, 2, 3, 1},
 			}
 			text(
 				id("{}@browser-file-{}", file, i),
@@ -1013,7 +1002,7 @@ draggable_window :: proc(id_string: string, child_layout: Box_Child_Layout) -> B
 		{
 			semantic_size = {{.Grow, 100}, {.Fit_Text, 1}},
 			padding = {top = 5, bottom = 5},
-			background_color = {.5, .2, .3, 1},
+			color = {.5, .2, .3, 1},
 			z_index = container.z_index,
 		},
 	)

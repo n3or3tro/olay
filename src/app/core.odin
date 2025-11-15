@@ -31,7 +31,7 @@ Vec2_int :: [2]int
 Vec3_int :: [3]int
 Vec4_int :: [4]int
 
-Color :: [4]f32
+Color_RGBA :: [4]f32
 
 // All size variants that require a value, have that value as a ratio 0-1 excpet for Absolute_Pixel which is in pixels.
 // Top_* and Bottom_* are ways to easilly pin boxes to various places
@@ -53,13 +53,14 @@ Position_Floating_Type :: enum {
 
 // Style and layout info that has to be known upon Box creation.
 Box_Config :: struct {
-	background_color:   Color,
+	text_color: 		Color_RGBA,
+	color:  		 	Color_RGBA,
+	color_hot: 			Color_RGBA,
+	color_active: 		Color_RGBA,
+	color_selected: 	Color_RGBA,
 	corner_radius:      int,
 	border_thickness:   int,
-	border_color:       Color,
-	max_size:           int,
-	min_size:           int,
-	prefered_size:      int,
+	border_color:       Color_RGBA,
 	// Internal padding that will surround child elements.
 	padding:            struct {
 		left:   int,
@@ -68,6 +69,9 @@ Box_Config :: struct {
 		bottom: int,
 	},
 	semantic_size:      [2]Box_Size,
+	max_size:           [2]int,
+	min_size:           [2]int,
+
 	// Lets you break out of the layout flow and position 'absolutely', relative
 	// to immediate parent.
 	position_floating:  Position_Floating_Type,

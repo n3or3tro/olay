@@ -50,10 +50,10 @@ get_default_rendering_data :: proc(box: Box) -> Rect_Render_Data {
 		top_left         = {f32(box.top_left.x), f32(box.bottom_right.y)},
 		bottom_right     = {f32(box.bottom_right.x), f32(box.bottom_right.y)},
 		// idrk the winding order for colors, this works tho.
-		tl_color         = box.config.background_color,
-		tr_color         = box.config.background_color,
-		bl_color         = box.config.background_color,
-		br_color         = box.config.background_color,
+		tl_color         = box.config.color,
+		tr_color         = box.config.color,
+		bl_color         = box.config.color,
+		br_color         = box.config.color,
 		corner_radius    = 0,
 		edge_softness    = 0,
 		border_thickness = 1000000,
@@ -67,10 +67,10 @@ get_default_rendering_data :: proc(box: Box) -> Rect_Render_Data {
 get_boxes_rendering_data :: proc(box: Box) -> ^[dynamic]Rect_Render_Data {
 	render_data := new([dynamic]Rect_Render_Data, context.temp_allocator)
 	// render_data := new([dynamic]Rect_Render_Data)
-	tl_color: Vec4_f32 = box.config.background_color
-	bl_color: Vec4_f32 = box.config.background_color
-	tr_color: Vec4_f32 = box.config.background_color
-	br_color: Vec4_f32 = box.config.background_color
+	tl_color: Vec4_f32 = box.config.color
+	bl_color: Vec4_f32 = box.config.color
+	tr_color: Vec4_f32 = box.config.color
+	br_color: Vec4_f32 = box.config.color
 
 	is_button := str.contains(box.id, "button")
 
@@ -95,8 +95,8 @@ get_boxes_rendering_data :: proc(box: Box) -> ^[dynamic]Rect_Render_Data {
 		// idrk the winding order for colors, this works tho.
 		tl_color         = bl_color,
 		tr_color         = br_color,
-		bl_color         = box.config.background_color,
-		br_color         = box.config.background_color,
+		bl_color         = box.config.color,
+		br_color         = box.config.color,
 		corner_radius    = 0,
 		edge_softness    = 0,
 		border_thickness = 100000,
@@ -153,7 +153,7 @@ get_boxes_rendering_data :: proc(box: Box) -> ^[dynamic]Rect_Render_Data {
 	   ui_state.last_active_box != nil &&
 	   ui_state.last_active_box.id == box.id {
 		box_data_string := box_data_get_as_string(box.data, context.temp_allocator)
-		color := Color{0, 0.5, 1, 1}
+		color := Color_RGBA{0, 0.5, 1, 1}
 		cursor_x_pos := f32(calc_cursor_pos(box, box_data_string))
 		cursor_data := Rect_Render_Data {
 			top_left         = {cursor_x_pos, f32(box.top_left.y)},
@@ -634,10 +634,10 @@ get_text_quads :: proc(
 			texture_top_left     = Vec2_f32{tex_tl_x, tex_tl_y},
 			texture_bottom_right = Vec2_f32{tex_br_x, tex_br_y},
 			border_thickness     = 500,
-			tl_color             = Color{0, 0, 0, 1},
-			tr_color             = Color{0, 0, 0, 1},
-			bl_color             = Color{0, 0, 0, 1},
-			br_color             = Color{0, 0, 0, 1},
+			tl_color             = Color_RGBA{0, 0, 0, 1},
+			tr_color             = Color_RGBA{0, 0, 0, 1},
+			bl_color             = Color_RGBA{0, 0, 0, 1},
+			br_color             = Color_RGBA{0, 0, 0, 1},
 			ui_element_type      = .Text,
 		}
 		glyph_rects[i] = data
