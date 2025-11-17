@@ -1,5 +1,6 @@
 package app
 import "core:fmt"
+import "vendor:kb_text_shape"
 import "core:thread"
 import "core:time"
 import gl "vendor:OpenGL"
@@ -84,8 +85,6 @@ app_update :: proc() -> (all_good: bool) {
 	if ui_state.frame_num > 0 {
 		render_ui(rect_render_data)
 	}
-	// delete(rect_render_data)
-
 	sdl.GL_SwapWindow(app.window)
 
 	reset_ui_state()
@@ -212,6 +211,13 @@ app_hot_reload :: proc(mem: rawptr) {
 	audio_init_miniaudio(app.audio)
 }
 
+@(export)
+app_reload_colors :: proc(mem: rawptr, color_file_path: string) { 
+	app = (^App)(mem)
+	delete(app.ui_state.dark_theme)
+	app.ui_state.dark_theme = parse_json_token_color_mapping(color_file_path)
+}
+
 // This needs to run before we unload the DLL due to miniaudio spawning background threads that will
 // continue to run after we've unloaded the DLL and crash the program.
 @(export)
@@ -227,6 +233,10 @@ app_shutdown :: proc() {
 	delete_dynamic_array(app.ui_state.color_stack)
 	for key, val in app.ui_state.box_cache {
 		delete(key)
+		if str, ok := val.data.(string); ok { 
+			delete(str)
+		}
+		delete(val.children)
 		free(val)
 	}
 	// for entry in app.ui_state.temp_boxes {
@@ -239,16 +249,12 @@ app_shutdown :: proc() {
 	delete(ui_state.font_state.rendered_glyph_cache)
 	delete(ui_state.font_state.shaped_string_cache)
 	delete(ui_state.font_state.atlas.bitmap_buffer)
-	// font_destroy(&ui_state.font_state)
-	// delete(app.audio_state.tracks)
-	// free(app.audio_state.engine)
-	// for group in app.audio_state.audio_groups {
-	// free(group)
-	// }
-	for something in ui_state.parents_stack {
-		free(something)
+	kb_text_shape.FreeFont(&ui_state.font_state.kb.font, context.allocator)
+	for parent in ui_state.parents_stack {
+		free(parent)
 	}
 	delete(ui_state.parents_stack)
+	delete(ui_state.dark_theme)
 	free(app.ui_state)
 	free(app)
 	free_all(context.allocator)

@@ -8,10 +8,64 @@ import "core:time"
 import gl "vendor:OpenGL"
 import sdl "vendor:sdl2"
 import "core:encoding/json"
-
+import str "core:strings"
+import sarr "core:container/small_array"
 
 id :: fmt.tprintf
+
+// Short hand pre-defined semantic_size values that we commonly use. 
+Size_Fit_Children 		:= [2]Box_Size{{.Fit_Children, 1}, {.Fit_Children, 1}}
+Size_Grow 				:= [2]Box_Size{{.Grow, 1}, {.Grow, 1}}
+Size_Fit_Text 			:= [2]Box_Size{{.Fit_Text, 1}, {.Fit_Text, 1}}
+Size_Fit_Text_And_Grow 	:= [2]Box_Size{{.Fit_Text_And_Grow, 1}, {.Fit_Text_And_Grow, 1}}
+
+
+State_Change_Type :: enum { 
+	Track_Step,
+	Track_Volume,
+	Track_Arm_State,
+	// Old / new values will be the file path or maybe an index into locally loaded sounds.
+	Track_Sound,
+}
+
+Track_Step_Change :: struct {
+	type: enum {
+		Pitch, Volume, Send1, Send2
+	},
+	track: int,
+	step:  int,
+	old_value: union {int, string},
+	new_value: union {int, string},
+}
+
+Track_Volume_Change :: struct {
+	track, step: int,
+	old_volume:  int,
+	new_value: 	 int,
+}
+
+Track_Arm_State_Change :: struct {
+	track, step: int,
+	old_value:   bool,
+	new_value: 	 bool,
+}
+
+Track_Sound_Change :: struct { 
+	track, step: int,
+	old_value:   string,
+	new_value: 	 string,
+}
+
+
+State_Change :: union { 
+	Track_Step_Change,
+	Track_Volume_Change,
+	Track_Arm_State_Change,
+	Track_Sound_Change,
+}
+
 UI_State :: struct {
+	root: 				   ^Box,
 	box_cache:             map[string]^Box,
 	// I.e. the node which will parent future children if children_open() has been called.
 	parents_top:           ^Box,
@@ -65,7 +119,12 @@ UI_State :: struct {
 	// only work if they're declared as a direct child of the root.
 	dark_theme: 			Token_To_Color_Map,
 	light_theme: 			Token_To_Color_Map,
-	draggable_window_offsets : map[string][2]f32,
+	draggable_window_offsets: map[string][2]f32,
+	// Necessary shared state for animations.
+	animation_items: sarr.Small_Array(32, Animation_Item),
+	anon_box_counter:		int,
+	undo_stack: 			[dynamic]State_Change,
+	redo_stack: 			[dynamic]State_Change,
 }
 
 
@@ -97,7 +156,12 @@ init_ui_state :: proc() -> ^UI_State {
 		string(ui_vertex_shader_data),
 		string(ui_pixel_shader_data),
 	)
-	assert(quad_shader_ok)
+	// assert(quad_shader_ok)
+	if !quad_shader_ok { 
+		msg, type := gl.get_last_error_message()
+		println(msg, type)
+		panic("")
+	}
 	ui_state.quad_shader_program = shader_program_id
 
 	// Setup shader.
@@ -134,24 +198,28 @@ init_ui_state :: proc() -> ^UI_State {
 	return ui_state
 }
 
-// Since I don't have any support for z-index stuff yet, I'm relying on a sort of painter algorithm,
-// where the things I want on top of other things (if they're floating) must be created after the things
-// they want to sit on top of. I.e. z-depth is kind of determined by creation order.
 create_ui :: proc() -> ^Box {
 	// This is the first step of the mark and sweep, any boxes which are not re-created this frame, will
 	// be removed from the cache at the end of the frame.
 	for _, box in ui_state.box_cache {
 		box.keep = false
 	}
+	ui_state.anon_box_counter  = 0
 	ui_state.changed_ui_screen = false
+	// printfln("window size: {} x {}", app.wx, app.wy)
 	root := child_container(
 		"root@root", 
 		{
-			semantic_size = {{.Fixed, f32(app.wx)}, {.Fixed, f32(app.wy)}}
+			semantic_size = {{.Fixed, f32(app.wx)}, {.Fixed, f32(app.wy)}},
+			// color = .Inactive,
 		},
-		{direction=.Vertical}
+		{direction=.Vertical},
+		{.Draw}
 	).box
-	root.keep = true
+	root.width    = app.wx
+	root.height   = app.wy
+	root.keep     = true
+	ui_state.root = root
 	topbar()
 	if ui_state.tab_num == 0 {
 		audio_tracks: {
@@ -177,9 +245,9 @@ create_ui :: proc() -> ^Box {
 			{
 				position_floating =.Center_Right,
 				padding = {10,10,10,10},
-				border_thickness = 4,
+				border = 2,
 				semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}},
-				color = {0.987, 0.41234, 0.41234, 1}
+				color = .Warning
 			}
 		).clicked {
 			track_add_new(app.audio)
@@ -198,17 +266,40 @@ create_ui :: proc() -> ^Box {
 			false, 
 			[]int{8,2,10,14,27, 4242, 23423, 123,4747}
 		)
-		cfg := Box_Config { 
-			semantic_size = {{.Fixed, 300}, {.Fixed, 50}},
-			border_thickness = 4,
-			color = {0.5, 1, 1, 0.7}
-		}
-		edit_number_box("what@flaksjdf", cfg, 0, 100)
-		edit_number_box("hey@lkjslkj", cfg, 5, 200)
-		edit_number_box("fuck@asldlll", cfg, 20, 300)
-		edit_number_box("lol@flaskjdf", cfg, 50, 400)
-		// edit_text_box("@zxcvcxv", {cfg}, .Pitch)
-		// edit_text_box("@zxcvcxv", {cfg}, .Pitch)
+		child_container(
+			"@fasdflaksjd", 
+			{
+				semantic_size 	= {{.Fixed, 300}, {.Fixed, 100}},
+				color 			= .Inactive,
+			}, 
+			{
+				alignment_horizontal = .Center,
+				alignment_vertical   = .Center,
+				direction 			 = .Horizontal
+			},
+			{.Draw}
+		)
+		text_button(
+			"hey@lllll", 
+			{
+				color 		  = .Primary,
+				semantic_size = {{.Grow, 1}, {.Grow, 10}}
+			}
+		)
+		text_button(
+			"there@aaaaa", 
+			{
+				color 		  = .Primary,
+				semantic_size = {{.Grow, 1}, {.Grow, 10}}
+			}
+		)
+		text_button(
+			"baby@bbbbbbb", 
+			{
+				color 		  = .Primary,
+				semantic_size = {{.Grow, 1}, {.Grow, 10}}
+			}
+		)
 	}
 
 	if ui_state.context_menu.active { 
@@ -222,13 +313,14 @@ create_ui :: proc() -> ^Box {
 		file_browser_menu()
 	}
 
-
+	// animation_update_all()
 	sizing_calc_percent_width(root)
 	sizing_calc_percent_height(root)
 	sizing_grow_growable_height(root)
 	sizing_grow_growable_width(root)
 	recalc_fit_children_sizing(root)
 	position_boxes(root)
+
 	// Handle dragging the open window(s)
 	if ui_state.dragged_window != nil { 
 		container := ui_state.dragged_window
@@ -249,12 +341,19 @@ create_ui :: proc() -> ^Box {
 
 		ui_state.draggable_window_offsets[actual_id] += {parent_offset_delta_x, parent_offset_delta_y}
 	} 
-	// debug_dump_number_box_cache()
+
 	flow_z_positions(root)
 	compute_frame_signals(root)
 	return root
 }
 
+undo :: proc() { 
+
+}
+
+redo :: proc() { 
+
+}
 /* 
 Reset state that was set in the current frame.
 This is called at the end of every frame after all logical UI stuff has happened.
@@ -308,177 +407,51 @@ reset_ui_state :: proc() {
 	ui_state.parents_top = nil
 }
 
-
-@(private="file")
-Color_HSLA :: distinct [4]f32
-
-Theme_Base_Colors  :: struct { 
-	// Primary accent color, accent in comparison to surface color.
-	primary,  	
-	// Secondary accent color, accent in comparison to surface color.
-	secondary, 
-	// Third accent color, accent in comparison to surface color.
-	tertiary, 
-	// Neutral color that isn't the background nor an accent, yet fits the theme.
-	neutral,
-	// Used for backgrounds and large swaths of non-content area.
-	surface,
-	surface_variant,
-	inactive,
-	warning,
-	error: Color_RGBA
-}
-
-Theme_Full_Palette :: struct { 
-	primary,  	
-	secondary, 
-	tertiary, 
-	neutral,
-	surface,
-	surface_variant,
-	inactive,
-	warning,
-	error: [10] Color_RGBA
-}
-
-@(private="file")
-// Note: A different color format like OKLCH may work better.
-rgba_to_hsla :: proc(in_color: Color_RGBA) ->  Color_HSLA { 
-	// This algo was written by chat GPT it may be shit or wrong, careful :).
-	r, g, b, a := in_color[0], in_color[1], in_color[2], in_color[3]
-	h, s, l: f32
-   	maxc := max(r, max(g, b));
-    minc := min(r, min(g, b));
-    l     = (maxc + minc) * 0.5;
-
-    if maxc == minc {
-        // grayscale
-        return {0, 0, l, a};
-    }
-
-    d := maxc - minc;
-
-    if l > 0.5 {
-        s = d / (2.0 - maxc - minc);
-    } else {
-        s = d / (maxc + minc);
-    }
-
-    if maxc == r {
-        h = (g - b) / d + (g < b ? 6 : 0);
-    } else if maxc == g {
-        h = (b - r) / d + 2;
-    } else {
-        h = (r - g) / d + 4;
-    }
-
-    h /= 6.0;
-    return {h,s,l, a};	
-}
-
-hsla_to_rgba :: proc(in_color: Color_HSLA) -> Color_RGBA {
-	// This algo was written by chat GPT it may be shit or wrong, careful :).
-	hue_to_rgb :: proc(p, q, t: f32) -> f32 { 
-		t := t
-		if t < 0 { t += 1; }
-		if t > 1 { t -= 1; }
-
-		if t < 1.0/6.0 {
-			return p + (q - p) * 6 * t;
-		}
-		if t < 1.0/2.0 {
-			return q;
-		}
-		if t < 2.0/3.0 {
-			return p + (q - p) * (2.0/3.0 - t) * 6;
-		}
-		return p;
-	}
-
-	h, s, l, a := in_color[0], in_color[1], in_color[2], in_color[3]
-    if s == 0 {
-        // grayscale
-        return {l, l, l, a};
-    }
-
-    q := (l < 0.5) ? (l * (1 + s)) : (l + s - l*s);
-    p := 2*l - q;
-
-    r := hue_to_rgb(p, q, h + 1.0/3.0);
-    g := hue_to_rgb(p, q, h);
-    b := hue_to_rgb(p, q, h - 1.0/3.0);
-
-    return {r, g, b, a};
-}
-
-// Takes in 1 RGBA color and returns 10 shades of that color, each darker than the next.
-// output[0] is lightest -> output[9] is darkest.
-generate_tones_rgba :: proc(in_color: Color_RGBA) -> [10]Color_RGBA {
-	hsla_input := rgba_to_hsla(in_color);
-	h, s, l, a := hsla_input[0], hsla_input[1], hsla_input[2], hsla_input[3]
-
-    intensities := [10]f32{
-		0.05, 0.15, 0.25, 0.35, 0.45,
-		0.55, 0.65, 0.75, 0.85, 0.95
-    };
-
-    tones: [10]Color_RGBA;
-
-    for i in 0..<10 {
-		hsla_variant := Color_HSLA{h, s, intensities[i], a}
-        rgba_variant := hsla_to_rgba(hsla_variant);
-        tones[i] = rgba_variant
-    }
-
-    return tones;
-}
-
 // These are color tokens generated by the material color util we have. They map onto things like 
 // button color, button hover state, etc. 
-
 Semantic_Color_Token :: enum {
-	primary,
-	on_primary,
-	primary_container,
-	on_primary_container,
-	secondary,
-	on_secondary,
-	secondary_container,
-	on_secondary_container,
-	tertiary,
-	on_tertiary,
-	tertiary_container,
-	on_tertiary_container,
-	error,
-	on_error,
-	error_container,
-	on_error_container,
-	warning,
-	on_warning,
-	warning_container,
-	on_warning_container,
-	background,
-	on_background,
-	surface,
-	on_surface,
-	surface_variant,
-	on_surface_variant,
-	surface_dim,
-	surface_bright,
-	surface_container_lowest,
-	surface_container_low,
-	surface_container,
-	surface_container_high,
-	surface_container_highest,
-	outline,
-	outline_variant,
-	inverse_surface,
-	inverse_on_surface,
-	inverse_primary,
-	scrim,
-	shadow,
-	inactive,
-	on_inactive,
+	Primary,
+	On_Primary,
+	Primary_Container,
+	On_Primary_Container,
+	Secondary,
+	On_Secondary,
+	Secondary_Container,
+	On_Secondary_Container,
+	Tertiary,
+	On_Tertiary,
+	Tertiary_Container,
+	On_Tertiary_Container,
+	Error,
+	On_Error,
+	Error_Container,
+	On_Error_Container,
+	Warning,
+	On_Warning,
+	Warning_Container,
+	On_Warning_Container,
+	Background,
+	On_Background,
+	Surface,
+	On_Surface,
+	Surface_Variant,
+	On_Surface_Variant,
+	Surface_Dim,
+	Surface_Bright,
+	Surface_Container_Lowest,
+	Surface_Container_Low,
+	Surface_Container,
+	Surface_Container_High,
+	Surface_Container_Highest,
+	Outline,
+	Outline_Variant,
+	Inverse_Surface,
+	Inverse_On_Surface,
+	Inverse_Primary,
+	Scrim,
+	Shadow,
+	Inactive,
+	On_Inactive,
 }
 
 Token_To_Color_Map :: map[Semantic_Color_Token]Color_RGBA
@@ -489,32 +462,39 @@ parse_json_token_color_mapping :: proc(path: string, allocator:=context.allocato
 		panic(tprintf("Failed to open file at: {}", path))
 	}
 
-	json_data, json_err := json.parse(file_data, allocator=allocator)
+	json_data, json_err := json.parse(file_data, allocator = context.temp_allocator)
 	if json_err != .None { 
 		panic(tprintf("Failed to parse file, got err: {}", json_err))
 	}
 	#partial switch json_token_map in json_data { 
 		case json.Object:
-			res: Token_To_Color_Map
+			res := new(Token_To_Color_Map, allocator)
 			token_names := reflect.enum_field_names(Semantic_Color_Token)
 			for color_token in Semantic_Color_Token {
-				key := token_names[color_token]
+				// Added the snake case things, so just check that carefully if anything is broken now.
+				key := str.to_snake_case(token_names[color_token], context.temp_allocator)
 				val := json_token_map[key]
 				res[color_token] = convert_hash_color_to_rgba(val.(json.String))
 			}
-			return res
+			return res^
 		case:
 			panic("Parsing json color theme didn't return an object.")
 	}
 	panic("Failed to Token_To_Color_Map")
 }
 
-convert_hash_color_to_rgba :: proc(color: string) -> Color_RGBA { 
-	if len(color) != 7 { 
-		panic(tprintf("Color must be of the form #rrggbb, you sent: {}", color))
+convert_hash_color_to_rgba :: proc(in_color: string) -> Color_RGBA { 
+	if len(in_color) != 7 && len(in_color) != 9 { 
+		panic(tprintf("Color must be of the form #rrggbb, you sent: {}", in_color))
+	}
+	color: string
+	// Check for this incase they pass in an alpha value, like #fa8422ff instead of #fa8422
+	if len(color) == 9 {
+		color = in_color[1:7]
+	} else { 
+		color = in_color[1:]
 	}
 
-	color := color[1:]
 
 	_r, r_ok := strconv.parse_int(color[0:2], 16)
 	_g, g_ok := strconv.parse_int(color[2:4], 16)
@@ -527,3 +507,47 @@ convert_hash_color_to_rgba :: proc(color: string) -> Color_RGBA {
 
 	return Color_RGBA {r, g, b, 1}
 }
+
+// Short hand helper functions for various padding scenarios
+padding_x :: proc(amount: int) -> Box_Padding{ 
+	return Box_Padding { 
+		left = amount,
+		right = amount
+	}
+}
+padding_y :: proc(amount: int) -> Box_Padding{
+	return Box_Padding { 
+		top = amount,
+		bottom = amount
+	}
+}
+padding :: proc(amount: int) -> Box_Padding{
+	return Box_Padding {
+		left   = amount, 
+		top    = amount,
+		right  = amount,
+		bottom = amount,
+	}
+}
+
+// Short hand helper functions for borders
+// border_x :: proc(amount: int) -> Box_Border{ 
+// 	return Box_Border { 
+// 		left = amount,
+// 		right = amount
+// 	}
+// }
+// borer_y :: proc(amount: int) -> Box_Border{
+// 	return Box_Border { 
+// 		top = amount,
+// 		bottom = amount
+// 	}
+// }
+// border :: proc(amount: int) -> Box_Border{
+// 	return Box_Border {
+// 		left   = amount, 
+// 		top    = amount,
+// 		right  = amount,
+// 		bottom = amount,
+// 	}
+// }

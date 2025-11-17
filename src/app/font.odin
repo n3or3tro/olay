@@ -394,6 +394,9 @@ font_get_glyphs_tallest_glyph :: proc(glyph_buffer: []Glyph_Render_Info) -> int 
 font_destroy :: proc(state: ^Font_State) {
 	ft.done_free_type(state.freetype.lib)
 	ft.done_face(state.freetype.face)
+	// Careful, this will break if we swap the allocator
+	// we use when creating kb_text_shape state.
+	// kb.FreeFont(&state.kb.font, context.allocator)
 }
 
 /*

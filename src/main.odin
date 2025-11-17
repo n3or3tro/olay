@@ -25,6 +25,7 @@ tprintf :: fmt.tprintf
 tprintfln :: fmt.aprintfln
 
 DLL_PATH :: "build/app." + dynlib.LIBRARY_FILE_EXTENSION
+COLOR_FILE_PATH :: "util/dark-theme.json"
 
 
 App_API :: struct {
@@ -42,7 +43,9 @@ App_API :: struct {
 	wants_restart:     proc() -> bool,
 	hot_reload:        proc(mem: rawptr) -> bool,
 	shutdown:          proc(),
-	last_edit:         time.Time,
+	reload_colors:     proc(mem: rawptr, color_file_path: string),
+	last_edit_dll:     time.Time,
+	last_edit_colors:  time.Time,
 	version:           int,
 	lib:               dynlib.Library,
 }
@@ -152,12 +155,23 @@ run_hot_reload_mode :: proc() {
 		if should_reload() {
 			println("unloading miniaudio")
 			api.unload_miniaudio()
-			// time.sleep(time.Millisecond * 2000)
 			println("done unloading miniaudio")
 			old_mem := api.memory()
 			load_dll()
 			api.hot_reload(old_mem)
 			api.load_gl_procs()
+		}
+		if should_reload_colors() { 
+			println("Waiting for color file to be written.")
+			time.sleep(time.Millisecond * 100)
+			println("Trying to reload colors.")
+			api.reload_colors(api.memory(), COLOR_FILE_PATH)
+			t, err := os.last_write_time_by_name(COLOR_FILE_PATH)
+			if err != io.Error.None  { 
+				panic(tprintf("Failed to get last write time of {}", err))
+			}
+			println("Reloaded colors.")
+			api.last_edit_colors = t
 		}
 		all_good := api.update()
 		if !all_good {
@@ -212,9 +226,17 @@ load_dll :: proc() {
 	if check_time_err != io.Error.None {
 		panic(tprintfln("{}", check_time_err))
 	}
-	api.last_edit = edit_time
+	api.last_edit_dll = edit_time
 	api.version += 1
 	printfln("Loaded DLL from {}", new_dll_path)
+}
+
+should_reload_colors :: proc() -> bool { 
+	time, err := os.last_write_time_by_name(COLOR_FILE_PATH)
+	if err != io.Error.None {
+		panic(tprintfln("{}", err))
+	}
+	return time._nsec > api.last_edit_colors._nsec
 }
 
 should_reload :: proc() -> bool {
@@ -222,5 +244,5 @@ should_reload :: proc() -> bool {
 	if err != io.Error.None {
 		panic(tprintfln("{}", err))
 	}
-	return time._nsec > api.last_edit._nsec
+	return time._nsec > api.last_edit_dll._nsec
 }

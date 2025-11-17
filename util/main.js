@@ -19,15 +19,24 @@ import { writeFile } from 'fs/promises';
 
 // Your base color structure
 const baseColors = {
-    primary: '#6750A4',    // Purple
-    secondary: '#625B71',  // Muted purple
-    tertiary: '#7D5260',   // Pink-ish
-    neutral: '#605D62',    // Gray
-    surface: '#FFFBFE',    // Light surface
-    surfaceVariant: '#E7E0EC',
-    inactive: '#CAC4D0',
-    warning: '#F9A825',    // Amber
-    error: '#BA1A1A'       // Red
+    // primary: '#4407eaff',    // Purple
+    // secondary: '#625B71',  // Muted purple
+    // tertiary: '#7D5260',   // Pink-ish
+    // neutral: '#605D62',    // Gray
+    // surface: '#FFFBFE',    // Light surface
+    // surfaceVariant: '#E7E0EC',
+    // inactive: '#CAC4D0',
+    // warning: '#F9A825',    // Amber
+    // error: '#BA1A1A'       // Red
+    primary: '#ff00e5', // Neon magenta
+    secondary: '#4ce22eff', // Electric cyan
+    tertiary: '#9d00ff', // Vivid synthwave purple
+    neutral: '#5a5a6a', // Cool neutral gray w/ blue tint
+    surface: '#0d0d12', // Near-black futuristic UI base
+    surfaceVariant: '#1b1b25', // Slightly lighter tech-surface
+    inactive: '#3a3a48', // Muted desaturated cyber-gray
+    warning: '#ffd900', // Acid yellow warning
+    error: '#ff1744'  // Vivid neon red    
 };
 
 // Convert hex colors to ARGB format

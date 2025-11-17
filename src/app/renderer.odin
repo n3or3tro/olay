@@ -46,14 +46,15 @@ Rect_Render_Data :: struct {
 
 // Kind of the default data when turning an abstract box into an opengl rect.
 get_default_rendering_data :: proc(box: Box) -> Rect_Render_Data {
+	color := ui_state.dark_theme[box.config.color]
 	data: Rect_Render_Data = {
 		top_left         = {f32(box.top_left.x), f32(box.bottom_right.y)},
 		bottom_right     = {f32(box.bottom_right.x), f32(box.bottom_right.y)},
 		// idrk the winding order for colors, this works tho.
-		tl_color         = box.config.color,
-		tr_color         = box.config.color,
-		bl_color         = box.config.color,
-		br_color         = box.config.color,
+		tl_color         = color,
+		tr_color         = color,
+		bl_color         = color,
+		br_color         = color,
 		corner_radius    = 0,
 		edge_softness    = 0,
 		border_thickness = 1000000,
@@ -63,119 +64,196 @@ get_default_rendering_data :: proc(box: Box) -> Rect_Render_Data {
 	return data
 }
 
+@(private="file")
+box_coord_to_vec2f32 :: proc(coord: [2]int) -> Vec2_f32{ 
+	return Vec2_f32{f32(coord.x), f32(coord.y)}
+}
+
+
+Boxes_Rendering_Data :: struct { 
+	additional_data: 	[dynamic]Rect_Render_Data,
+	box: 				Maybe(Rect_Render_Data),
+	overlay:			Maybe(Rect_Render_Data),
+	outer_shadow:		Maybe(Rect_Render_Data),
+	inner_shadow:		Maybe(Rect_Render_Data),
+	text_cursor:		Maybe(Rect_Render_Data),
+}
+
 // sets circumstantial (hovering, clicked, etc) rendering data like radius, borders, etc
-get_boxes_rendering_data :: proc(box: Box) -> ^[dynamic]Rect_Render_Data {
-	render_data := new([dynamic]Rect_Render_Data, context.temp_allocator)
-	// render_data := new([dynamic]Rect_Render_Data)
-	tl_color: Vec4_f32 = box.config.color
-	bl_color: Vec4_f32 = box.config.color
-	tr_color: Vec4_f32 = box.config.color
-	br_color: Vec4_f32 = box.config.color
-
-	is_button := str.contains(box.id, "button")
-
-	if is_button {
-		bl_color -= {0.6, 0.6, 0.6, 0}
-		br_color -= {0.6, 0.6, 0.6, 0}
+/* Returns:
+1st: The render data for the passed in box.
+2nd: A list of related things like borders, shadows, etc.
+3rd: An overlay (for example to grey out a disabled track)
+*/
+get_boxes_rendering_data :: proc(box: Box, allocator := context.allocator) -> Boxes_Rendering_Data
+{
+	additional_render_data := make([dynamic]Rect_Render_Data, context.temp_allocator)
+	result := Boxes_Rendering_Data {
+		additional_data = additional_render_data
 	}
 
-	// // super jank and not-sensible color animations for clickable stuff.
-	// if box.signals.hovering && .Active_Animation in box.flags {
-	// 	bl_color += {0.3, 0.3, 0.3, 0}
-	// 	br_color += {0.3, 0.3, 0.3, 0}
-	// } else if box.signals.hovering && .Hot_Animation in box.flags {
-	// 	bl_color.a = 0.1
-	// 	br_color.a = 0.1
-	// }
+	color := ui_state.dark_theme[box.config.color]
 
-	// data := get_standard_rendering_data(box)
-	data: Rect_Render_Data = {
-		top_left         = {f32(box.top_left.x), f32(box.top_left.y)},
-		bottom_right     = {f32(box.bottom_right.x), f32(box.bottom_right.y)},
+	box_render_data: Rect_Render_Data = {
+		top_left         = box_coord_to_vec2f32(box.top_left),
+		bottom_right     = box_coord_to_vec2f32(box.bottom_right),
 		// idrk the winding order for colors, this works tho.
-		tl_color         = bl_color,
-		tr_color         = br_color,
-		bl_color         = box.config.color,
-		br_color         = box.config.color,
-		corner_radius    = 0,
-		edge_softness    = 0,
+		tl_color         = color,
+		tr_color         = color,
+		bl_color         = color,
+		br_color         = color,
+		corner_radius    = f32(box.config.corner_radius),
+		edge_softness    = f32(box.config.edge_softness),
 		border_thickness = 100000,
 		// clip_tl          = box.clipping_container.top_left,
 		// clip_br          = box.clipping_container.bottom_right,
 	}
 
-	if is_button {
-		data.corner_radius = 10
+	if box.disabled {
+		// printfln("rendering grey overlay for track {}", metadata.track_num)
+		// Color selection here is iffy, we can't always use some complement of the base color,
+		// because different siblings can have different colors, but you want the 'disabled' look to
+		// be uniform. For now we'll just pick a random color.
+		color := Color_RGBA{0, 0, 0, -0.17} + ui_state.dark_theme[Semantic_Color_Token.Inactive]
+		data := Rect_Render_Data {
+			tl_color = color,
+			tr_color = color,
+			bl_color = color,
+			br_color = color,
+			top_left = box_coord_to_vec2f32(box.top_left),
+			bottom_right = box_coord_to_vec2f32(box.bottom_right),
+		}
+		result.overlay = data
 	}
 
-	// Add red outline to indicate the current step of the sequence.
-	// if val, is_step := box.metadata.(Step_Metadata); is_step {
-	// 	data.border_thickness = 100
-	// 	if is_active_step(box) {
-	// 		data.corner_radius = 0
-	// 		outlining_rect := data
-	// 		outlining_rect.border_thickness = 0.7
-	// 		normal_color: Color = {1, 0, 0, 1}
-	// 		outline_color: Color = {0.5, 0.5, 0.5, 1}
-	// 		outlining_rect.tl_color = normal_color
-	// 		outlining_rect.tr_color = normal_color
-	// 		outlining_rect.bl_color = normal_color
-	// 		outlining_rect.br_color = normal_color
-	// 		append(render_data, data, outlining_rect)
-	// 		return render_data
-	// 	}
-	// }
+	if box.signals.hovering && .Clickable in box.flags { 
+		// Create frosted glass overlay.
+		if .Hot_Animation in box.flags && !box.signals.pressed { 
+			glass_overlay := Rect_Render_Data { 
+				top_left = box_coord_to_vec2f32(box.top_left),
+				bottom_right = box_coord_to_vec2f32(box.bottom_right),
+				// Graident from semi-transparent white to transparent at bottom
+				tl_color = {1, 1, 1, 0.05},
+				tr_color = {1, 1, 1, 0.05},
+				bl_color = {1, 1, 1, 0.4},
+				br_color = {1, 1, 1, 0.4},
+				corner_radius = f32(box.config.corner_radius),
+				edge_softness = 1.5, // subtle glow
+				border_thickness = 10000
+			}
 
-	append(render_data, data)
+			// Create drop shadow for depth
+			shadow := Rect_Render_Data{
+				top_left = box_coord_to_vec2f32(box.top_left) + {4, 4}, // Offset for shadow
+				bottom_right = box_coord_to_vec2f32(box.bottom_right) + {4, 4},
+				tl_color = {0, 0, 0, 0.3},
+				tr_color = {0, 0, 0, 0.3},
+				bl_color = {0, 0, 0, 0.6},
+				br_color = {0, 0, 0, 0.6},
+				corner_radius = box_render_data.corner_radius,
+				edge_softness = 3.0, // Soft shadow
+				border_thickness = 10000,
+			}
+			result.outer_shadow  = shadow
+			result.overlay = glass_overlay
+		} else if .Active_Animation in box.flags && box.signals.pressed { 
+			glass_overlay := Rect_Render_Data { 
+				top_left = box_coord_to_vec2f32(box.top_left),
+				bottom_right = box_coord_to_vec2f32(box.bottom_right),
+				// Graident from semi-transparent white to transparent at bottom
+				tl_color = {1, 1, 1, 0.2},
+				tr_color = {1, 1, 1, 0.2},
+				bl_color = {1, 1, 1, 0.05},
+				br_color = {1, 1, 1, 0.05},
+				corner_radius = f32(box.config.corner_radius),
+				edge_softness = 1.5, // subtle glow
+				border_thickness = 10000
+			}
+			result.overlay = glass_overlay
 
+			// Inner shadow (render AFTER the main element)
+			inner_shadow := Rect_Render_Data{
+				top_left = box_coord_to_vec2f32(box.top_left),
+				bottom_right = box_coord_to_vec2f32(box.bottom_right),
+				tl_color = {0, 0, 0, 0.3},
+				tr_color = {0, 0, 0, 0.2},
+				bl_color = {0, 0, 0, 0.2},
+				br_color = {0, 0, 0, 0.15},
+				corner_radius = box_render_data.corner_radius,
+				edge_softness = 3.0,
+				border_thickness = 10000,
+			}
+			result.inner_shadow = inner_shadow	
+			// Darken the main element
+			// box_render_data.tl_color *= 0.9
+			// box_render_data.tr_color *= 0.9
+			// box_render_data.bl_color *= 0.9
+			// box_render_data.br_color *= 0.9
+		}
+	}
 	// ------ These come after adding the main rect data since they have a higher 'z-order'.
 
-	// Uses some heuristic time based property to determine if text cursor
-	// should be showing or not. Ultimately achieving blinking.
-	should_render_text_cursor :: proc() -> bool {
-		time_in_ms := time.now()._nsec / 1_000_000
-		// On for 0.5 second, off for a 0.5 a second
-		return (time_in_ms % (800)) < 500
-	}
-	// Tells you where the cursor should render. This function will need to be updated
-	// when we include various types of text positioning, right now all text is centered by default.
-	calc_cursor_pos :: proc(box: Box, text: string) -> int {
-		editor_state := ui_state.text_editors_state[box.id]
-		cursor_pos := editor_state.selection[0]
-		substr_len := font_get_strings_rendered_len(text[0:cursor_pos])
-		// Calculate offset gap between left edge of box and start of rendered text.
-		half_gap := (box.width - font_get_strings_rendered_len(text)) / 2
-		return box.top_left.x + half_gap + substr_len
-	}
-	// Add cursor inside text box. Blinking is kinda jank right now.
-	if .Edit_Text in box.flags &&
-	   should_render_text_cursor() &&
-	   ui_state.last_active_box != nil &&
-	   ui_state.last_active_box.id == box.id {
-		box_data_string := box_data_get_as_string(box.data, context.temp_allocator)
-		color := Color_RGBA{0, 0.5, 1, 1}
-		cursor_x_pos := f32(calc_cursor_pos(box, box_data_string))
-		cursor_data := Rect_Render_Data {
-			top_left         = {cursor_x_pos, f32(box.top_left.y)},
-			bottom_right     = {cursor_x_pos + 2.4, f32(box.bottom_right.y)},
-			bl_color         = color,
-			tl_color         = color,
-			br_color         = color,
-			tr_color         = color,
-			border_thickness = 300,
-			corner_radius    = 0,
+	text_cursor_render: {
+		// Uses some heuristic time based property to determine if text cursor
+		// should be showing or not. Ultimately achieving blinking.
+		should_render_text_cursor :: proc() -> bool {
+			time_in_ms := time.now()._nsec / 1_000_000
+			// On for 0.5 second, off for a 0.5 a second
+			return (time_in_ms % (800)) < 500
 		}
-		append(render_data, cursor_data)
+		// Tells you where the cursor should render. This function will need to be updated
+		// when we include various types of text positioning, right now all text is centered by default.
+		calc_cursor_pos :: proc(box: Box, text: string) -> int {
+			editor_state := ui_state.text_editors_state[box.id]
+			cursor_pos := editor_state.selection[0]
+			substr_len := font_get_strings_rendered_len(text[0:cursor_pos])
+			// Calculate offset gap between left edge of box and start of rendered text.
+			half_gap := (box.width - font_get_strings_rendered_len(text)) / 2
+			return box.top_left.x + half_gap + substr_len
+		}
+		// Add cursor inside text box. Blinking is kinda jank right now.
+		if .Edit_Text in box.flags &&
+		should_render_text_cursor() &&
+		ui_state.last_active_box != nil &&
+		ui_state.last_active_box.id == box.id {
+			box_data_string := box_data_as_string(box.data, context.temp_allocator)
+			color := Color_RGBA{0, 0.5, 1, 1}
+			cursor_x_pos := f32(calc_cursor_pos(box, box_data_string))
+			cursor_data := Rect_Render_Data {
+				top_left         = {cursor_x_pos, f32(box.top_left.y)},
+				bottom_right     = {cursor_x_pos + 2.4, f32(box.bottom_right.y)},
+				bl_color         = color,
+				tl_color         = color,
+				br_color         = color,
+				tr_color         = color,
+				border_thickness = 300,
+				corner_radius    = 0,
+			}
+			result.text_cursor = cursor_data
+		}
 	}
 
-	if .Draw_Border in box.flags {
-		border_rect := data
+	// Need to figure out how to make my SDL hollow stuff work with independantly sized sides of a border.
+	// Previously you could just have borders on or off 
+	if  box.config.border > 0 {
+		top_color := ui_state.dark_theme[.Outline]
+		// printfln("box {} has a border of thickness: {}", box.id, box.config.border)
+		border_rect := box_render_data
+		border_rect.border_thickness = f32(box.config.border)
 		border_rect.border_thickness = 1
-		border_rect.bl_color = {0, 0, 0, 1}
-		border_rect.tl_color = {0, 0, 0, 1}
-		border_rect.tr_color = {0, 0, 0, 1}
-		border_rect.br_color = {0, 0, 0, 1}
-		append(render_data, border_rect)
+		border_rect.tl_color = top_color
+		border_rect.tr_color = top_color
+		border_rect.bl_color = top_color
+		border_rect.br_color = top_color
+		if box.signals.hovering { 
+			hover_color := ui_state.dark_theme[.Warning_Container]
+			border_rect.tl_color = hover_color
+			border_rect.tr_color = hover_color
+			border_rect.bl_color = hover_color
+			border_rect.br_color = hover_color
+			border_rect.border_thickness = 2
+		}
+		append(&result.additional_data, border_rect)
 	}
 
 	// Add 2 rects to serve as outline indicators for the current step that's been edited.
@@ -217,7 +295,11 @@ get_boxes_rendering_data :: proc(box: Box) -> ^[dynamic]Rect_Render_Data {
 	// 		append(render_data, right_selection_border)
 	// 	}
 	// }
-	return render_data
+
+	if .Draw in box.flags { 
+		result.box = box_render_data
+	}
+	return result
 }
 
 // get_background_rendering_data :: proc() -> Rect_Render_Data {
@@ -314,120 +396,8 @@ get_boxes_rendering_data :: proc(box: Box) -> ^[dynamic]Rect_Render_Data {
 // 	append(rendering_data, data)
 // }
 
-// add_word_rendering_data :: proc(
-// 	box: Box,
-// 	boxes_to_render: ^[dynamic]Rect_Render_Data,
-// 	rendering_data: ^[dynamic]Rect_Render_Data,
-// ) {
-// 	add_single_word_rendering_data :: proc(
-// 		word: string,
-// 		baseline: Vec2_f32,
-// 		font_size: Font_Size,
-// 		rendering_data: ^[dynamic]Rect_Render_Data,
-// 	) {
-// 		len_so_far: f32 = 0
-// 		baseline_x, baseline_y := baseline.x, baseline.y
-// 		for i in 0 ..< len(word) {
-// 			ch := rune(word[i])
-// 			char_metadata := ui_state.font_atlases[font_size].chars[ch]
-// 			new_rect := Rect_Render_Data {
-// 				bl_color             = {1, 1, 1, 1},
-// 				br_color             = {1, 1, 1, 1},
-// 				tl_color             = {1, 1, 1, 1},
-// 				tr_color             = {1, 1, 1, 1},
-// 				border_thickness     = 300,
-// 				corner_radius        = 0,
-// 				edge_softness        = 0,
-// 				ui_element_type      = 1.0,
-// 				top_left             = {
-// 					baseline_x + len_so_far + char_metadata.glyph_x0, // Use glyph x0
-// 					baseline_y + char_metadata.glyph_y0, // Use glyph y0
-// 				},
-// 				bottom_right         = {
-// 					baseline_x + len_so_far + char_metadata.glyph_x1, // Use glyph_x1 for actual glyph width
-// 					baseline_y + char_metadata.glyph_y1,
-// 				},
-// 				texture_top_left     = {char_metadata.u0, char_metadata.v0},
-// 				texture_bottom_right = {char_metadata.u1, char_metadata.v1},
-// 				font_size            = font_size,
-// 				clip_tl              = {0, 0},
-// 				clip_br              = {f32(app.wx^), f32(app.wy^)},
-// 			}
-// 			len_so_far += char_metadata.advance_x
-// 			append(rendering_data, new_rect)
-// 		}
-// 	}
-// 	// Only render text data of a tracker step if it's 'selected'.
-// 	if _, is_step := box.metadata.(Step_Metadata); is_step {
-// 		step_num := step_num_from_step(box.id_string)
-// 		track_num := track_num_from_step(box.id_string)
-// 		if !app.audio_state.tracks[track_num].selected_steps[step_num] {
-// 			return
-// 		}
-// 	}
-
-// 	// Figure out whether to render box.name or box.value
-// 	box_value, has_value := box.value.?
-// 	conversion_data: [8]byte
-// 	string_to_render: string
-// 	if has_value {
-// 		switch _ in box_value {
-// 		case string:
-// 			string_to_render = box_value.(string)
-// 		case u32:
-// 			string_to_render = strconv.itoa(conversion_data[:], int(box_value.(u32)))
-// 		}
-// 	} else {
-// 		// Basically if box.value wasn't set, but this field is supposed to
-// 		// take an input, then we render no text.
-// 		if s.contains(box.id_string, "input") {
-// 			string_to_render = ""
-// 		} else {
-// 			string_to_render = box.name
-// 		}
-// 	}
-
-// 	potential_length := word_rendered_length(string_to_render, box.font_size)
-// 	if potential_length >= int(rect_width(box.rect)) {
-// 		words := s.split(string_to_render, " ", context.temp_allocator)
-// 		n_words := u32(len(words))
-// 		word_rects := cut_rect_into_n_vertically(box.rect, n_words, context.temp_allocator)
-// 		word_lengths := make([dynamic]u32, allocator = context.temp_allocator)
-// 		word_baselines := make([dynamic]Vec2_f32, allocator = context.temp_allocator)
-// 		for word, i in words {
-// 			append(&word_lengths, u32(word_rendered_length(word, box.font_size)))
-// 			x, y := get_font_baseline(word, box.font_size, word_rects[i], box.flags)
-// 			append(&word_baselines, Vec2_f32{x, y})
-// 		}
-// 		printfln("string_to_render is: {}", string_to_render)
-// 		for j in 0 ..< len(words) {
-// 			word := words[j]
-// 			printfln("this token is: {}", word)
-// 			baseline := word_baselines[j]
-// 			add_single_word_rendering_data(word, baseline, box.font_size, rendering_data)
-// 		}
-// 	} else {
-// 		baseline_x, baseline_y := get_font_baseline(string_to_render, box.font_size, box.rect, box.flags)
-// 		baseline := Vec2_f32{baseline_x, baseline_y}
-// 		add_single_word_rendering_data(string_to_render, baseline, box.font_size, rendering_data)
-// 	}
-// 	// render font baseline for debuggin purposes
-// 	// font_baseline_rect := Rect_Render_Data {
-// 	// 	bl_color         = {1, 0.2, 0.5, 1},
-// 	// 	tl_color         = {1, 0.2, 0.5, 1},
-// 	// 	br_color         = {1, 0.2, 0.5, 1},
-// 	// 	tr_color         = {1, 0.2, 0.5, 1},
-// 	// 	border_thickness = 100,
-// 	// 	top_left         = {baseline_x, baseline_y},
-// 	// 	bottom_right     = {baseline_x + f32(word_rendered_length(string_to_render)), baseline_y + 3},
-// 	// 	corner_radius    = 0,
-// 	// 	edge_softness    = 0,
-// 	// }
-// 	// append(rendering_data, font_baseline_rect)
-// }
-
-// // Assumes pcm_frames is from a mono version of the .wav file, BOLD assumption.
-// // Might need to cache calls to this function since it's pretty costly.
+// Assumes pcm_frames is from a mono version of the .wav file, BOLD assumption.
+// Might need to cache calls to this function since it's pretty costly.
 // add_waveform_rendering_data :: proc(
 // 	rect: Rect,
 // 	sound: ^ma.sound,
@@ -498,20 +468,150 @@ get_boxes_rendering_data :: proc(box: Box) -> ^[dynamic]Rect_Render_Data {
 // 		append(rendering_data, new_data)
 // 	}
 // }
+collect_render_data_from_ui_tree :: proc(box: ^Box, render_data: ^[dynamic]Rect_Render_Data) {
+	boxes_render_data := get_boxes_rendering_data(box^, context.temp_allocator)
+
+	if shadow, ok := boxes_render_data.outer_shadow.(Rect_Render_Data); ok{ 
+		append(render_data, shadow)
+	}
+
+	// Some boxes may not need to be rendered themselves, but their related data to that box may need to be rendered.
+	if box_data, ok := boxes_render_data.box.(Rect_Render_Data); ok{ 
+		append(render_data, box_data)
+	}
+
+	for data in boxes_render_data.additional_data {
+		append(render_data, data)
+	}
+
+	if overlay, ok := boxes_render_data.overlay.(Rect_Render_Data); ok { 
+		append(render_data, overlay)
+	}
+
+	if inner_shadow, ok := boxes_render_data.inner_shadow.(Rect_Render_Data); ok { 
+		append(render_data, inner_shadow)
+	}
+
+	draw_text: if .Draw_Text in box.flags {
+		text_to_render: string
+		if .Edit_Text in box.flags {
+			text_to_render = box_data_as_string(box.data, context.temp_allocator)
+		} else {
+			text_to_render = box.label
+		}
+		if .Track_Step in box.flags { 
+			if !box.selected { 
+				break draw_text
+			}
+		}
+		text := utf8.string_to_runes(text_to_render, context.temp_allocator)
+		shaped_glyphs := font_segment_and_shape_text(&ui_state.font_state.kb.font, text)
+		glyph_render_info := font_get_render_info(shaped_glyphs, context.temp_allocator)
+		glyph_rects := get_text_quads(box^, glyph_render_info[:], context.temp_allocator)
+		for rect in glyph_rects {
+			append_elem(render_data, rect)
+		}
+	}
+
+	if text_cursor, ok := boxes_render_data.text_cursor.(Rect_Render_Data); ok { 
+		append(render_data, text_cursor)
+	}
+
+	for child in box.children {
+		collect_render_data_from_ui_tree(child, render_data)
+	}
+}
+
+/*
+Returns the quads which we will sample the font pixels into. 
+This is probably where I'd implement subpixel positioning and stuff, but for now
+we just naively wrap to the nearest int.
+*/
+// NOTE! character quads aren't positioned correctly, refer to claude chat as to how
+// we can fix it.
+get_text_quads :: proc(
+	box: Box,
+	glyph_buffer: []Glyph_Render_Info,
+	allocator := context.allocator,
+) -> [dynamic]Rect_Render_Data {
+	// Calculate baseline: (for now we just center text on both axis inside the box)
+	tallest_char := font_get_glyphs_tallest_glyph(glyph_buffer)
+	rendered_len := font_get_glyphs_rendered_len(glyph_buffer)
+	vertical_diff_half := (box.height - int(tallest_char)) / 2
+	horizontal_diff_half := (box.width - int(rendered_len)) / 2
+	// Really only the first point in baseline, which is all we need.
+	baseline_x, baseline_y: int
+	switch box.config.text_justify.x {
+	case .Center:
+		baseline_x = box.top_left.x + int(horizontal_diff_half)
+	case .Start:
+		baseline_x = box.top_left.x + box.config.padding.left
+	case .End:
+		baseline_x = box.bottom_right.x - (box.config.padding.right + rendered_len)
+	}
+	switch box.config.text_justify.y {
+	case .Center:
+		// baseline_y = box.top_left.y + int(vertical_diff_half)
+		baseline_y = box.bottom_right.y - int(vertical_diff_half) 
+	case .Start:
+		baseline_y = box.top_left.y + box.config.padding.top
+	case .End:
+		baseline_y = box.bottom_right.y - (box.config.padding.bottom + tallest_char)
+	}
+	pen_x := baseline_x
+	// Doesn't need to be dynamically sized but static allocated size may confuse user.
+	glyph_rects  := make([dynamic]Rect_Render_Data, len(glyph_buffer), allocator)
+	atlas_width  := ui_state.font_state.atlas.row_width
+	atlas_height := ui_state.font_state.atlas.num_rows
+	for glyph, i in glyph_buffer {
+		cache_record := glyph.cache_record
+		final_x  := f32(baseline_x) + glyph.pos.x
+		final_y  := f32(baseline_y) + glyph.pos.y
+		descent  := cache_record.height - cache_record.bearing_y // Descent below baseline.
+		tex_tl_x := f32(cache_record.atlas_x) / f32(atlas_width)
+		tex_tl_y := f32(cache_record.atlas_y) / f32(atlas_height)
+		tex_br_x := f32(cache_record.atlas_x + cache_record.width) / f32(atlas_width)
+		tex_br_y := f32(cache_record.atlas_y + cache_record.height) / f32(atlas_height)
+		text_color := get_text_color_from_base(box.config.color)
+		data := Rect_Render_Data {
+			top_left             = {final_x + f32(cache_record.bearing_x), final_y - f32(cache_record.bearing_y)},
+			bottom_right         = {
+				final_x + f32(cache_record.bearing_x + cache_record.width),
+				final_y + f32(descent),
+			},
+			texture_top_left     = Vec2_f32{tex_tl_x, tex_tl_y},
+			texture_bottom_right = Vec2_f32{tex_br_x, tex_br_y},
+			border_thickness     = 500,
+			tl_color             = text_color,
+			tr_color             = text_color,
+			bl_color             = text_color,
+			br_color             = text_color,
+			ui_element_type      = .Text,
+		}
+		glyph_rects[i] = data
+	}
+	return glyph_rects
+}
 
 
-// // A jank way to 'animate' the text cursor blinking based on frame number.
-// should_render_text_cursor :: proc() -> bool {
-// 	frame_rate: u64 = 120 // Shouldn't be hardcoded in prod.
-// 	curr_frame := app.ui_state.frame_num^ % frame_rate
-// 	return curr_frame < frame_rate
-// }
+render_ui :: proc(rect_rendering_data: [dynamic]Rect_Render_Data) {
+	clear_screen()
+	if ui_state.frame_num == 0 {
+		return
+	}
+	n_rects := u32(len(rect_rendering_data))
+	populate_vbuffer_with_rects(
+		ui_state.quad_vbuffer, // ui_state.quad_vabuffer,
+		0,
+		raw_data(rect_rendering_data),
+		n_rects * size_of(Rect_Render_Data),
+	)
+	gl.DrawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, i32(n_rects))
+}
 
-// is_active_step :: proc(box: Box) -> bool {
-// 	track_num := track_num_from_step(box.id_string)
-// 	step_num := step_num_from_step(box.id_string)
-// 	return step_num == app.audio_state.tracks[track_num].curr_step
-// }
+draw :: proc(n_vertices: i32, indices: [^]u32) {
+	gl.DrawElements(gl.TRIANGLES, n_vertices, gl.UNSIGNED_INT, indices)
+}
 
 setup_for_quads :: proc(shader_program: ^u32) {
 	//odinfmt:disable
@@ -583,116 +683,44 @@ setup_for_quads :: proc(shader_program: ^u32) {
 }
 
 clear_screen :: proc() {
-	gl.ClearColor(0, 0.5, 1, 0.5)
+	color := ui_state.dark_theme[.Inverse_On_Surface]
+	gl.ClearColor(color.r, color.g, color.b, color.a)
 	gl.Clear(gl.COLOR_BUFFER_BIT)
 }
 
-/*
-Returns the quads which we will sample the font pixels into. 
-This is probably where I'd implement subpixel positioning and stuff, but for now
-we just naively wrap to the nearest int.
-*/
-// NOTE! character quads aren't positioned correctly, refer to claude chat as to how
-// we can fix it.
-get_text_quads :: proc(
-	box: Box,
-	glyph_buffer: []Glyph_Render_Info,
-	allocator := context.allocator,
-) -> [dynamic]Rect_Render_Data {
-	// Calculate baseline: (for now we just center text on both axis inside the box)
-	if str.contains(box.id, ".jpg") {
-		lol := "here for the breakpoint"
-		lol = ""
+@(private="file")
+// The material color palette generates text colors that go ontop of the base colors,
+// so this function just pulls that out
+get_text_color_from_base :: proc(color_token: Semantic_Color_Token) -> Color_RGBA{ 
+	#partial switch color_token {
+		case .Primary:
+			return ui_state.dark_theme[.On_Primary]
+		case .Secondary:
+			return ui_state.dark_theme[.On_Secondary]
+		case .Tertiary:
+			return ui_state.dark_theme[.On_Tertiary]
+		case .Background:
+			return ui_state.dark_theme[.On_Background]
+		case .Inactive:
+			return ui_state.dark_theme[.On_Inactive]
+		case .Error:
+			return ui_state.dark_theme[.On_Error]
+		case .Primary_Container:
+			return ui_state.dark_theme[.On_Primary_Container]
+		case .Secondary_Container:
+			return ui_state.dark_theme[.On_Secondary_Container]
+		case .Tertiary_Container:
+			return ui_state.dark_theme[.On_Tertiary_Container]
+		case .Error_Container:
+			return ui_state.dark_theme[.On_Error_Container]
+		case .Surface:
+			return ui_state.dark_theme[.On_Surface]
+		case .Surface_Variant:
+			return ui_state.dark_theme[.On_Surface_Variant]
+		case .Warning:
+			return ui_state.dark_theme[.On_Warning]
+		case .Warning_Container:
+			return ui_state.dark_theme[.On_Warning_Container]
 	}
-	tallest_char := font_get_glyphs_tallest_glyph(glyph_buffer)
-	rendered_len := font_get_glyphs_rendered_len(glyph_buffer)
-	vertical_diff_half := (box.height - int(tallest_char)) / 2
-	horizontal_diff_half := (box.width - int(rendered_len)) / 2
-	// Really only the first point in baseline, which is all we need.
-	baseline_x := box.top_left.x + int(horizontal_diff_half)
-	baseline_y := box.bottom_right.y - int(vertical_diff_half)
-	pen_x := baseline_x
-	// Doesn't need to be dynamically sized but static allocated size may confuse user.
-	glyph_rects := make([dynamic]Rect_Render_Data, len(glyph_buffer), allocator)
-	atlas_width := ui_state.font_state.atlas.row_width
-	atlas_height := ui_state.font_state.atlas.num_rows
-	for glyph, i in glyph_buffer {
-		cache_record := glyph.cache_record
-		final_x := f32(baseline_x) + glyph.pos.x
-		final_y := f32(baseline_y) + glyph.pos.y
-		descent := cache_record.height - cache_record.bearing_y // Descent below baseline.
-		tex_tl_x := f32(cache_record.atlas_x) / f32(atlas_width)
-		tex_tl_y := f32(cache_record.atlas_y) / f32(atlas_height)
-		tex_br_x := f32(cache_record.atlas_x + cache_record.width) / f32(atlas_width)
-		tex_br_y := f32(cache_record.atlas_y + cache_record.height) / f32(atlas_height)
-		data := Rect_Render_Data {
-			top_left             = {final_x + f32(cache_record.bearing_x), final_y - f32(cache_record.bearing_y)},
-			bottom_right         = {
-				final_x + f32(cache_record.bearing_x + cache_record.width),
-				final_y + f32(descent),
-			},
-			texture_top_left     = Vec2_f32{tex_tl_x, tex_tl_y},
-			texture_bottom_right = Vec2_f32{tex_br_x, tex_br_y},
-			border_thickness     = 500,
-			tl_color             = Color_RGBA{0, 0, 0, 1},
-			tr_color             = Color_RGBA{0, 0, 0, 1},
-			bl_color             = Color_RGBA{0, 0, 0, 1},
-			br_color             = Color_RGBA{0, 0, 0, 1},
-			ui_element_type      = .Text,
-		}
-		glyph_rects[i] = data
-	}
-	return glyph_rects
-}
-
-collect_render_data_from_ui_tree :: proc(box: ^Box, render_data: ^[dynamic]Rect_Render_Data) {
-	// Box may need multiple 'rects' to be rendered to achieve desired affect.
-	boxes_rendering_data := get_boxes_rendering_data(box^)
-	for data in boxes_rendering_data {
-		append(render_data, data)
-	}
-
-	draw_text: if .Draw_Text in box.flags {
-		text_to_render: string
-		if .Edit_Text in box.flags {
-			text_to_render = box_data_get_as_string(box.data, context.temp_allocator)
-		} else {
-			text_to_render = box.label
-		}
-		if .Track_Step in box.flags { 
-			if !box.selected { 
-				break draw_text
-			}
-		}
-		text := utf8.string_to_runes(text_to_render, context.temp_allocator)
-		shaped_glyphs := font_segment_and_shape_text(&ui_state.font_state.kb.font, text)
-		glyph_render_info := font_get_render_info(shaped_glyphs, context.temp_allocator)
-		glyph_rects := get_text_quads(box^, glyph_render_info[:], context.temp_allocator)
-		for rect in glyph_rects {
-			append_elem(render_data, rect)
-		}
-	}
-	delete_dynamic_array(boxes_rendering_data^)
-	for child in box.children {
-		collect_render_data_from_ui_tree(child, render_data)
-	}
-}
-
-render_ui :: proc(rect_rendering_data: [dynamic]Rect_Render_Data) {
-	clear_screen()
-	if ui_state.frame_num == 0 {
-		return
-	}
-	n_rects := u32(len(rect_rendering_data))
-	populate_vbuffer_with_rects(
-		ui_state.quad_vbuffer, // ui_state.quad_vabuffer,
-		0,
-		raw_data(rect_rendering_data),
-		n_rects * size_of(Rect_Render_Data),
-	)
-	gl.DrawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, i32(n_rects))
-}
-
-draw :: proc(n_vertices: i32, indices: [^]u32) {
-	gl.DrawElements(gl.TRIANGLES, n_vertices, gl.UNSIGNED_INT, indices)
+	panic(tprintf("We haven't defined a mapping for a text color that sits on top of base color {}", color_token))
 }

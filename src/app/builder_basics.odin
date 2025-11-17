@@ -13,18 +13,33 @@ slider_value: f32 = 0
 
 TOPBAR_HEIGHT :: 50
 
-text :: proc(id_string: string, config: Box_Config) -> Box_Signals {
-	b := box_from_cache(id_string, {.Draw, .Draw_Text, .Text_Center}, config)
+// For when you don't want to have to think of an ID for a box. Used for drawing lines for example.
+// This has various obvious interactivity tradeoffs, i.e. harder to reference the box later.
+// WARNING!!! Using anon_container leads to crashing when hot reloading, need to investigate.
+// anon_container :: proc(config: Box_Config, flags: Box_Flags) -> Box_Signals {
+//     id := tprintf("@anon-{}", ui_state.anon_box_counter)
+//     ui_state.anon_box_counter += 1
+// 	b := box_make(id, flags, config)
+// 	return box_signals(b)
+// }
+
+// text :: proc(id_string: string, config: Box_Config, extra_flags := Box_Flags{}) -> Box_Signals {
+// 	b := box_from_cache(id_string, {.Draw_Text, .Text_Center} + extra_flags, config)
+// 	return box_signals(b)
+// }
+
+text :: proc(id_string: string, config: Box_Config, extra_flags := Box_Flags{}) -> Box_Signals {
+	b := box_from_cache(id_string, {.Draw_Text, .Text_Center} + extra_flags, config)
 	return box_signals(b)
 }
 
-text_button :: proc(id_string: string, config: Box_Config) -> Box_Signals {
-	box := box_from_cache(id_string, {.Clickable, .Active_Animation, .Draw, .Text_Center, .Draw_Text}, config)
+text_button :: proc(id_string: string, config: Box_Config, extra_flags := Box_Flags{}) -> Box_Signals {
+	box := box_from_cache(id_string, {.Clickable, .Hot_Animation, .Active_Animation, .Draw, .Text_Center, .Draw_Text} + extra_flags, config)
 	return box_signals(box)
 }
 
-button :: proc(id_string: string, config: Box_Config) -> Box_Signals {
-	box := box_from_cache(id_string, {.Clickable, .Active_Animation, .Draw}, config)
+button :: proc(id_string: string, config: Box_Config, extra_flags := Box_Flags{}) -> Box_Signals {
+	box := box_from_cache(id_string, {.Clickable, .Hot_Animation, .Active_Animation, .Draw}, config)
 	return box_signals(box)
 }
 
@@ -34,9 +49,11 @@ child_container :: proc(
 	id_string: string,
 	config: Box_Config,
 	child_layout: Box_Child_Layout,
-	extra_flags := Box_Flags{},
+	box_flags := Box_Flags{},
+	metadata := Box_Metadata{}
 ) -> Box_Signals {
-	box := box_from_cache(id_string, {.Draw} + extra_flags, config)
+	box := box_from_cache(id_string, box_flags, config)
+	box.metadata = metadata
 	box_open_children(box, child_layout)
 	return box_signals(box)
 }
@@ -64,154 +81,6 @@ Text_Box_Type :: enum {
 	Send2,
 	Generic_Number,
 	Multi_Line,
-}
-
-audio_track :: proc(track_num: int, track_width: f32) -> Track_Signals {
-	track := &app.audio.tracks[track_num]
-	n_steps := 32
-
-	track_container := child_container(
-		id("@track-{}-container", track_num),
-		{semantic_size = {{.Fixed, track_width}, {.Percent, 1}}},
-		{direction = .Vertical, gap_vertical = 3},
-	)
-	track_label: {
-		child_container(
-			id("@track-{}-label-container", track_num),
-			{semantic_size = {{.Fixed, track_width}, {.Fit_Children, 1}}, padding = {left = 30}},
-			{direction = .Horizontal, alignment_horizontal = .Center, alignment_vertical = .Center},
-		)
-		text(id("{} - @track-{}-num", track_num, track_num), {semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}}})
-		edit_text_box(
-			id("@track-{}-name", track_num),
-			{semantic_size = {{.Grow, 1}, {.Fixed, 30}}, color = {0.5, 0.2, 0.345, 0.2}},
-			.Generic_One_Line,
-		)
-	}
-
-	step_signals: Track_Steps_Signals
-	steps: {
-		child_container(
-			id("@track-steps-container-{}", track_num),
-			{semantic_size = {{.Fixed, track_width}, {.Percent, 0.7}}, color = {1, 0.5, 1, 1}},
-			{direction = .Vertical, gap_vertical = 0},
-		)
-
-		substep_config: Box_Config = {
-			semantic_size    = {{.Percent, 0.25}, {.Percent, 1}},
-			color = {1, 0.5, 0, 1},
-			border_thickness = 1,
-			border_color     = {0, 0, 0.5, 1},
-			type             = .Track_Step,
-		}
-		substep_extra_flags := Box_Flags{.Draw_Border, .Track_Step}
-
-		for i in 0 ..< N_TRACK_STEPS {
-			child_container(
-				id("@track-{}-row-{}-steps-container", track_num, i),
-				{semantic_size = {{.Fixed, track_width}, {.Percent, f32(1) / N_TRACK_STEPS}}},
-				{direction = .Horizontal, gap_horizontal = 0},
-			)
-
-			pitch_box := edit_text_box(
-				id("@track-{}-pitch-step-{}", track_num, i),
-				substep_config,
-				.Pitch,
-				substep_extra_flags,
-				metadata = Metadata_Track_Step {
-					track = track_num,
-					step  = i,
-					type  = .Pitch,
-				}
-			)
-
-			volume_box := edit_number_box(
-				id("@track-{}-volume-step-{}", track_num, i),
-				substep_config,
-				0,
-				100,
-				Metadata_Track_Step {
-					track = track_num,
-					step  = i,
-					type  = .Volume,
-				},
-				substep_extra_flags,
-			)
-
-			send1_box := edit_number_box(
-				id("@track-{}-send1-step-{}", track_num, i),
-				substep_config,
-				0,
-				100,
-				Metadata_Track_Step {
-					track = track_num,
-					step  = i,
-					type  = .Send1,
-				},
-				substep_extra_flags,
-			)
-
-			send2_box := edit_number_box(
-				id("@track-{}-send2-step-{}", track_num, i),
-				substep_config,
-				0,
-				100,
-				Metadata_Track_Step {
-					track = track_num,
-					step  = i,
-					type  = .Send2,
-				},
-				substep_extra_flags,
-			)
-
-			if pitch_box.double_clicked ||
-			   volume_box.double_clicked ||
-			   send1_box.double_clicked ||
-			   send2_box.double_clicked {
-				box_siblings_toggle_select(pitch_box.box^)
-			}
-		}
-	}
-
-	controls: {
-		controls_container := child_container(
-			id("@track-{}-controls-container", track_num),
-			{semantic_size = {{.Fixed, track_width}, {.Percent, 0.3}}, color = {0.5, 0.7, 0.4, 1}},
-			{direction = .Horizontal, alignment_horizontal = .Start, alignment_vertical = .End},
-		)
-		arm_button := text_button(
-			id("arm@track-{}-arm-button", track_num),
-			{semantic_size = {{.Percent, 0.333}, {.Fixed, 30}}, color = {1, 1, 0, 1}},
-		)
-		volume_slider := vertical_slider(
-			id("hey@track-{}-volume-slider", track_num),
-			{semantic_size = {{.Percent, 0.333}, {.Grow, 30}}},
-			// {semantic_size = {{.Fixed, 30}, {.Fixed, 200}}},
-			&track.volume,
-			0,
-			100,
-		)
-		load_sound_button := text_button(
-			id("load@track-{}-load-sound-button", track_num),
-			{semantic_size = {{.Percent, 0.333}, {.Fixed, 30}}, color = {1, 0, 0.5, 1}},
-		)
-	}
-	return Track_Signals{step_signals, {}}
-}
-
-/*
-Takes in any box and activates that box and all of it's siblings.
-*/
-box_siblings_toggle_select :: proc(box: Box) {
-	for sibling in box.parent.children {
-		sibling.selected = !sibling.selected
-	}
-}
-
-box_siblings_set_select :: proc(box: Box, activate: bool) {
-	for sibling in box.parent.children {
-		sibling.selected = activate
-	}
 }
 
 edit_number_box :: proc(
@@ -291,7 +160,7 @@ edit_number_box :: proc(
 		id_string,
 		config,
 		{direction = .Horizontal},
-		{.Clickable, .Draw, .Draw_Text, .Edit_Text} + extra_flags + flags,
+		{.Clickable, .Draw, .Draw_Text, .Edit_Text, .Hot_Animation, .Active_Animation} + extra_flags + flags,
 	)
 	box := box_signals.box
 	box.metadata = metadata
@@ -480,7 +349,7 @@ edit_text_box :: proc(
 		id_string,
 		config,
 		{direction = .Horizontal},
-		{.Clickable, .Draw, .Draw_Text, .Edit_Text} + extra_flags,
+		{.Clickable, .Draw, .Draw_Text, .Edit_Text, .Hot_Animation, .Active_Animation} + extra_flags,
 	)
 	text_container := text_container_signals.box
 
@@ -562,6 +431,7 @@ vertical_slider :: proc(
 	slider_value: ^f32,
 	min_val: f32,
 	max_val: f32,
+ 	extra_flags := Box_Flags{}
 ) -> Slider_Signals {
 	child_container(
 		id("{}-container", get_id_from_id_string(id_string)),
@@ -571,24 +441,42 @@ vertical_slider :: proc(
 	track := box_from_cache(
 		id("{}-track", get_id_from_id_string(id_string)),
 		{.Clickable, .Draw, .Scrollable},
-		{semantic_size = {{.Percent, 0.5}, {.Percent, 1}}, color = {1, 1, 1, 1}},
+		{
+			semantic_size = {{.Percent, 0.5}, {.Percent, 1}}, 
+			color = .Secondary
+		},
 	)
 	track_signals := box_signals(track)
+	if track_signals.pressed { 
+		delta_from_top := f32(app.mouse.pos.y - track.top_left.y)
+		ratio_of_click := delta_from_top / f32(track.last_height)
+		slider_value^  =  ratio_of_click * max_val
+	}
 
 	grip := box_from_cache(
 		id("{}-grip", get_id_from_id_string(id_string)),
-		{.Clickable, .Draggable, .Draw},
+		{.Clickable, .Draggable, .Draw, .Hot_Animation},
 		{
 			semantic_size = {{.Percent, 0.7}, {.Percent, 0.1}},
-			color = {0, 0.1, 0.7, 1},
+			color = .Tertiary,
 			position_floating = .Relative_Parent,
 			position_floating_offset = {0.5, map_range(min_val, max_val, 0, 1, slider_value^)},
+			corner_radius = 3,
+			edge_softness = 3,
 		},
 	)
 	grip_signals := box_signals(grip)
+	if grip_signals.dragging { 
+		printfln("Dragging grip, drag delta: {}", grip_signals.drag_delta)
+	    // drag_delta is automatically populated
+		mouse_y := f32(app.mouse.pos.y)
+        track_top := f32(track.top_left.y)  // This is also from last frame
+        track_height := f32(track.last_height)  // Use last_height instead of height
+        normalized_pos := clamp((mouse_y - track_top) / track_height, 0, 1)
+        slider_value^ = map_range(f32(0), f32(1), min_val, max_val, normalized_pos)
+	}
 
 	if track_signals.scrolled || grip_signals.scrolled {
-		// printfln("changing slider value: {}", app.mouse.wheel)
 		printfln("slider value before scroll: {}", slider_value^)
 		if track_signals.scrolled_up || grip_signals.scrolled_up {
 			slider_value^ = clamp(slider_value^ - 1, min_val, max_val)
@@ -602,53 +490,18 @@ vertical_slider :: proc(
 	return Slider_Signals{track_signals, grip_signals}
 }
 
-/*
-	Has to be placed in the root container to display properly.
-*/
-topbar :: proc() {
-	child_container(
-		"@topbar",
-		{
-			semantic_size    = {{.Fixed, f32(app.wx)}, {.Fixed, TOPBAR_HEIGHT}},
-			color = {1, 1, 1, 0.8},
-			// padding = {top = 10, bottom = 5},
-		},
-		{direction = .Horizontal, alignment_horizontal = .End, alignment_vertical = .Center, gap_horizontal = 5},
-	)
-	btn_config := Box_Config {
-		semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}},
-		color = {0.5, 0.7, 0.7, 1},
-		corner_radius = 5,
-		padding = {top = 7, bottom = 7, left = 2, right = 2},
-	}
-	if text_button("Default layout@top-bar-default", btn_config).clicked {
-		ui_state.tab_num = 0
-		ui_state.changed_ui_screen = true
-	}
-	if text_button("Test layout@top-bar-test", btn_config).clicked {
-		ui_state.tab_num = 1
-		ui_state.changed_ui_screen = true
-	}
-	side_bar_btn_id :=
-		ui_state.sidebar_shown ? "Close sidebar@top-bar-sidebar-close" : "Open sidebar@top-bar-sidebar-open"
-	if text_button(side_bar_btn_id, btn_config).clicked {
-		ui_state.sidebar_shown = !ui_state.sidebar_shown
-	}
 
-}
-
-/*
-	Used for radio buttons and checkbox groups only allows for strings or number arguments for now.
-*/
+// Used for radio buttons and checkbox groups only allows for strings or number arguments for now.
 multi_button_set :: proc(
 	id_string: string,
 	config: Box_Config,
 	child_layout: Box_Child_Layout,
 	exclusive: bool = true,
 	values: []$T,
+	extra_flags := Box_Flags{},
 	allocator := context.allocator,
-) -> [dynamic]T where intrinsics.type_is_string(T) ||
-	intrinsics.type_is_numeric(T) {
+) -> [dynamic]T where intrinsics.type_is_string(T) || intrinsics.type_is_numeric(T) 
+{
 	set_id := get_id_from_id_string(id_string)
 	child_container(id("@{}-container", set_id), config, child_layout)
 
@@ -660,13 +513,22 @@ multi_button_set :: proc(
 
 	// --- Draw buttons and store them in a buffer so we can query their signals.
 	for value, i in values {
-		child_container(id("@{}-item-{}", set_id, i), {}, {direction = .Horizontal, gap_horizontal = 5})
+		child_container(
+			id("@{}-item-{}", set_id, i), 
+			{
+				semantic_size = Size_Fit_Children,
+			}, 
+			{
+				direction = .Horizontal, 
+				gap_horizontal = 7,
+			}
+		)
 		b := button(
 			tprintf("@{}-button-{}", value, set_id, i),
 			{
-				semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}},
+				semantic_size = Size_Fit_Text,
 				padding = {10, 10, 10, 10},
-				color = {.5, .7, .8, 1},
+				color = .Secondary,
 			},
 		)
 		val_str_buf := make([]u8, 50, context.temp_allocator)
@@ -679,7 +541,16 @@ multi_button_set :: proc(
 				val_as_str = strconv.itoa(val_str_buf, value)
 			}
 		}
-		text(id("{}@{}-text-{}", val_as_str, set_id, i), {semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}}})
+
+		text(
+			id("{} heya@{}-text-{}", val_as_str, set_id, i),
+			{
+				color 		  =  .Background,
+				semantic_size = Size_Fit_Text_And_Grow,
+				text_justify  = {.End, .Center}
+			},
+			// {.Draw}
+		)
 		buttons[i] = {b, value}
 	}
 
@@ -689,7 +560,7 @@ multi_button_set :: proc(
 	*/
 	for button in buttons {
 		if button.signals.box.selected {
-			button.signals.box.config.color = {1, 0.5, 1, 1}
+			button.signals.box.config.color = .Warning 
 		}
 	}
 
@@ -714,267 +585,8 @@ multi_button_set :: proc(
 	return results
 }
 
-set_nth_child_select :: proc(track_num, nth: int, selected: bool) {
-	// Is inefficient to traverse all boxes in the UI but should be okay for now.
-	root, ok := ui_state.box_cache["root"]
-	if !ok {
-		panic("Failed to get box with id 'root'")
-	}
-	boxes := box_tree_to_list(root, context.temp_allocator)
-	for box in boxes {
-		switch metadata in box.metadata {
-		case Metadata_Track_Step:
-			if metadata.track != track_num do continue
-			if metadata.step % nth == 0 do box.selected = selected
-		}
-	}
-}
-
-context_menu :: proc() {
-	track_steps_context_menu :: proc(box: ^Box) {
-		btn_height: f32 = 30
-		add_button := text_button(
-			"add@conext-menu-1",
-			{
-				semantic_size = {{.Grow, 1}, {.Fit_Text, btn_height}},
-				color = {1, 0.5, 0.7, 1},
-				padding = {10, 10, 10, 10},
-			},
-		)
-
-		remove_button := text_button(
-			"remove@conext-menu-2",
-			{
-				semantic_size = {{.Fit_Text, 1}, {.Fit_Text, btn_height}},
-				color = {1, 0.7, 0.3, 1},
-				padding = {10, 10, 10, 10},
-			},
-		)
-		add_submenu_id := "@add-step-hover-container"
-		add_submenu_hovered := false
-		if submenu_box, ok := ui_state.box_cache[add_submenu_id[1:]]; ok {
-			add_submenu_hovered = mouse_inside_box(submenu_box, app.mouse.pos)
-		}
-		if add_button.hovering || add_submenu_hovered {
-			hover_container := child_container(
-				add_submenu_id,
-				{
-					position_floating = .Absolute_Pixel,
-					position_floating_offset = {f32(add_button.box.bottom_right.x), f32(add_button.box.top_left.y)},
-					semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}},
-					z_index = 20,
-				},
-				{direction = .Vertical, gap_vertical = 2},
-				{.Clickable},
-			)
-			btn_config := Box_Config {
-				semantic_size    = {{.Fit_Text, 1}, {.Fit_Text, 1}},
-				color = {0.734, 0.9235, 0.984, 1},
-				padding          = {10, 10, 10, 10},
-			}
-			if text_button("All steps@context-add-all", btn_config).clicked {
-				track_num := box.metadata.(Metadata_Track_Step).track
-				set_nth_child_select(track_num, 1, true)
-				ui_state.clicked_on_context_menu = true
-			}
-			if text_button("Every 2nd@context-add-2nd", btn_config).clicked {
-				track_num := box.metadata.(Metadata_Track_Step).track
-				set_nth_child_select(track_num, 2, true)
-				ui_state.clicked_on_context_menu = true
-			}
-			if text_button("Every 3rd@context-add-3rd", btn_config).clicked {
-				track_num := box.metadata.(Metadata_Track_Step).track
-				set_nth_child_select(track_num, 3, true)
-				ui_state.clicked_on_context_menu = true
-			}
-			if text_button("Every 4th@context-add-4th", btn_config).clicked {
-				track_num := box.metadata.(Metadata_Track_Step).track
-				set_nth_child_select(track_num, 4, true)
-				ui_state.clicked_on_context_menu = true
-			}
-			if text_button("Every 6th@context-add-6th", btn_config).clicked {
-				track_num := box.metadata.(Metadata_Track_Step).track
-				set_nth_child_select(track_num, 6, true)
-				ui_state.clicked_on_context_menu = true
-			}
-			if text_button("Every 8th@context-add-8th", btn_config).clicked {
-				track_num := box.metadata.(Metadata_Track_Step).track
-				set_nth_child_select(track_num, 8, true)
-				ui_state.clicked_on_context_menu = true
-			}
-		}
-
-		remove_submenu_id := "@remove-step-hover-container"
-		remove_submenu_hovered := false
-		if submenu_box, ok := ui_state.box_cache[remove_submenu_id[1:]]; ok {
-			remove_submenu_hovered = mouse_inside_box(submenu_box, app.mouse.pos)
-		}
-		if remove_button.hovering || remove_submenu_hovered {
-			hover_container := child_container(
-				remove_submenu_id,
-				{
-					position_floating = .Absolute_Pixel,
-					position_floating_offset = {
-						f32(remove_button.box.bottom_right.x),
-						f32(remove_button.box.top_left.y),
-					},
-					semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}},
-					z_index = 20,
-				},
-				{direction = .Vertical, gap_vertical = 2},
-				{.Clickable},
-			)
-			btn_config := Box_Config {
-				semantic_size    = {{.Fit_Text, 1}, {.Fit_Text, 1}},
-				color = {0.934, 0.135, 0.484, 1},
-				padding          = {10, 10, 10, 10},
-			}
-			if text_button("All steps@context-remove-all", btn_config).clicked {
-				track_num := box.metadata.(Metadata_Track_Step).track
-				set_nth_child_select(track_num, 1, false)
-				ui_state.clicked_on_context_menu = true
-			}
-			if text_button("Every 2nd@context-remove-2nd", btn_config).clicked {
-				track_num := box.metadata.(Metadata_Track_Step).track
-				set_nth_child_select(track_num, 2, false)
-				ui_state.clicked_on_context_menu = true
-			}
-			if text_button("Every 3rd@context-remove-3rd", btn_config).clicked {
-				track_num := box.metadata.(Metadata_Track_Step).track
-				set_nth_child_select(track_num, 3, false)
-				ui_state.clicked_on_context_menu = true
-			}
-			if text_button("Every 4th@context-remove-4th", btn_config).clicked {
-				track_num := box.metadata.(Metadata_Track_Step).track
-				set_nth_child_select(track_num, 4, false)
-				ui_state.clicked_on_context_menu = true
-			}
-			if text_button("Every 6th@context-remove-6th", btn_config).clicked {
-				track_num := box.metadata.(Metadata_Track_Step).track
-				set_nth_child_select(track_num, 6, false)
-				ui_state.clicked_on_context_menu = true
-
-			}
-			if text_button("Every 8th@context-remove-8th", btn_config).clicked {
-				track_num := box.metadata.(Metadata_Track_Step).track
-				set_nth_child_select(track_num, 8, false)
-				ui_state.clicked_on_context_menu = true
-
-			}
-		}
-
-		delete_track_button := text_button(
-			"delete@conext-menu-3",
-			{
-				semantic_size = {{.Grow, 1}, {.Fit_Text, btn_height}},
-				color = {0.3, 0.7, 0.3, 1},
-				padding = {10, 10, 10, 10},
-			},
-		)
-		if delete_track_button.clicked {
-			track_delete(box.metadata.(Metadata_Track_Step).track)
-			printfln("deletring track that contains {}", ui_state.right_clicked_on.id)
-		}
-	}
-	context_menu_container := child_container(
-		"@context-menu",
-		{
-			semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}},
-			padding = {2, 2, 2, 2},
-			color = {0.5, 0.2, 1, 0.5},
-			position_floating = .Absolute_Pixel,
-			position_floating_offset = {f32(ui_state.context_menu.pos.x), f32(ui_state.context_menu.pos.y)},
-			z_index = 100,
-		},
-		{direction = .Vertical, alignment_horizontal = .Center, gap_vertical = 3},
-	)
-
-	switch metadata in ui_state.right_clicked_on.metadata {
-	case Metadata_Track_Step:
-		println("right clicked on a track step")
-		track_steps_context_menu(ui_state.right_clicked_on)
-	case:
-		text(
-			"Context menu not implemented for this box type @ alskdjfalskdjfladf",
-			{semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}}},
-		)
-	}
-}
-
-file_browser_menu :: proc() {
-	child_container(
-		"@file-browser-container",
-		{
-			semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}},
-			color = {1, 0, 0.7, 1},
-			padding = {bottom = 5},
-			z_index = 10,
-		},
-		{direction = .Vertical},
-	)
-	top_menu: {
-		child_container(
-			"@file-browser-options-container",
-			{
-				semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1.}},
-				padding = {10, 10, 10, 10},
-				color = {.5, .4, .423, 1},
-			},
-			{direction = .Horizontal, alignment_horizontal = .Center, alignment_vertical = .Center},
-		)
-		btn_config := Box_Config {
-			color = {0.9, 0.8, 0.9, 1},
-			border_thickness = 3,
-			padding          = {10, 10, 10, 10},
-			semantic_size    = {{.Fit_Text, 1}, {.Fit_Text, 1}},
-			corner_radius    = 0,
-		}
-		option_load := text_button("Add@browser-options-folder-button", btn_config)
-		option_sort := text_button("Sort@browser-options-sort-button", btn_config)
-		option_flip := text_button("Flip@browser-options-flip-button", btn_config)
-		if option_load.clicked {
-			res, ok := file_dialog_windows(true, context.temp_allocator)
-			if !ok {
-				// panic(
-				println(
-					"File dialogue failure, either:\n- Failed to open dialogue.\n- Failed to return files from dialogue.",
-				)
-			}
-			for path in res {
-				path_string := str.clone_from_cstring(path)
-				append(&app.browser_files, path_string)
-			}
-		}
-		// --- Don't think this sorting actually changes anything.
-		sort.quick_sort(app.browser_files[:])
-	}
-	files_and_folders: {
-		child_container(
-			"@browser-files-container",
-			{semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}}, color = {.5, .4, .2, 1}},
-			{direction = .Vertical},
-		)
-
-		// Can see having issues with the index being in the id here.
-		for file, i in app.browser_files {
-			lol := Box_Config {
-				semantic_size    = {{.Fit_Text, 1}, {.Fit_Text, 1}},
-				color = {1, 2, 3, 1},
-			}
-			text(
-				id("{}@browser-file-{}", file, i),
-				{
-					semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}},
-					padding = {left = 5, right = 5, top = 3, bottom = 3},
-					corner_radius = 4,
-				},
-			)
-		}
-	}
-}
-
 @(deferred_out = box_close_children)
-draggable_window :: proc(id_string: string, child_layout: Box_Child_Layout) -> Box_Signals {
+draggable_window :: proc(id_string: string, child_layout: Box_Child_Layout, extra_flags := Box_Flags{}) -> Box_Signals {
 	// Probably want to store window positions even when they're closed.
 	actual_id := get_id_from_id_string(id_string)
 	offset_from_parent := Vec2_f32{.5, .5}
@@ -998,11 +610,11 @@ draggable_window :: proc(id_string: string, child_layout: Box_Child_Layout) -> B
 
 	title_bar := box_from_cache(
 		id("Title bar@{}-title-bar", get_id_from_id_string(id_string)),
-		{.Draggable, .Clickable, .Draw_Text, .Draw},
+		{.Draggable, .Clickable, .Draw_Text, .Draw, .Hot_Animation, .Active_Animation},
 		{
 			semantic_size = {{.Grow, 100}, {.Fit_Text, 1}},
 			padding = {top = 5, bottom = 5},
-			color = {.5, .2, .3, 1},
+			color = .Tertiary,
 			z_index = container.z_index,
 		},
 	)

@@ -73,7 +73,6 @@ float calculate_border_factor(vec2 softness_padding) {
 		// map distance => factor
 		float inside_f = smoothstep(0, 2 * edge_softness, inside_d);
 		return inside_f;
-
 	}
 }
 

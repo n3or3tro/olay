@@ -42,7 +42,7 @@ box_width :: proc(box: Box) -> u32 {
 	assert(width >= 0)
 	return u32(width)
 }
-box_data_get_as_string :: proc(box_data: Box_Data, allocator := context.allocator) -> string { 
+box_data_as_string :: proc(box_data: Box_Data, allocator := context.allocator) -> string { 
 	data_as_string: string
 	switch data in box_data {
 	case string:
@@ -58,4 +58,13 @@ box_data_get_as_string :: proc(box_data: Box_Data, allocator := context.allocato
 		data_as_string = strconv.write_float(buf[:], data, 'f', 2, 64)
 	}
 	return data_as_string
+}
+
+// Helper to get point to the last element at the end of a dynamic array / slice.
+tail :: proc(list: []$T) -> ^T{ 
+	if len(list) > 0 {
+		return &list[len(list) - 1]
+	} else {
+		return nil
+	}
 }
