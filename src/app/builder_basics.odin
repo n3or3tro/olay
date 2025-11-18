@@ -165,33 +165,21 @@ edit_number_box :: proc(
 	box := box_signals.box
 	box.metadata = metadata
 
-	// If this widget is for an audio track step, and we're creating it for the first time (like after switching tabs),
-	// pull it's value from the audio state.
-	if box.first_frame { 
-		if step_metadata, ok := metadata.(Metadata_Track_Step); ok { 
-			track_num := step_metadata.track
-			step_num := step_metadata.step
-			switch step_metadata.type {
-			case .Volume:
-				box.data = app.audio.tracks[track_num].volumes[step_num]
-			case .Send1:
-				box.data = app.audio.tracks[track_num].send1[step_num]
-			case .Send2:
-				box.data = app.audio.tracks[track_num].send2[step_num]
-			case .Pitch:
-				panic("Set type = .Pitch in Box_Metadata when creating a number box.")
-			}
-		} else { 
-			box.data = min_val
+	if step_metadata, ok := metadata.(Metadata_Track_Step); ok { 
+		track_num := step_metadata.track
+		step_num := step_metadata.step
+		switch step_metadata.type {
+		case .Volume:
+			box.data = app.audio.tracks[track_num].volumes[step_num]
+		case .Send1:
+			box.data = app.audio.tracks[track_num].send1[step_num]
+		case .Send2:
+			box.data = app.audio.tracks[track_num].send2[step_num]
+		case .Pitch:
+			panic("Set type = .Pitch in Box_Metadata when creating a number box.")
 		}
-	} else { // box.data should be populated if it's existed before
-		if box.data == nil {
-			panic(tprintf("It wasn't the first frame and box.data for {} was nil", box.id))
-		}
-		// NEW: Log the box.data value for cached boxes
-		// if box.metadata.(Metadata_Track_Step).track == 0 { 
-		// 	printf("Cached box %s has data=%v\n", box.id, box.data)
-		// }
+	} else { 
+		box.data = min_val
 	}
 
 	if box_signals.clicked do box.active = !box.active
@@ -234,22 +222,52 @@ edit_number_box :: proc(
 	new_data := strconv.atoi(new_data_string)
 	new_data = clamp(new_data, min_val, max_val)
 	
+	// Only update audio state if we actually changed the value this frame
 	// Unlike pitches, we can basically always immediately update the audio state for 
 	// a step whose value is a number because we clip the number to range on each
 	// frame and the input handling function only allows numbers into the data.
-	if step_metadata, ok := box.metadata.(Metadata_Track_Step); ok { 
+	update_audio_state: if step_metadata, ok := box.metadata.(Metadata_Track_Step); ok { 
 		track := step_metadata.track
 		step := step_metadata.step
+		change: State_Change
 		switch step_metadata.type { 
 		case .Volume:
+			old_data := app.audio.tracks[track].volumes[step]
+			change = Track_Step_Change {
+				track = track,
+				step = step,
+				old_value = old_data,
+				new_value = new_data,
+				type = .Volume
+			}
+			if old_data == new_data do break update_audio_state
 			app.audio.tracks[track].volumes[step] = new_data
 		case .Send1:
+			old_data := app.audio.tracks[track].send1[step]
+			change = Track_Step_Change {
+				track = track,
+				step = step,
+				old_value = app.audio.tracks[track].send1[step],
+				new_value = new_data,
+				type = .Send1
+			}
+			if old_data == new_data do break update_audio_state
 			app.audio.tracks[track].send1[step] = new_data
 		case .Send2:
+			old_data := app.audio.tracks[track].send2[step]
+			change = Track_Step_Change {
+				track = track,
+				step = step,
+				old_value = app.audio.tracks[track].send2[step],
+				new_value = new_data,
+				type = .Send2
+			}
+			if old_data == new_data do break update_audio_state
 			app.audio.tracks[track].send2[step] = new_data
 		case .Pitch:
 			panic("This shouldn't happen :)")
 		}
+		undo_stack_push(change)
 	} else { 
 	}
 	box.data = new_data
@@ -359,16 +377,17 @@ edit_text_box :: proc(
 		} else { 
 			panic("When trying to create a edit_text_box, passed in the wrong metadata type.")
 		}
-		if text_container.first_frame {
-			println("pulling text_container.data from audio state pitch")
-			// Pull data from audio state, as it's the source of truth.
-			track_num := text_container.metadata.(Metadata_Track_Step).track
-			step_num := text_container.metadata.(Metadata_Track_Step).step
-			text_container.data = str.clone(get_note_from_num(app.audio.tracks[track_num].pitches[step_num]))
+
+		track_num := text_container.metadata.(Metadata_Track_Step).track
+		step_num := text_container.metadata.(Metadata_Track_Step).step
+		// This constant allocation and deallocation may be problematic.
+		if !text_container.fresh && len(text_container.data.(string)) > 0{ 
+			delete(text_container.data.(string))
 		}
+		text_container.data = str.clone(get_note_from_num(app.audio.tracks[track_num].pitches[step_num]))
 	} else {
 		// Since we ALWAYS delete the previous box.data on a keystroke, a new text box needs an empty "" allocated.
-		if text_container.first_frame { 
+		if text_container.fresh { 
 			text_container.data = str.clone("")
 		}
 	}
@@ -394,18 +413,35 @@ edit_text_box :: proc(
 	editor.selection = state.selection
 
 	new_data: string
-	#partial switch text_box_type {
-	case .Generic_One_Line:
-		new_data = handle_generic_single_line_input(state, &editor, text_container)
-	case .Pitch:
-		new_data = handle_pitch_input(state, &editor, text_container)
-		// Only update audio state if the string the user entered, actually represents a valid pitch.
-		// If not, the last valid pitch is still the current pitch, regardless if the textbox says
-		// something like: Y#4
-		if valid_pitch(new_data) {
-			track_num := text_container.metadata.(Metadata_Track_Step).track
-			step_num := text_container.metadata.(Metadata_Track_Step).step
-			app.audio.tracks[track_num].pitches[step_num] = get_pitch_from_note(new_data)
+	update_audio_data:{
+		#partial switch text_box_type {
+		case .Generic_One_Line:
+			new_data = handle_generic_single_line_input(state, &editor, text_container)
+		case .Pitch:
+			new_data = handle_pitch_input(state, &editor, text_container)
+			// Only update audio state if the string the user entered, actually represents a valid pitch.
+			// If not, the last valid pitch is still the current pitch, regardless if the textbox says
+			// something like: Y#4
+
+			if valid_pitch(new_data) {
+				track_num := text_container.metadata.(Metadata_Track_Step).track
+				step_num := text_container.metadata.(Metadata_Track_Step).step
+				old_pitch := app.audio.tracks[track_num].pitches[step_num]
+				new_pitch := get_pitch_from_note(new_data)
+				if new_pitch == old_pitch {
+					printfln("not going ahead with audio update as new_pitch == old_pitch")
+					break update_audio_data
+				}
+				change := Track_Step_Change {
+					track = track_num,
+					step = step_num,
+					old_value = old_pitch,
+					new_value = new_pitch,
+					type = .Pitch
+				}
+				app.audio.tracks[track_num].pitches[step_num] = new_pitch
+				undo_stack_push(change)
+			}
 		}
 	}
 

@@ -1,5 +1,6 @@
 package app
 import "core:fmt"
+import "core:unicode/utf8/utf8string"
 import "core:reflect"
 import "core:strconv"
 import os "core:os/os2"
@@ -14,10 +15,11 @@ import sarr "core:container/small_array"
 id :: fmt.tprintf
 
 // Short hand pre-defined semantic_size values that we commonly use. 
-Size_Fit_Children 		:= [2]Box_Size{{.Fit_Children, 1}, {.Fit_Children, 1}}
-Size_Grow 				:= [2]Box_Size{{.Grow, 1}, {.Grow, 1}}
-Size_Fit_Text 			:= [2]Box_Size{{.Fit_Text, 1}, {.Fit_Text, 1}}
-Size_Fit_Text_And_Grow 	:= [2]Box_Size{{.Fit_Text_And_Grow, 1}, {.Fit_Text_And_Grow, 1}}
+Size_Fit_Children 				:= [2]Box_Size{{.Fit_Children, 1}, {.Fit_Children, 1}}
+Size_Fit_Children_And_Grow 		:= [2]Box_Size{{.Fit_Children_And_Grow, 1}, {.Fit_Children_And_Grow, 1}}
+Size_Grow 						:= [2]Box_Size{{.Grow, 1}, {.Grow, 1}}
+Size_Fit_Text 					:= [2]Box_Size{{.Fit_Text, 1}, {.Fit_Text, 1}}
+Size_Fit_Text_And_Grow 			:= [2]Box_Size{{.Fit_Text_And_Grow, 1}, {.Fit_Text_And_Grow, 1}}
 
 
 State_Change_Type :: enum { 
@@ -34,8 +36,8 @@ Track_Step_Change :: struct {
 	},
 	track: int,
 	step:  int,
-	old_value: union {int, string},
-	new_value: union {int, string},
+	old_value: int,
+	new_value: int,
 }
 
 Track_Volume_Change :: struct {
@@ -127,6 +129,66 @@ UI_State :: struct {
 	redo_stack: 			[dynamic]State_Change,
 }
 
+undo_stack_push :: proc(change: State_Change) {
+	append(&ui_state.undo_stack, change)
+	// Writing new data invalidates the redo stack. A viewable tree would perhaps be better
+	// But this is what happens in basic undo / redo systems
+	clear(&ui_state.redo_stack)
+}
+
+undo :: proc() { 
+	undo_stack := &ui_state.undo_stack
+	if len(undo_stack) == 0 {
+		return
+	}
+	event := pop(undo_stack)
+	printfln("len of undo stack: {}", len(ui_state.undo_stack))
+	printfln("undoing event: {}", event)
+	switch change in event { 
+	case Track_Step_Change:
+		switch change.type {
+		case .Pitch:
+			app.audio.tracks[change.track].pitches[change.step] = change.old_value
+		case .Volume:
+			app.audio.tracks[change.track].volumes[change.step] = change.old_value
+		case .Send1:
+			app.audio.tracks[change.track].send1[change.step]   = change.old_value
+		case .Send2:
+			app.audio.tracks[change.track].send2[change.step]   = change.old_value
+		}
+	case Track_Arm_State_Change:
+	case Track_Volume_Change:
+	case Track_Sound_Change:
+	}
+	append(&ui_state.redo_stack, event)
+}
+
+redo :: proc() { 
+	redo_stack := &ui_state.redo_stack
+	if len(redo_stack) == 0 {
+		return
+	}
+	event := pop(redo_stack)
+	printfln("len of redo stack: {}", len(ui_state.undo_stack))
+	printfln("redoing event: {}", event)
+	switch change in event { 
+	case Track_Step_Change:
+		switch change.type {
+		case .Pitch:
+			app.audio.tracks[change.track].pitches[change.step] = change.new_value
+		case .Volume:
+			app.audio.tracks[change.track].volumes[change.step] = change.new_value
+		case .Send1:
+			app.audio.tracks[change.track].send1[change.step]   = change.new_value
+		case .Send2:
+			app.audio.tracks[change.track].send2[change.step]   = change.new_value
+		}
+	case Track_Arm_State_Change:
+	case Track_Volume_Change:
+	case Track_Sound_Change:
+	}
+	append(&ui_state.undo_stack, event)
+}
 
 init_ui_state :: proc() -> ^UI_State {
 	ui_state.quad_vbuffer = new(u32)
@@ -237,7 +299,7 @@ create_ui :: proc() -> ^Box {
 			)
 
 			for track, i in app.audio.tracks {
-				audio_track(i, 250)
+				audio_track(i, 160)
 			}
 		}
 		if text_button(
@@ -347,13 +409,8 @@ create_ui :: proc() -> ^Box {
 	return root
 }
 
-undo :: proc() { 
 
-}
 
-redo :: proc() { 
-
-}
 /* 
 Reset state that was set in the current frame.
 This is called at the end of every frame after all logical UI stuff has happened.

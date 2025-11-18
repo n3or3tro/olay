@@ -13,3 +13,12 @@ json_theme_parsing :: proc(t: ^test.T) {
         printfln("{}: {}", key, val)
     }
 }
+
+@(test)
+test_pitch_from_note_string :: proc(t: ^test.T) { 
+    test.expect_value(t, get_pitch_from_note("C3"), 0)
+    test.expect_value(t, get_pitch_from_note("B3"), -1)
+    test.expect_value(t, get_pitch_from_note("C4"), 12)
+    test.expect_value(t, get_pitch_from_note("C2"), -12)
+    test.expect_value(t, get_pitch_from_note("C#3"), 1)
+}

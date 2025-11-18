@@ -324,20 +324,21 @@ track_store_pcm_data :: proc(track: u32) {
 }
 
 // returns number of semitones between 2 notes.
-pitch_difference :: proc(from: string, to: string) -> f32 {
+pitch_difference :: proc(from: string, to: string) -> int {
 	chromatic_scale := make(map[string]int, context.temp_allocator)
-	chromatic_scale["C"] = 0
-	chromatic_scale["C#"] = 1
-	chromatic_scale["D"] = 2
-	chromatic_scale["D#"] = 3
-	chromatic_scale["E"] = 4
-	chromatic_scale["F"] = 5
-	chromatic_scale["F#"] = 6
-	chromatic_scale["G"] = 7
-	chromatic_scale["G#"] = 8
-	chromatic_scale["A"] = 9
-	chromatic_scale["A#"] = 10
-	chromatic_scale["B"] = 11
+
+	chromatic_scale["A"] = 0
+	chromatic_scale["A#"] = 1
+	chromatic_scale["B"] = 2
+	chromatic_scale["C"] = 3
+	chromatic_scale["C#"] = 4
+	chromatic_scale["D"] = 5
+	chromatic_scale["D#"] = 6
+	chromatic_scale["E"] = 7
+	chromatic_scale["F"] = 8
+	chromatic_scale["F#"] = 9
+	chromatic_scale["G"] = 10
+	chromatic_scale["G#"] = 11
 
 	from_octave := strconv.atoi(from[len(from) - 1:])
 	to_octave := strconv.atoi(to[len(to) - 1:])
@@ -352,7 +353,7 @@ pitch_difference :: proc(from: string, to: string) -> f32 {
 
 	octave_diff_in_semitones := octave_diff * 12
 	total_diff := octave_diff_in_semitones - (-1 * (from_note - to_note))
-	return f32(total_diff)
+	return -1 * int(total_diff)
 }
 
 up_one_semitone :: proc(curr_note: string) -> string {

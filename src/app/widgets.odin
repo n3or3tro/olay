@@ -18,28 +18,57 @@ topbar :: proc() {
 		{
 			semantic_size    = {{.Fixed, f32(app.wx)}, {.Fixed, TOPBAR_HEIGHT}},
 			color = .Secondary,
-			// padding = {top = 10, bottom = 5},
 		},
-		{direction = .Horizontal, alignment_horizontal = .End, alignment_vertical = .Center, gap_horizontal = 5},
+		{
+			direction = .Horizontal, 
+			alignment_horizontal = .Space_Between, 
+			alignment_vertical = .Center, 
+			gap_horizontal = 5
+		},
 	)
+
 	btn_config := Box_Config {
-		semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}},
+		semantic_size = {{.Fit_Text_And_Grow, 1}, {.Fit_Text_And_Grow, 1}},
 		color = .Tertiary,
 		corner_radius = 5,
-		padding = {top = 7, bottom = 7, left = 2, right = 2},
+		padding = {top = 0, bottom = 0, left = 2, right = 2},
 	}
-	if text_button("Default layout@top-bar-default", btn_config).clicked {
-		ui_state.tab_num = 0
-		ui_state.changed_ui_screen = true
+
+	left_container: {
+		child_container(
+			"@top-bar-left-container", 
+			{semantic_size = {{.Fit_Children, 1}, {.Fit_Children_And_Grow, 1}}}, 
+			// {},
+			{gap_horizontal = 3}
+	)
+		if text_button("undo@top-bar-undo", btn_config).clicked {
+			undo()
+		}
+		if text_button("redo@top-bar-redo", btn_config).clicked {
+			redo()
+		}
 	}
-	if text_button("Test layout@top-bar-test", btn_config).clicked {
-		ui_state.tab_num = 1
-		ui_state.changed_ui_screen = true
-	}
-	side_bar_btn_id :=
-		ui_state.sidebar_shown ? "Close sidebar@top-bar-sidebar-close" : "Open sidebar@top-bar-sidebar-open"
-	if text_button(side_bar_btn_id, btn_config).clicked {
-		ui_state.sidebar_shown = !ui_state.sidebar_shown
+
+	right_container: {
+		child_container(
+			"@top-bar-right-container", 
+			{semantic_size = {{.Fit_Children, 1}, {.Fit_Children_And_Grow, 1}}}, 
+			// {}, 
+			{gap_horizontal = 3}
+		)
+		if text_button("Default layout@top-bar-default", btn_config).clicked {
+			ui_state.tab_num = 0
+			ui_state.changed_ui_screen = true
+		}
+		if text_button("Test layout@top-bar-test", btn_config).clicked {
+			ui_state.tab_num = 1
+			ui_state.changed_ui_screen = true
+		}
+		side_bar_btn_id :=
+			ui_state.sidebar_shown ? "Close sidebar@top-bar-sidebar-close" : "Open sidebar@top-bar-sidebar-open"
+		if text_button(side_bar_btn_id, btn_config).clicked {
+			ui_state.sidebar_shown = !ui_state.sidebar_shown
+		}
 	}
 }
 
@@ -61,22 +90,29 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 	track_container.box.metadata = Metadata_Track{
 		track_num = track_num
 	}
-	// track_label: {
-	// 	child_container(
-	// 		id("@track-{}-label-container", track_num),
-	// 		{semantic_size = {{.Fixed, track_width}, {.Fit_Children, 1}}, padding = {left = 30}},
-	// 		{direction = .Horizontal, alignment_horizontal = .Center, alignment_vertical = .Center},
-	// 	)
-	// 	text(id("{} - @track-{}-num", track_num, track_num), {semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}}})
-	// 	edit_text_box(
-	// 		id("@track-{}-name", track_num),
-	// 		{
-	// 			semantic_size = {{.Grow, 1}, {.Fixed, 30}}, 
-	// 			color = .Secondary
-	// 		},
-	// 		.Generic_One_Line,
-	// 	)
-	// }
+	track_label: {
+		child_container(
+			id("@track-{}-label-container", track_num),
+			{semantic_size = {{.Fixed, track_width}, {.Fit_Children, 1}}, padding = {left = 4, right = 4}},
+			{direction = .Horizontal, alignment_horizontal = .Center, alignment_vertical = .Center},
+		)
+		text(
+			id("{} - @track-{}-num", track_num, track_num), 
+				{
+					semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}},
+					color = .Primary_Container,
+					text_justify = {.Start, .Center}
+				}
+			)
+		edit_text_box(
+			id("@track-{}-name", track_num),
+			{
+				semantic_size = {{.Grow, 1}, {.Fixed, 30}}, 
+				color = .Secondary
+			},
+			.Generic_One_Line,
+		)
+	}
 
 	step_signals: Track_Steps_Signals
 	steps: {

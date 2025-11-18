@@ -109,6 +109,7 @@ Layout_Direction :: enum {
 
 Box_Size_Type :: enum {
 	Fit_Children,
+	Fit_Children_And_Grow,
 	// For things like text_buttons which won't have children
 	Fit_Text, 
 	// Like above, but also allows to grow along axis (useful lists of text where each 
@@ -176,7 +177,7 @@ Box_Data :: union {
 }
 
 Box :: struct {
-	first_frame:  bool,
+	fresh:  bool,
 	id:           string,
 	label:        string,
 	// Current thing being hovered over this frame, only 1 can exist at the end of each frame.
@@ -281,7 +282,7 @@ box_make :: proc(id_string: string, flags: Box_Flags, config: Box_Config, alloca
 		box.height = int(box.config.semantic_size.y.amount)
 	}
 
-	if x_size_type == .Fit_Text || x_size_type == .Fit_Text_And_Grow {
+	if x_size_type == .Fit_Text || x_size_type == .Fit_Text_And_Grow  {
 		if .Edit_Text in box.flags {
 			data_as_string := box_data_as_string(box.data, context.temp_allocator)
 			box.width = int(font_get_strings_rendered_len(data_as_string))
@@ -299,7 +300,7 @@ box_make :: proc(id_string: string, flags: Box_Flags, config: Box_Config, alloca
 	}
 	box.keep = true
 	box.z_index = config.z_index
-	box.first_frame = true
+	box.fresh = true
 	if box.parent != nil { 
 		if !(.Ignore_Parent_Disabled in box.flags) { 
 			box.disabled = box.parent.disabled
@@ -315,7 +316,7 @@ box_from_cache :: proc(id_string: string, flags: Box_Flags, config: Box_Config) 
 
 	if key in ui_state.box_cache {
 		box = ui_state.box_cache[key]
-		box.first_frame = false
+		box.fresh = false
 		box.flags = flags
 		box.config = config
 		box.label = get_label_from_id_string(id_string)
@@ -764,10 +765,13 @@ recalc_fit_children_sizing :: proc(box: ^Box) {
         recalc_fit_children_sizing(child)
     }
 
-    if box.config.semantic_size.x.type == .Fit_Children {
+	x_size_type := box.config.semantic_size.x.type 
+    if x_size_type == .Fit_Children || x_size_type == .Fit_Children_And_Grow {
         box.width = sizing_calc_fit_children_width(box^)
     }
-    if box.config.semantic_size.y.type == .Fit_Children {
+
+	y_size_type := box.config.semantic_size.y.type 
+    if y_size_type == .Fit_Children || y_size_type == .Fit_Children_And_Grow {
         box.height = sizing_calc_fit_children_height(box^)
     }
 }
@@ -795,7 +799,7 @@ sizing_grow_growable_width :: proc(box: ^Box) {
 			}
 			remaining_width -= child.width
 			size_type := child.config.semantic_size.x.type
-			if size_type == .Grow || size_type == .Fit_Text_And_Grow {
+			if size_type == .Grow || size_type == .Fit_Text_And_Grow || size_type == .Fit_Children_And_Grow {
 				append(&growable_children, child)
 			}
 		}
@@ -836,7 +840,7 @@ sizing_grow_growable_width :: proc(box: ^Box) {
 				continue
 			}
 			size_type := child.config.semantic_size.x.type 
-			if size_type == .Grow || size_type == .Fit_Text_And_Grow {
+			if size_type == .Grow || size_type == .Fit_Text_And_Grow  || size_type == .Fit_Children_And_Grow {
 				child.width += growable_amount - child.width
 				sizing_calc_percent_width(child)
 			}
@@ -859,7 +863,7 @@ sizing_grow_growable_height :: proc(box: ^Box) {
 			}
 			remaining_height -= child.height
 			size_type := child.config.semantic_size.y.type 
-			if size_type == .Grow  || size_type == .Fit_Text_And_Grow{
+			if size_type == .Grow  || size_type == .Fit_Text_And_Grow || size_type == .Fit_Children_And_Grow {
 				append(&growable_children, child)
 			}
 		}
@@ -904,7 +908,7 @@ sizing_grow_growable_height :: proc(box: ^Box) {
 				continue
 			}
 			size_type := child.config.semantic_size.y.type 
-			if size_type == .Grow || size_type == .Fit_Text_And_Grow {
+			if size_type == .Grow || size_type == .Fit_Text_And_Grow || size_type == .Fit_Children_And_Grow {
 				child.height += growable_amount - child.height
 				sizing_calc_percent_height(child)
 			}
@@ -1093,6 +1097,19 @@ position_boxes :: proc(root: ^Box) {
 	// Distribute space evenly between children.
 	// Will ignore root.padding and just consider it 'empty' space to be distributed between.
 	position_horizontally_space_between :: proc(root: ^Box) {
+		// Gap will be ignored since items won't really be next to each other.
+		padding := root.config.padding.left + root.config.padding.right
+		total_child_raw_width := 0
+		valid_children := non_floating_children(root)
+		for child in valid_children {
+			total_child_raw_width += child.width
+		}
+		total_child_width := total_child_raw_width + padding
+		remaining_space := root.width - total_child_width
+		n_gaps := len(root.children) - 1
+		gap := int(f32(remaining_space) / f32(n_gaps))
+		start_x := root.top_left.x + root.config.padding.left
+		place_siblings_horizontally(root^, valid_children[:], start_x, gap)
 	}
 	/* ========== END Position horizontally when horizontal is the main axis ============= */
 
@@ -1232,7 +1249,8 @@ position_boxes :: proc(root: ^Box) {
 			case .Space_Around:
 				panic("space around not implemented yet")
 			case .Space_Between:
-				panic("space between not implemented yet")
+				position_horizontally_space_between(root)
+				// panic("space between not implemented yet")
 			}
 			// Across axis case:
 			switch root.child_layout.alignment_vertical {
