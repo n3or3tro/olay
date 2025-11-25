@@ -10,6 +10,36 @@ import ma "vendor:miniaudio"
 N_TRACK_STEPS :: 32
 MAX_TRACKS :: 256
 MAX_TRACK_STEPS :: 256
+EQ_MAX_GAIN :f32: 20
+
+EQ_Band_Type :: enum { 
+	High_Pass,
+	Low_Pass,
+	High_Shelf,
+	Low_Shelf,
+	Band_Pass, 
+	Notch,
+	Bell,
+}
+
+EQ_Band_State :: struct { 
+	// Not sure whether to store their frequency loation or position inside parent.
+	// Either way I imagine we'll have to convert back and forth.
+	pos: 		f32, // 0 = left end of parent, 1 = right end of parent.
+	gain:		f32,
+	q:			f32,
+	bypass: 	bool,
+	type: 		EQ_Band_Type
+}
+
+EQ_State :: struct { 
+	// Should be 1 list for each EQ and 1 EQ for each track.
+	bands : [dynamic]EQ_Band_State,
+	// Whether the UI should show this IQ, don't love having this in the audio state but
+	// it helps to keep single source of truth.
+	show: bool,
+	active_band: int,
+}
 
 Track :: struct {
 	sound:          ^ma.sound,
@@ -33,6 +63,7 @@ Track :: struct {
 	send1: 	[MAX_TRACK_STEPS]int,
 	send2: 	[MAX_TRACK_STEPS]int,
 	selected_steps: [MAX_TRACK_STEPS]bool,
+	eq:	EQ_State,
 }
 
 Audio_State :: struct {
@@ -74,6 +105,20 @@ audio_init :: proc() -> ^Audio_State {
 	audio_state.tracks = make([dynamic]Track)
 	for i in 0 ..< 4 {
 		track_add_new(audio_state)
+	}
+
+	// For testing, add an eq for each track, with 4 points equally distributed across the frequency.
+	for &track in audio_state.tracks { 
+		eq := new(EQ_State)
+		for i in 0..< 8 { 
+			band := new(EQ_Band_State)
+			band.gain = 0 
+			band.pos = i == 0 ? 0.0 : 1.0 / f32(i)
+			band.type = .Bell
+			band.q = 1
+			append(&eq.bands, band^)
+		}
+		track.eq = eq^
 	}
 	audio_state.bpm = 120
 

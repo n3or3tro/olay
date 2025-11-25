@@ -68,3 +68,10 @@ tail :: proc(list: []$T) -> ^T{
 		return nil
 	}
 }
+
+box_center :: proc(box: Box) -> [2]f32 {
+    return {
+        (f32(box.top_left.x) + f32(box.bottom_right.x)) / 2,
+        (f32(box.top_left.y) + f32(box.bottom_right.y)) / 2
+	};
+}

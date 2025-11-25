@@ -57,7 +57,7 @@ app_create :: proc() -> ^App {
 
 @(export)
 app_update :: proc() -> (all_good: bool) {
-	start := time.now()
+	start := time.now()._nsec
 	if register_resize() {
 		printfln("changing screen res to : {} x {}", app.wx, app.wy)
 		set_shader_vec2(ui_state.quad_shader_program, "screen_res", {f32(app.wx), f32(app.wy)})
@@ -81,7 +81,7 @@ app_update :: proc() -> (all_good: bool) {
 	}
 
 	rect_render_data := make([dynamic]Rect_Render_Data, context.temp_allocator)
-	collect_render_data_from_ui_tree(root, &rect_render_data)
+	collect_render_data_from_ui_tree(&rect_render_data)
 	if ui_state.frame_num > 0 {
 		render_ui(rect_render_data)
 	}
@@ -99,14 +99,17 @@ app_update :: proc() -> (all_good: bool) {
 		ui_state.right_clicked_on = nil
 		ui_state.dragged_window = nil
 		ui_state.mouse_down_on = nil
-		// This doesn't reclaim the memory the map used to store the values. Just resets metadata
-		// so that memory can be overwritten.
+		// This doesn't reclaim the memory the map used to store the values. 
+		// Just resets the map's metadata so that memory can be overwritten.
 		clear(&ui_state.next_frame_signals)
 	}
-	max_frame_time_ns: f64 = 1_000_000 * 200 
+	end := time.now()._nsec
+	total_frame_time := (end - start)
+	// Calculate how long this frame took and sleep until it's time for the next frame.
+	// max_frame_time_ns: f64 = 1_000_000 * 200 
 	// max_frame_time_ns: f64 = 1_000_000 * 8.3333 
-	frame_time := f64(time.now()._nsec - start._nsec)
-	time_to_wait := time.Duration(max_frame_time_ns - frame_time)
+	// frame_time := f64(time.now()._nsec - start._nsec)
+	// time_to_wait := time.Duration(max_frame_time_ns - frame_time)
 	// if time_to_wait > 0 {
 	// 	time.accurate_sleep(time_to_wait)
 	// }

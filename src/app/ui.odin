@@ -15,56 +15,11 @@ import sarr "core:container/small_array"
 id :: fmt.tprintf
 
 // Short hand pre-defined semantic_size values that we commonly use. 
-Size_Fit_Children 				:= [2]Box_Size{{.Fit_Children, 1}, {.Fit_Children, 1}}
-Size_Fit_Children_And_Grow 		:= [2]Box_Size{{.Fit_Children_And_Grow, 1}, {.Fit_Children_And_Grow, 1}}
-Size_Grow 						:= [2]Box_Size{{.Grow, 1}, {.Grow, 1}}
-Size_Fit_Text 					:= [2]Box_Size{{.Fit_Text, 1}, {.Fit_Text, 1}}
-Size_Fit_Text_And_Grow 			:= [2]Box_Size{{.Fit_Text_And_Grow, 1}, {.Fit_Text_And_Grow, 1}}
-
-
-State_Change_Type :: enum { 
-	Track_Step,
-	Track_Volume,
-	Track_Arm_State,
-	// Old / new values will be the file path or maybe an index into locally loaded sounds.
-	Track_Sound,
-}
-
-Track_Step_Change :: struct {
-	type: enum {
-		Pitch, Volume, Send1, Send2
-	},
-	track: int,
-	step:  int,
-	old_value: int,
-	new_value: int,
-}
-
-Track_Volume_Change :: struct {
-	track, step: int,
-	old_volume:  int,
-	new_value: 	 int,
-}
-
-Track_Arm_State_Change :: struct {
-	track, step: int,
-	old_value:   bool,
-	new_value: 	 bool,
-}
-
-Track_Sound_Change :: struct { 
-	track, step: int,
-	old_value:   string,
-	new_value: 	 string,
-}
-
-
-State_Change :: union { 
-	Track_Step_Change,
-	Track_Volume_Change,
-	Track_Arm_State_Change,
-	Track_Sound_Change,
-}
+Size_Fit_Children 				:: [2]Box_Size{{.Fit_Children, 1}, {.Fit_Children, 1}}
+Size_Fit_Children_And_Grow 		:: [2]Box_Size{{.Fit_Children_And_Grow, 1}, {.Fit_Children_And_Grow, 1}}
+Size_Grow 						:: [2]Box_Size{{.Grow, 1}, {.Grow, 1}}
+Size_Fit_Text 					:: [2]Box_Size{{.Fit_Text, 1}, {.Fit_Text, 1}}
+Size_Fit_Text_And_Grow 			:: [2]Box_Size{{.Fit_Text_And_Grow, 1}, {.Fit_Text_And_Grow, 1}}
 
 UI_State :: struct {
 	root: 				   ^Box,
@@ -124,10 +79,57 @@ UI_State :: struct {
 	draggable_window_offsets: map[string][2]f32,
 	// Necessary shared state for animations.
 	animation_items: sarr.Small_Array(32, Animation_Item),
-	anon_box_counter:		int,
 	undo_stack: 			[dynamic]State_Change,
 	redo_stack: 			[dynamic]State_Change,
+	// Whether or not a track's eq is showing.
+	eqs:					[dynamic]bool,
 }
+
+State_Change_Type :: enum { 
+	Track_Step,
+	Track_Volume,
+	Track_Arm_State,
+	// Old / new values will be the file path or maybe an index into locally loaded sounds.
+	Track_Sound,
+}
+
+Track_Step_Change :: struct {
+	type: enum {
+		Pitch, Volume, Send1, Send2
+	},
+	track: int,
+	step:  int,
+	old_value: int,
+	new_value: int,
+}
+
+Track_Volume_Change :: struct {
+	track, step: int,
+	old_volume:  int,
+	new_value: 	 int,
+}
+
+Track_Arm_State_Change :: struct {
+	track, step: int,
+	old_value:   bool,
+	new_value: 	 bool,
+}
+
+Track_Sound_Change :: struct { 
+	track, step: int,
+	old_value:   string,
+	new_value: 	 string,
+}
+
+
+State_Change :: union { 
+	Track_Step_Change,
+	Track_Volume_Change,
+	Track_Arm_State_Change,
+	Track_Sound_Change,
+}
+
+
 
 undo_stack_push :: proc(change: State_Change) {
 	append(&ui_state.undo_stack, change)
@@ -218,7 +220,6 @@ init_ui_state :: proc() -> ^UI_State {
 		string(ui_vertex_shader_data),
 		string(ui_pixel_shader_data),
 	)
-	// assert(quad_shader_ok)
 	if !quad_shader_ok { 
 		msg, type := gl.get_last_error_message()
 		println(msg, type)
@@ -263,12 +264,11 @@ init_ui_state :: proc() -> ^UI_State {
 create_ui :: proc() -> ^Box {
 	// This is the first step of the mark and sweep, any boxes which are not re-created this frame, will
 	// be removed from the cache at the end of the frame.
+	ui_start_time := time.now()._nsec
 	for _, box in ui_state.box_cache {
 		box.keep = false
 	}
-	ui_state.anon_box_counter  = 0
 	ui_state.changed_ui_screen = false
-	// printfln("window size: {} x {}", app.wx, app.wy)
 	root := child_container(
 		"root@root", 
 		{
@@ -305,7 +305,7 @@ create_ui :: proc() -> ^Box {
 		if text_button(
 			"+@add-track-button", 
 			{
-				position_floating =.Center_Right,
+				floating_type =.Center_Right,
 				padding = {10,10,10,10},
 				border = 2,
 				semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}},
@@ -368,6 +368,12 @@ create_ui :: proc() -> ^Box {
 		context_menu()
 	}
 
+	// Not sure if the indexes here actually line up with which track is which.
+	for eq_show, i in ui_state.eqs { 
+		if eq_show {
+					}
+	}
+
 	if ui_state.sidebar_shown {
 		draggable_window("File browser@file-browser-dragging-container", {
 			direction = .Vertical,
@@ -376,6 +382,7 @@ create_ui :: proc() -> ^Box {
 	}
 
 	// animation_update_all()
+	start := time.now()._nsec
 	sizing_calc_percent_width(root)
 	sizing_calc_percent_height(root)
 	sizing_grow_growable_height(root)
@@ -383,29 +390,13 @@ create_ui :: proc() -> ^Box {
 	recalc_fit_children_sizing(root)
 	position_boxes(root)
 
-	// Handle dragging the open window(s)
-	if ui_state.dragged_window != nil { 
-		container := ui_state.dragged_window
-		actual_id := container.id
-
-		mouse_delta_x := f32(app.mouse.pos.x - app.mouse_last_frame.pos.x) 
-		mouse_delta_y := f32(app.mouse.pos.y - app.mouse_last_frame.pos.y) 
-
-		// This will break if the containers parent width and height arent fixed / arent
-		// calculated before the child is. Which is often the case with our bottom up sizing passes.
-		width_diff := f32(container.parent.width - container.width)
-		height_diff := f32(container.parent.height - container.height)
-
-
-		// Given as a f32 from 0 - 1 since that's how floating box positioning works.
-		parent_offset_delta_x:= f32(mouse_delta_x) / width_diff
-		parent_offset_delta_y:= f32(mouse_delta_y) / height_diff
-
-		ui_state.draggable_window_offsets[actual_id] += {parent_offset_delta_x, parent_offset_delta_y}
-	} 
+	end := time.now()._nsec
+	total_layout_time := (end - start) / 1000
 
 	flow_z_positions(root)
 	compute_frame_signals(root)
+	ui_end_time := time.now()._nsec
+	total_ui_creation_time := (ui_end_time - ui_start_time) / 1000
 	return root
 }
 

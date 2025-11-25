@@ -1,5 +1,6 @@
 package app
 import "base:intrinsics"
+import "core:math"
 import "core:sort"
 
 import "core:strconv"
@@ -9,9 +10,7 @@ import "core:unicode"
 import sdl "vendor:sdl2"
 
 
-slider_value: f32 = 0
-
-TOPBAR_HEIGHT :: 50
+TOPBAR_HEIGHT :: 37
 
 // For when you don't want to have to think of an ID for a box. Used for drawing lines for example.
 // This has various obvious interactivity tradeoffs, i.e. harder to reference the box later.
@@ -405,7 +404,7 @@ edit_text_box :: proc(
 	edit.input_text(&editor, text_container.data.(string))
 	
 	existing_edit_box := true
-	if !(text_container.id in ui_state.text_editors_state) {
+	if text_container.id not_in ui_state.text_editors_state {
 		ui_state.text_editors_state[text_container.id] = Edit_Text_State{}
 		existing_edit_box = false
 	}
@@ -422,14 +421,12 @@ edit_text_box :: proc(
 			// Only update audio state if the string the user entered, actually represents a valid pitch.
 			// If not, the last valid pitch is still the current pitch, regardless if the textbox says
 			// something like: Y#4
-
 			if valid_pitch(new_data) {
 				track_num := text_container.metadata.(Metadata_Track_Step).track
 				step_num := text_container.metadata.(Metadata_Track_Step).step
 				old_pitch := app.audio.tracks[track_num].pitches[step_num]
 				new_pitch := get_pitch_from_note(new_data)
 				if new_pitch == old_pitch {
-					printfln("not going ahead with audio update as new_pitch == old_pitch")
 					break update_audio_data
 				}
 				change := Track_Step_Change {
@@ -445,6 +442,8 @@ edit_text_box :: proc(
 		}
 	}
 
+	// There should be a way to not have to delete text_container.data every frame that it's selected,
+	// but guarding this code with a conditional on new_data != old_data, doesn't work correctly.
 	if existing_edit_box && len(text_container.data.(string)) > 0 {
 		delete(text_container.data.(string))
 	}
@@ -493,12 +492,12 @@ vertical_slider :: proc(
 		id("{}-grip", get_id_from_id_string(id_string)),
 		{.Clickable, .Draggable, .Draw, .Hot_Animation},
 		{
-			semantic_size = {{.Percent, 0.7}, {.Percent, 0.1}},
+			semantic_size = {{.Percent, 0.9}, {.Percent, 0.1}},
 			color = .Tertiary,
-			position_floating = .Relative_Parent,
-			position_floating_offset = {0.5, map_range(min_val, max_val, 0, 1, slider_value^)},
-			corner_radius = 3,
-			edge_softness = 3,
+			floating_type = .Relative_Parent,
+			floating_offset = {0.5, map_range(min_val, max_val, 0, 1, slider_value^)},
+			corner_radius = 2,
+			edge_softness = 2,
 		},
 	)
 	grip_signals := box_signals(grip)
@@ -621,22 +620,21 @@ multi_button_set :: proc(
 	return results
 }
 
+// Offset_from_parent is the normal [2]f32 = {x, y} where x,y is between 0 and 1.
+// {0,0} means top left, {0.5, 0.5} means center, {1, 1} means bottom right.
+// At the moment we assume all dragging windows should be draggable anywhere in the root container,
+// we could most likely restrict this to have nested floating windows. i.e. you can't drag some floating
+// window outside of it's parent's bounds.
 @(deferred_out = box_close_children)
 draggable_window :: proc(id_string: string, child_layout: Box_Child_Layout, extra_flags := Box_Flags{}) -> Box_Signals {
-	// Probably want to store window positions even when they're closed.
-	actual_id := get_id_from_id_string(id_string)
-	offset_from_parent := Vec2_f32{.5, .5}
-	if actual_id in ui_state.draggable_window_offsets {
-		offset_from_parent = ui_state.draggable_window_offsets[actual_id]
-	} else {
-		ui_state.draggable_window_offsets[actual_id] = offset_from_parent
-	}
+	// We need to create the box first, even though we haven't yet calculated offset_from_root. The reason being,
+	// that offset_from_root in most cases comes from a map, and the key for that map is this boxes persistent id.
 	container := box_from_cache(
 		id_string,
 		{},
 		{
-			position_floating = .Relative_Parent,
-			position_floating_offset = offset_from_parent,
+			floating_type = .Absolute_Pixel,
+			floating_offset = {0, 0},
 			semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}},
 			z_index = 20,
 		},
@@ -644,8 +642,16 @@ draggable_window :: proc(id_string: string, child_layout: Box_Child_Layout, extr
 	container_signals := box_signals(container)
 	box_open_children(container, child_layout)
 
+	offset_from_root: ^Vec2_f32
+	if container.id not_in ui_state.draggable_window_offsets {
+		ui_state.draggable_window_offsets[container.id] = {f32(app.wx) / 2, f32(app.wy) / 2}
+	}
+	offset_from_root = &ui_state.draggable_window_offsets[container.id]
+	container.config.floating_offset = offset_from_root^
+
+	label := get_label_from_id_string(id_string)
 	title_bar := box_from_cache(
-		id("Title bar@{}-title-bar", get_id_from_id_string(id_string)),
+		id("{}@{}-title-bar", label, container.id),
 		{.Draggable, .Clickable, .Draw_Text, .Draw, .Hot_Animation, .Active_Animation},
 		{
 			semantic_size = {{.Grow, 100}, {.Fit_Text, 1}},
@@ -655,15 +661,121 @@ draggable_window :: proc(id_string: string, child_layout: Box_Child_Layout, extr
 		},
 	)
 
-	bar_signals := box_signals(title_bar)
-
-	if bar_signals.dragging {
-		// printfln("dragging {}", container.id)
-		ui_state.dragged_window = container
-	} else {
-		// printfln("NOT dragging {}", container.id)
-		ui_state.dragged_window = nil
+	title_bar_signals := box_signals(title_bar)
+	if title_bar_signals.dragging { 
+		delta_x := f32(app.mouse.pos.x - app.mouse_last_frame.pos.x)
+		delta_y := f32(app.mouse.pos.y - app.mouse_last_frame.pos.y)
+		offset_from_root.x = clamp(offset_from_root.x + delta_x, 0, f32(app.wx))
+		offset_from_root.y = clamp(offset_from_root.y + delta_y, 0, f32(app.wy))
 	}
-
 	return box_signals(container)
+}
+
+circular_knob :: proc(
+    id_string: string,
+    config: Box_Config,
+    value: ^f32,
+    min_val: f32,
+    max_val: f32,
+    knob_size: f32 = 60,  // diameter in pixels
+    extra_flags := Box_Flags{}
+// ) -> Knob_Signals {
+) {
+	actual_id := get_id_from_id_string(id_string)
+	label := get_label_from_id_string(id_string)
+    // Container
+    child_container(
+        id_string,
+        config,
+        {direction = .Vertical, alignment_horizontal = .Center, gap_vertical = 5},
+    )
+    
+    // Track (circular background)
+    track := box_from_cache(
+        id("{}-track", actual_id),
+        {.Clickable, .Draw, .Scrollable},
+        {
+            semantic_size = {{.Fixed, knob_size}, {.Fixed, knob_size}},
+            color = config.color,
+            corner_radius = int(knob_size / 2),  // Makes it circular
+        },
+    )
+	track_signals := box_signals(track)
+
+ 	text(
+		id("{}@{}-label", label, actual_id),
+		{color = .Secondary, semantic_size = Size_Fit_Text},
+	)
+
+
+	if track_signals.scrolled { 
+		printfln("inside knob widget and detect scrolling on the track")
+		
+		if track_signals.scrolled_up {
+			println("increasing")
+			value^ += max_val / 100
+		} else if track_signals.scrolled_down  { 
+			println("decreasing")
+			value^ -= max_val / 100
+		}
+	}
+	value^ = clamp(value^, min_val, max_val)
+	// printfln("value: {}, min_val: {}, max_val: {}", value^, min_val, max_val)
+    
+
+    // Calculate grip position
+    center_x := f32(track.top_left.x + track.width / 2)
+    center_y := f32(track.top_left.y + track.height / 2)
+ 	// This code is parameterized to facilitate ease of tweaking deadzone and scrolling animation,
+	// but in the future once I've settled on some values we can hardcode values.
+
+	deadzone_center_deg: f32 = 90.0 
+	deadzone_size_deg:   f32 = 80.0 
+
+	// deadzone_center_rad: f32 = 90.0 * math.PI / 180
+	// deadzone_size_rad:   f32 = 50.0 
+
+	start_angle_deg: f32 = deadzone_center_deg + (deadzone_size_deg / 2)
+	sweep_range_deg: f32 = 360.0 - deadzone_size_deg
+
+	// Convert to radians for use in code.
+	start_angle := start_angle_deg * math.PI / 180.0
+	sweep_range := sweep_range_deg * math.PI / 180.0
+
+	angle := start_angle + map_range(min_val, max_val, 0, sweep_range, value^)
+    
+    // Position on circumference
+    radius := knob_size / 2 * 0.7
+    grip_offset_x := 0.5 + math.cos(angle) * 0.7
+    grip_offset_y := 0.5 + math.sin(angle) * 0.7
+    
+    // Grip
+    grip := box_from_cache(
+        id("{}-grip", actual_id),
+        {.Clickable, .Draggable, .Draw, .Hot_Animation},
+        {
+            semantic_size = {{.Fixed, 10}, {.Fixed, 10}},
+            color = .Error_Container,
+            floating_type = .Relative_Other,
+            floating_offset = {grip_offset_x, grip_offset_y},
+			floating_anchor_box = track,
+            corner_radius = 5,
+        },
+    )
+    // Handle input...
+}
+
+// Most of the existing layout code and sizing stuff won't really apply to lines. 
+// We just pass in the start, end and thickness and the renderer works out the rest.
+line :: proc(
+    id_string: string,
+	config: Box_Config,
+	extra_flags := Box_Flags{}
+) -> Box_Signals {
+	l := box_from_cache(
+		id_string,
+		{.Draw, .Line} + extra_flags,
+		config,
+	)
+	return box_signals(l)
 }

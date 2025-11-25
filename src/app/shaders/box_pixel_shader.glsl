@@ -1,17 +1,18 @@
 #version 410 core
 
-layout(location = 0) in vec4 v_color;
-layout(location = 1) in vec2 dst_pos;
-layout(location = 2) in vec2 dst_center;
-layout(location = 3) in vec2 dst_half_size;
-layout(location = 4) in float corner_radius;
-layout(location = 5) in float edge_softness;
-layout(location = 6) in float border_thickness;
-layout(location = 7) in vec2 texture_uv;
-layout(location = 8) in float ui_element_type; // 0 = normal quad, 1 = text, 2 = waveform data, 3 = circle.
-layout(location = 9) in float font_size; 
+layout(location = 0)  in vec4 v_color;
+layout(location = 1)  in vec2 dst_pos;
+layout(location = 2)  in vec2 dst_center;
+layout(location = 3)  in vec2 dst_half_size;
+layout(location = 4)  in float corner_radius;
+layout(location = 5)  in float edge_softness;
+layout(location = 6)  in float border_thickness;
+layout(location = 7)  in vec2 texture_uv;
+layout(location = 8)  in float ui_element_type; // 0 = normal quad, 1 = text, 2 = waveform data, 3 = circle.
+layout(location = 9)  in float font_size; 
 layout(location = 10) in vec2 clip_tl; 
 layout(location = 11) in vec2 clip_br; 
+layout(location = 12) in float rotation_radians; 
 
 #define font_size_xs  0
 #define font_size_s   1
@@ -95,14 +96,48 @@ void main() {
 
 	// sample distance
 	float dist;
-	if(ui_element_type == UI_Type_Circle) { 
-		dist = CircleSDF(dst_pos, dst_center, dst_half_size.x - softness_padding.x);
-	} else {
-		dist = RoundedRectSDF(dst_pos, dst_center, dst_half_size - softness_padding, corner_radius);
+
+	// ============ Added by Claude ===========================
+	// Inverse-rotate sample position for rotated primitives
+	vec2 sample_pos = dst_pos;
+	if (rotation_radians != 0.0) {
+		vec2 local_pos = dst_pos - dst_center;
+		float s = sin(rotation_radians);
+		float c = cos(rotation_radians);
+		vec2 unrotated_local = vec2(
+			local_pos.x * c + local_pos.y * s,
+			-local_pos.x * s + local_pos.y * c
+		);
+		sample_pos = unrotated_local + dst_center;
 	}
 
+	if(ui_element_type == UI_Type_Circle) { 
+    dist = CircleSDF(sample_pos, dst_center, dst_half_size.x - softness_padding.x);
+	} else {
+		dist = RoundedRectSDF(sample_pos, dst_center, dst_half_size - softness_padding, corner_radius);
+	}
+
+	// if(ui_element_type == UI_Type_Circle) { 
+	// 	dist = CircleSDF(dst_pos, dst_center, dst_half_size.x - softness_padding.x);
+	// } else {
+	// 	dist = RoundedRectSDF(dst_pos, dst_center, dst_half_size - softness_padding, corner_radius);
+	// }
+	// ============ Added by Claude ===========================
+
+	// if(ui_element_type == UI_Type_Circle) { 
+	// 	dist = CircleSDF(dst_pos, dst_center, dst_half_size.x - softness_padding.x);
+	// } else {
+	// 	dist = RoundedRectSDF(dst_pos, dst_center, dst_half_size - softness_padding, corner_radius);
+	// }
+
 	// map distance => a blend factor
-	float sdf_factor = 1.0 - smoothstep(0.0, 2.0 * edge_softness, dist);
+	// float sdf_factor = 1.0 - smoothstep(0.0, 2.0 * edge_softness, dist);
+
+	// replaced the above line with these 2 lines from sdf for apparently better edges when using SDF 
+	// for anti aliasing non squared off edges. Supposedly doesn't effect the other use of the SDF function(s)
+	// I.e amount of rounded corners, borders etc.
+	float aa = max(edge_softness, fwidth(dist));   // dynamic, high-quality
+	float sdf_factor = smoothstep(aa, -aa, dist);  // symmetric falloff
 
 	// use sdf_factor in final color calculation
 	if(ui_element_type == UI_Type_Regular) 

@@ -1,10 +1,12 @@
 package app
 import "core:math"
+import "base:intrinsics"
 import alg "core:math/linalg"
 import str "core:strings"
 import "core:time"
 import "core:unicode/utf8"
 import gl "vendor:OpenGL"
+import "core:sort"
 // import ma "vendor:miniaudio"
 
 PI :: math.PI
@@ -42,6 +44,7 @@ Rect_Render_Data :: struct {
 	font_size:            Font_Size,
 	clip_tl:              Vec2_f32,
 	clip_br:              Vec2_f32,
+	rotation_radians:     f32,
 }
 
 // Kind of the default data when turning an abstract box into an opengl rect.
@@ -85,6 +88,15 @@ Boxes_Rendering_Data :: struct {
 2nd: A list of related things like borders, shadows, etc.
 3rd: An overlay (for example to grey out a disabled track)
 */
+@(private="file")
+distance :: proc(a, b: [2]$T) -> f32 where intrinsics.type_is_numeric(T) { 
+	// distance = sqrt((x2 - x1)² + (y2 - y1)²)
+	return math.sqrt(
+		(b.x - a.x) * (b.x - a.x) +
+		(b.y - a.y) * (b.y - a.y)
+	)
+}
+
 get_boxes_rendering_data :: proc(box: Box, allocator := context.allocator) -> Boxes_Rendering_Data
 {
 	additional_render_data := make([dynamic]Rect_Render_Data, context.temp_allocator)
@@ -93,6 +105,43 @@ get_boxes_rendering_data :: proc(box: Box, allocator := context.allocator) -> Bo
 	}
 
 	color := ui_state.dark_theme[box.config.color]
+
+	if .Line in box.flags { 
+		// A bit of trig to work shit out for the line. Since top_left and bottom_right,
+		// form a rectangle, we can cut it in half to get 2 equal triangles and use 
+		// basic trig to work out the rotation angle to pass to the GPU.
+		start 		:= box.config.line_start
+		end 		:= box.config.line_end
+		center 		:= (start + end) * 0.5
+		// Classic pythagoras.
+		length 		:= distance(start, end)
+		angle  		:= math.atan2(end.y - start.y, end.x - start.x)
+		thickness 	:= f32(box.config.line_thickness)
+
+		// In the rest of our UI: box.tl < box.br is always true. This doesn't hold for
+		// lines where start < end isn't always true. Thus we must construct a valid quad
+		// for our line from scratch based on the other things we know about the line.
+		half_size 		:= Vec2_f32{length / 2, thickness / 2}
+		top_left 		:= center - half_size
+		bottom_right 	:= center + half_size
+
+		line_render_data: Rect_Render_Data = {
+			top_left         = top_left,
+			bottom_right     = bottom_right,
+			tl_color         = color,
+			tr_color         = color,
+			bl_color         = color,
+			br_color         = color,
+			corner_radius    = f32(box.config.corner_radius),
+			edge_softness    = f32(box.config.edge_softness),
+			border_thickness = 100000,
+			rotation_radians = angle
+			// clip_tl          = box.clipping_container.top_left,
+			// clip_br          = box.clipping_container.bottom_right,
+		}
+		result.box = line_render_data
+		return result
+	}
 
 	box_render_data: Rect_Render_Data = {
 		top_left         = box_coord_to_vec2f32(box.top_left),
@@ -107,6 +156,10 @@ get_boxes_rendering_data :: proc(box: Box, allocator := context.allocator) -> Bo
 		border_thickness = 100000,
 		// clip_tl          = box.clipping_container.top_left,
 		// clip_br          = box.clipping_container.bottom_right,
+	}
+	// Cheap and dirty way to anti alias non squared off edges.
+	if box_render_data.corner_radius > 0 && box_render_data.edge_softness == 0 { 
+		box_render_data.edge_softness = 0.7 
 	}
 
 	if box.disabled {
@@ -468,60 +521,73 @@ get_boxes_rendering_data :: proc(box: Box, allocator := context.allocator) -> Bo
 // 		append(rendering_data, new_data)
 // 	}
 // }
-collect_render_data_from_ui_tree :: proc(box: ^Box, render_data: ^[dynamic]Rect_Render_Data) {
-	boxes_render_data := get_boxes_rendering_data(box^, context.temp_allocator)
-
-	if shadow, ok := boxes_render_data.outer_shadow.(Rect_Render_Data); ok{ 
-		append(render_data, shadow)
-	}
-
-	// Some boxes may not need to be rendered themselves, but their related data to that box may need to be rendered.
-	if box_data, ok := boxes_render_data.box.(Rect_Render_Data); ok{ 
-		append(render_data, box_data)
-	}
-
-	for data in boxes_render_data.additional_data {
-		append(render_data, data)
-	}
-
-	if overlay, ok := boxes_render_data.overlay.(Rect_Render_Data); ok { 
-		append(render_data, overlay)
-	}
-
-	if inner_shadow, ok := boxes_render_data.inner_shadow.(Rect_Render_Data); ok { 
-		append(render_data, inner_shadow)
-	}
-
-	draw_text: if .Draw_Text in box.flags {
-		text_to_render: string
-		if .Edit_Text in box.flags {
-			text_to_render = box_data_as_string(box.data, context.temp_allocator)
+// collect_render_data_from_ui_tree :: proc(box: ^Box, render_data: ^[dynamic]Rect_Render_Data) {
+collect_render_data_from_ui_tree :: proc(render_data: ^[dynamic]Rect_Render_Data) {
+	box_list := box_tree_to_list(ui_state.root, context.temp_allocator)
+	sort.merge_sort_proc(box_list[:], proc(a, b: ^Box) -> int {
+		if a.z_index < b.z_index {
+			return -1
+		} else if a.z_index > b.z_index {
+			return 1
 		} else {
-			text_to_render = box.label
+			return 0
 		}
-		if .Track_Step in box.flags { 
-			if !box.selected { 
-				break draw_text
+	})
+	for box in box_list {
+		boxes_render_data := get_boxes_rendering_data(box^, context.temp_allocator)
+
+		if shadow, ok := boxes_render_data.outer_shadow.(Rect_Render_Data); ok{ 
+			append(render_data, shadow)
+		}
+
+		// Some boxes may not need to be rendered themselves, but their related data to that box may need to be rendered.
+		if box_data, ok := boxes_render_data.box.(Rect_Render_Data); ok{ 
+			append(render_data, box_data)
+		}
+
+		for data in boxes_render_data.additional_data {
+			append(render_data, data)
+		}
+
+		if overlay, ok := boxes_render_data.overlay.(Rect_Render_Data); ok { 
+			append(render_data, overlay)
+		}
+
+		if inner_shadow, ok := boxes_render_data.inner_shadow.(Rect_Render_Data); ok { 
+			append(render_data, inner_shadow)
+		}
+
+		draw_text: if .Draw_Text in box.flags {
+			text_to_render: string
+			if .Edit_Text in box.flags {
+				text_to_render = box_data_as_string(box.data, context.temp_allocator)
+			} else {
+				text_to_render = box.label
+			}
+			if .Track_Step in box.flags { 
+				if !box.selected { 
+					break draw_text
+				}
+			}
+			text := utf8.string_to_runes(text_to_render, context.temp_allocator)
+			shaped_glyphs := font_segment_and_shape_text(&ui_state.font_state.kb.font, text)
+			glyph_render_info := font_get_render_info(shaped_glyphs, context.temp_allocator)
+			glyph_rects := get_text_quads(box^, glyph_render_info[:], context.temp_allocator)
+			for rect in glyph_rects {
+				append_elem(render_data, rect)
 			}
 		}
-		text := utf8.string_to_runes(text_to_render, context.temp_allocator)
-		shaped_glyphs := font_segment_and_shape_text(&ui_state.font_state.kb.font, text)
-		glyph_render_info := font_get_render_info(shaped_glyphs, context.temp_allocator)
-		glyph_rects := get_text_quads(box^, glyph_render_info[:], context.temp_allocator)
-		for rect in glyph_rects {
-			append_elem(render_data, rect)
+
+		if text_cursor, ok := boxes_render_data.text_cursor.(Rect_Render_Data); ok { 
+			append(render_data, text_cursor)
 		}
-	}
 
-	if text_cursor, ok := boxes_render_data.text_cursor.(Rect_Render_Data); ok { 
-		append(render_data, text_cursor)
-	}
-
-	for child in box.children {
-		collect_render_data_from_ui_tree(child, render_data)
+		// for child in box.children {
+		// 	collect_render_data_from_ui_tree(child, render_data)
+		// }
 	}
 }
-
+ 
 /*
 Returns the quads which we will sample the font pixels into. 
 This is probably where I'd implement subpixel positioning and stuff, but for now
@@ -592,7 +658,6 @@ get_text_quads :: proc(
 	}
 	return glyph_rects
 }
-
 
 render_ui :: proc(rect_rendering_data: [dynamic]Rect_Render_Data) {
 	clear_screen()
@@ -678,6 +743,10 @@ setup_for_quads :: proc(shader_program: ^u32) {
 	gl.VertexAttribPointer(14, 2, gl.FLOAT, false, size_of(Rect_Render_Data), offset_of(Rect_Render_Data, clip_br))
 	enable_layout(14)
 	gl.VertexAttribDivisor(14, 1)
+
+	gl.VertexAttribPointer(15, 1, gl.FLOAT, false, size_of(Rect_Render_Data), offset_of(Rect_Render_Data, rotation_radians))
+	enable_layout(15)
+	gl.VertexAttribDivisor(15, 1)
 
 	//odinfmt:enable
 }

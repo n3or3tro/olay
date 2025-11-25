@@ -18,12 +18,13 @@ topbar :: proc() {
 		{
 			semantic_size    = {{.Fixed, f32(app.wx)}, {.Fixed, TOPBAR_HEIGHT}},
 			color = .Secondary,
+			padding = {top = 3, bottom = 3}
 		},
 		{
 			direction = .Horizontal, 
 			alignment_horizontal = .Space_Between, 
 			alignment_vertical = .Center, 
-			gap_horizontal = 5
+			gap_horizontal = 5,
 		},
 	)
 
@@ -74,9 +75,7 @@ topbar :: proc() {
 
 audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}) -> Track_Signals {
 	track := &app.audio.tracks[track_num]
-	n_steps := 32
-
-	track_armed := app.audio.tracks[track_num].armed
+	n_steps := 32 // This will ultimately be a dynamic size for each track.
 
 	track_container := child_container(
 		id("@track-{}-container", track_num),
@@ -86,24 +85,31 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 			track_num = track_num
 		}
 	)
-	track_container.box.disabled = !track_armed
+	track_container.box.disabled = !track.armed
 	track_container.box.metadata = Metadata_Track{
 		track_num = track_num
 	}
 	track_label: {
 		child_container(
 			id("@track-{}-label-container", track_num),
-			{semantic_size = {{.Fixed, track_width}, {.Fit_Children, 1}}, padding = {left = 4, right = 4}},
-			{direction = .Horizontal, alignment_horizontal = .Center, alignment_vertical = .Center},
+			{
+				semantic_size = {{.Fixed, track_width}, {.Fit_Children, 1}}, 
+				padding = {left = 4, right = 4}
+			},
+			{
+				direction = .Horizontal,
+				alignment_horizontal = .Center, 
+				alignment_vertical = .Center
+			},
 		)
 		text(
 			id("{} - @track-{}-num", track_num, track_num), 
-				{
-					semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}},
-					color = .Primary_Container,
-					text_justify = {.Start, .Center}
-				}
-			)
+			{
+				semantic_size = Size_Fit_Text,
+				color = .Primary_Container,
+				text_justify = {.Start, .Center}
+			}
+		)
 		edit_text_box(
 			id("@track-{}-name", track_num),
 			{
@@ -190,13 +196,16 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 				substep_extra_flags,
 			)
 
-			if pitch_box.double_clicked ||
+			if pitch_box.double_clicked  ||
 			   volume_box.double_clicked ||
-			   send1_box.double_clicked ||
-			   send2_box.double_clicked {
+			   send1_box.double_clicked  ||
+			   send2_box.double_clicked 
+			{
 				box_siblings_toggle_select(pitch_box.box^)
 			}
 		}
+
+
 	}
 
 	controls: {
@@ -206,7 +215,11 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 				semantic_size = {{.Fixed, track_width}, {.Percent, 0.3}}, 
 				color = .Surface_Bright,
 			},
-			{direction = .Horizontal, alignment_horizontal = .Start, alignment_vertical = .End},
+			{
+				direction = .Horizontal, 
+				alignment_horizontal = .Start, 
+				alignment_vertical = .End
+			},
 			{.Draw}
 		)
 		arm_label := app.audio.tracks[track_num].armed ? "unarm" : "arm"
@@ -220,10 +233,6 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 			},
 			{.Ignore_Parent_Disabled}
 		)
-		if arm_button.clicked { 
-			app.audio.tracks[track_num].armed = !app.audio.tracks[track_num].armed 
-		}
-
 		volume_slider := vertical_slider(
 			id("hey@track-{}-volume-slider", track_num),
 			{semantic_size = {{.Percent, 0.333}, {.Grow, 30}}},
@@ -239,6 +248,16 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 				corner_radius = 3,
 			},
 		)
+		if arm_button.clicked { 
+			app.audio.tracks[track_num].armed = !app.audio.tracks[track_num].armed 
+		}
+	}
+
+	if track.eq.show { 
+		draggable_window(id("Track {} EQ@eq-{}-dragging-container", track_num, track_num), {
+			direction = .Vertical,
+		})
+		equalizer_8("@track-{}-eq", track_num)
 	}
 	return Track_Signals{step_signals, {}}
 }
@@ -246,12 +265,15 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 context_menu :: proc() {
 	track_steps_context_menu :: proc(box: ^Box) {
 		track_num := box.metadata.(Metadata_Track_Step).track
+		track := &app.audio.tracks[track_num]
+
 		top_level_btn_config := Box_Config {
 			semantic_size = Size_Fit_Text_And_Grow,
 			text_justify  = {.Start, .Center},
 			padding = padding(10),
 			border = 1,
 		}
+
 		top_level_btn_config.color = .Tertiary
 		add_button := text_button(
 			"Add steps@context-menu-1",
@@ -264,12 +286,22 @@ context_menu :: proc() {
 			top_level_btn_config,
 		)
 
-		disarm_labl := app.audio.tracks[track_num].armed ? "Disarm" : "Arm"
+		disarm_labl := track.armed ? "Disarm" : "Arm"
 		top_level_btn_config.color = .Warning
 		disarm_button := text_button(
 			id("{} track@conext-menu-3", disarm_labl),
 			top_level_btn_config
 		)
+
+		label := track.eq.show ? "Hide EQ" : "Show EQ"
+		activate_eq_button := text_button(
+			id("{}@conext-menu-track-{}-EQ", label, track_num),
+			top_level_btn_config
+		)
+
+		if activate_eq_button.clicked { 
+			track.eq.show = !track.eq.show
+		}
 
 		top_level_btn_config.color = .Error_Container
 		delete_track_button := text_button(
@@ -286,8 +318,8 @@ context_menu :: proc() {
 			hover_container := child_container(
 				add_submenu_id,
 				{
-					position_floating = .Absolute_Pixel,
-					position_floating_offset = {f32(add_button.box.bottom_right.x), f32(add_button.box.top_left.y)},
+					floating_type = .Absolute_Pixel,
+					floating_offset = {f32(add_button.box.bottom_right.x), f32(add_button.box.top_left.y)},
 					semantic_size = Size_Fit_Children,
 					z_index = 20,
 				},
@@ -342,8 +374,8 @@ context_menu :: proc() {
 			hover_container := child_container(
 				remove_submenu_id,
 				{
-					position_floating = .Absolute_Pixel,
-					position_floating_offset = {
+					floating_type = .Absolute_Pixel,
+					floating_offset = {
 						f32(remove_button.box.bottom_right.x),
 						f32(remove_button.box.top_left.y),
 					},
@@ -400,13 +432,14 @@ context_menu :: proc() {
 			printfln("deletring track that contains {}", ui_state.right_clicked_on.id)
 		}
 	}
+
 	context_menu_container := child_container(
 		"@context-menu",
 		{
 			semantic_size 				= Size_Fit_Children,
 			z_index 					= 100,
-			position_floating 			= .Absolute_Pixel,
-			position_floating_offset 	= {f32(ui_state.context_menu.pos.x), f32(ui_state.context_menu.pos.y)},
+			floating_type 			= .Absolute_Pixel,
+			floating_offset 	= {f32(ui_state.context_menu.pos.x), f32(ui_state.context_menu.pos.y)},
 		},
 		{
 			direction 			 = .Vertical, 
@@ -513,6 +546,217 @@ file_browser_menu :: proc() {
 			}
 		}
 	}
+}
+
+equalizer_8 :: proc(id_string: string, track_num: int) {
+	eq_state := &app.audio.tracks[track_num].eq
+	// Fixed size for now, for ease of implementation, but in the future we want this to be inside a 
+	// resizable floating container.
+	eq_container := child_container(
+		id_string, 
+		{
+			semantic_size = {{.Fixed, 800}, {.Fixed, 400}},
+			color = .Secondary_Container,
+			z_index = 10,
+			padding = padding(3),
+		},
+		{
+			alignment_horizontal = .Space_Between
+		},
+		{.Draw}
+	)
+	actual_id := get_id_from_id_string(id_string)
+	
+	// For now, we auto create 4 bands for each eq (1 eq per track by default).
+	active_band := &eq_state.bands[eq_state.active_band]
+
+	eq: {
+		child_container(
+			id("@{}-main-content", actual_id),
+			{
+				// semantic_size = {{.Percent, 0.3}, {.Percent, 0.5}},
+				semantic_size = Size_Fit_Children_And_Grow,
+				z_index = 30,
+				color = .Error_Container,
+			},
+			{
+				gap_horizontal = 4,
+			},
+			{.Draw},
+		)
+		main_controls: {
+			eq_main_controls := child_container(
+				id("@{}-main-controls", actual_id),
+				{
+					semantic_size = {{.Percent, 0.11}, {.Percent, 1}},
+					// padding = {left=4, right=4, top=10, bottom=10},
+				},
+				{
+					direction = .Vertical, 
+					alignment_vertical = .Space_Around,
+					alignment_horizontal = .Center,
+				},
+				{.Draw}
+			)
+			text(
+				id("Band {}@heya", eq_state.active_band),
+				{semantic_size=Size_Fit_Text, color = .Secondary},
+			)
+			circular_knob(
+				id("Freq@{}-freq-cntrl", actual_id),
+				{color = .Warning_Container},
+				&active_band.pos,
+				0, 
+				1
+			)
+			circular_knob(
+				id("Q@{}-q-cntrl", actual_id),
+				{color = .Warning_Container},
+				&active_band.q,
+				0, 
+				1
+			)
+			circular_knob(
+				id("Gain@{}-gain-cntrl", actual_id),
+				{color = .Warning_Container},
+				&active_band.gain,
+				-1 * EQ_MAX_GAIN, 
+				EQ_MAX_GAIN	
+			)
+		}
+		freq_display: {
+			frequency_display_container := child_container(
+				id("@{}-frequency-display-container", actual_id),
+				{
+					semantic_size = Size_Grow,
+					color = .Inverse_On_Surface,
+				},
+				{alignment_horizontal = .Space_Between},
+				{.Draw},
+			)
+			/* Draw background frequency ranges. */
+			// Draw DB levels: 
+			line_base_config := Box_Config {
+				color = .Tertiary,
+				line_thickness = 2,
+				edge_softness  = 1,
+				z_index = 30,
+			}
+			// Center 0db line
+			tl := frequency_display_container.box.top_left
+			br := frequency_display_container.box.bottom_right
+			box_height := f32(frequency_display_container.box.last_height)
+			db_0_line_start := [2]f32{f32(tl.x), f32(tl.y) + box_height / 2.0 }
+			db_0_line_end   := [2]f32{f32(br.x), f32(br.y) - box_height / 2.0 }
+			db_0_config := line_base_config
+			db_0_config.line_start = db_0_line_start
+			db_0_config.line_end   = db_0_line_end
+			line(
+				id("@{}-graph-hori-0", actual_id),
+				db_0_config
+			)
+
+			// Probably need to account for padding.
+			gap_to_top := box_height / 2
+			// Since we want 3db, 6db, 9db, 12db,
+			gap := gap_to_top / 4
+			for i in -4 ..= 4 {
+				if i == 0 do continue
+				new_config := line_base_config
+				tl := frequency_display_container.box.top_left
+				br := frequency_display_container.box.bottom_right
+				line_start := db_0_line_start.xy + {0, gap * f32(i)}
+				line_end   :=   db_0_line_end.xy   + {0, gap * f32(i)}
+				new_config.line_start = line_start
+				new_config.line_end   = line_end
+				line(
+					id("@{}-graph-hori-{}", actual_id, i),
+					new_config,
+				)
+			}
+
+			// I'm thinking I could maybe leverage the auto layout algos to place the gridlines,
+			// but we'll hardcode for it now.
+			// freq_graph: {
+			// 	child_container(
+			// 		id("@{}-freq-grid", actual_id),
+			// 		{
+			// 			semantic_size = {{.Percent, 1}, {.Percent, 1}} 
+			// 		},
+			// 		{
+			// 			direction = .Vertical,
+			// 		}
+			// 	)
+			// }
+
+
+			handles := make([dynamic]^Box, context.temp_allocator)
+			for &band, i in eq_state.bands { 
+				handle := box_from_cache(
+					id("@{}-band-{}-handle", actual_id, i),
+					{.Draw, .Clickable, .Draggable},
+					{
+						color = eq_state.active_band == i ? .Error_Container : .Warning_Container,
+						floating_type = .Relative_Other,
+						floating_anchor_box = frequency_display_container.box,
+						floating_offset = {
+							band.pos, 
+							map_range(-1*EQ_MAX_GAIN, EQ_MAX_GAIN, 0, 1, band.gain)
+						},
+						semantic_size = {{.Fixed, 30}, {.Fixed, 30}},
+						corner_radius = 15,
+						z_index  = 40,
+					}
+				)
+				append(&handles, handle)
+				handle_signals := box_signals(handle)
+				if handle_signals.clicked || handle_signals.dragging { 
+					eq_state.active_band = i
+				}
+				if handle_signals.dragging { 
+					printfln("Dragging grip, drag delta: {}", handle_signals.drag_delta)
+					// drag_delta is automatically populated
+					mouse_y := f32(app.mouse.pos.y)
+					parent_top := f32(handle.parent.top_left.y)  
+					parent_height := f32(handle.parent.last_height)
+					normalized_pos := clamp((mouse_y - parent_top) / parent_height, 0, 1)
+					band.gain = map_range(f32(0), f32(1), -EQ_MAX_GAIN, EQ_MAX_GAIN, normalized_pos)
+
+					mouse_x := f32(app.mouse.pos.x)
+					parent_left := f32(handle.parent.top_left.x)
+					parent_width := f32(handle.parent.last_width)  
+					normalized_pos = clamp((mouse_x - parent_left) / parent_width, 0, 1)
+					band.pos = map_range(f32(0), f32(1), 0, 1, normalized_pos)
+				}
+			}
+			// Draw lines between handles.
+			for handle, i in handles { 
+				// Actually the last band in the list might not be the further to the right
+				// so in prod, this isn't how we'd structure it.
+				if i == len(eq_state.bands) - 1 do continue
+				config := Box_Config {
+					line_start = box_center(handles[i]^),
+					line_end   = box_center(handles[i+1]^),
+					line_thickness = 4,
+					z_index = 35,
+					edge_softness = 1,
+				}
+				line(
+					id("@{}-line-from-{}-to-{}", actual_id, i, i+1),
+					config,
+				)
+			}
+		}
+		level_meter := box_from_cache(
+			id("@{}-level-meter", actual_id),
+			{.Draw},
+			{
+				semantic_size = {{.Fixed, 30}, {.Percent, 1}},
+				z_index = 30,
+			}
+		)
+	}
+	
 }
 
 
