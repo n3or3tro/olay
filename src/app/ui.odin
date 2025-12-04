@@ -69,7 +69,7 @@ UI_State :: struct {
 	// text boxes on screen at one time.
 	text_editors_state:    map[string]Edit_Text_State,
 	sidebar_shown:         bool,
-	dragged_window:	       ^Box,
+	dragged_box:	       ^Box,
 	drag_offset:	       [2]int,
 	// Stores offset_from_parent for every draggable window. The whole draggable window thing will
 	// break if we have a draggable window whose inside some box that ISNT the root. I.e. draggable windows
@@ -83,6 +83,7 @@ UI_State :: struct {
 	redo_stack: 			[dynamic]State_Change,
 	// Whether or not a track's eq is showing.
 	eqs:					[dynamic]bool,
+
 }
 
 State_Change_Type :: enum { 
@@ -278,11 +279,10 @@ create_ui :: proc() -> ^Box {
 		{direction=.Vertical},
 		{.Draw}
 	).box
-	root.width    = app.wx
-	root.height   = app.wy
-	root.keep     = true
 	ui_state.root = root
+
 	topbar()
+
 	if ui_state.tab_num == 0 {
 		audio_tracks: {
 			child_container(
@@ -368,12 +368,6 @@ create_ui :: proc() -> ^Box {
 		context_menu()
 	}
 
-	// Not sure if the indexes here actually line up with which track is which.
-	for eq_show, i in ui_state.eqs { 
-		if eq_show {
-					}
-	}
-
 	if ui_state.sidebar_shown {
 		draggable_window("File browser@file-browser-dragging-container", {
 			direction = .Vertical,
@@ -397,6 +391,7 @@ create_ui :: proc() -> ^Box {
 	compute_frame_signals(root)
 	ui_end_time := time.now()._nsec
 	total_ui_creation_time := (ui_end_time - ui_start_time) / 1000
+	// printfln("this frame took {} microseconds to create, layout and draw", total_ui_creation_time)
 	return root
 }
 

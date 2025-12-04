@@ -1,5 +1,6 @@
 package app
 import "core:fmt"
+import "core:sync"
 import "vendor:kb_text_shape"
 import "core:thread"
 import "core:time"
@@ -8,12 +9,12 @@ import sdl "vendor:sdl2"
 
 PROFILING :: #config(profile, false)
 
-print :: fmt.print
-println :: fmt.println
-printf :: fmt.printf
-printfln :: fmt.printfln
-aprintf :: fmt.aprintf
-tprintf :: fmt.tprintf
+print 	  :: fmt.print
+println   :: fmt.println
+printf 	  :: fmt.printf
+printfln  :: fmt.printfln
+aprintf	  :: fmt.aprintf
+tprintf	  :: fmt.tprintf
 tprintfln :: fmt.aprintfln
 
 Browser_File :: string
@@ -25,21 +26,20 @@ Browser_Directory :: struct {
 }
 
 App :: struct {
-	curr_parent:       ^Box,
-	parent_birthing:   bool,
-	ui_state:          ^UI_State,
+	char_queue:        [128]sdl.Keycode,
+	keys_held:         [sdl.NUM_SCANCODES]bool,
 	mouse:             Mouse_State,
 	mouse_last_frame:  Mouse_State,
-	char_queue:        [128]sdl.Keycode,
-	curr_chars_stored: u32,
-	keys_held:         [sdl.NUM_SCANCODES]bool,
+	ui_state:          ^UI_State,
 	window:            ^sdl.Window,
+	curr_chars_stored: u32,
 	wx:                int,
 	wy:                int,
-	running:           bool,
 	audio:             ^Audio_State,
-	// For testing purposes we just store the path to the file, but in the future
+	// For testing purposes we just store the path to the file, but in the future probs have
+	// a more structured thing going on here.
 	browser_files:     [dynamic]string,
+	running:           bool,
 }
 
 Window :: sdl.Window
@@ -97,7 +97,7 @@ app_update :: proc() -> (all_good: bool) {
 		ui_state.last_active_box = nil
 		ui_state.last_clicked_box = nil
 		ui_state.right_clicked_on = nil
-		ui_state.dragged_window = nil
+		ui_state.dragged_box = nil
 		ui_state.mouse_down_on = nil
 		// This doesn't reclaim the memory the map used to store the values. 
 		// Just resets the map's metadata so that memory can be overwritten.
@@ -125,6 +125,8 @@ app_init :: proc() -> ^App {
 	app.audio = audio_init()
 	app.running = true
 	app_hot_reload(app)
+	t := thread.create_and_start(audio_thread_timing_proc, priority = .High)
+	printfln("returned thread value from create_and_start: {}", t^)
 	return app
 }
 
@@ -212,6 +214,8 @@ app_hot_reload :: proc(mem: rawptr) {
 	ui_state = app.ui_state
 	font_init(&ui_state.font_state, ui_state.font_state.font_size)
 	audio_init_miniaudio(app.audio)
+	sync.atomic_store(&app.audio.exit_timing_thread, false)
+	thread.create_and_start(audio_thread_timing_proc, priority = .High)
 }
 
 @(export)
@@ -225,6 +229,9 @@ app_reload_colors :: proc(mem: rawptr, color_file_path: string) {
 // continue to run after we've unloaded the DLL and crash the program.
 @(export)
 app_unload_miniaudio :: proc() {
+	sync.atomic_store(&app.audio.exit_timing_thread, true)
+	// Wait for audio timing thread to pickup that it should terminate.
+	time.accurate_sleep(time.Millisecond * 10)
 	audio_uninit_miniaudio()
 }
 

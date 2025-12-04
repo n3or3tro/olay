@@ -39,9 +39,8 @@ topbar :: proc() {
 		child_container(
 			"@top-bar-left-container", 
 			{semantic_size = {{.Fit_Children, 1}, {.Fit_Children_And_Grow, 1}}}, 
-			// {},
 			{gap_horizontal = 3}
-	)
+		)
 		if text_button("undo@top-bar-undo", btn_config).clicked {
 			undo()
 		}
@@ -50,11 +49,23 @@ topbar :: proc() {
 		}
 	}
 
+	middle_container: {
+		child_container(
+			"@top-bar-middle-container", 
+			{semantic_size = {{.Fit_Children, 1}, {.Fit_Children_And_Grow, 1}}}, 
+			// {},
+			{gap_horizontal = 3}
+		)
+		label := app.audio.playing ? "Stop" : "Play"
+		if text_button(id("{}@top-bar-toggle-playing", label), btn_config).clicked {
+			app.audio.playing = !app.audio.playing
+		}
+	}
+
 	right_container: {
 		child_container(
 			"@top-bar-right-container", 
 			{semantic_size = {{.Fit_Children, 1}, {.Fit_Children_And_Grow, 1}}}, 
-			// {}, 
 			{gap_horizontal = 3}
 		)
 		if text_button("Default layout@top-bar-default", btn_config).clicked {
@@ -94,7 +105,7 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 			id("@track-{}-label-container", track_num),
 			{
 				semantic_size = {{.Fixed, track_width}, {.Fit_Children, 1}}, 
-				padding = {left = 4, right = 4}
+				padding = {left = 4, right = 0}
 			},
 			{
 				direction = .Horizontal,
@@ -125,7 +136,8 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 		child_container(
 			id("@track-steps-container-{}", track_num),
 			{
-				semantic_size = {{.Fixed, track_width}, {.Percent, 0.7}}, 
+				// semantic_size = {{.Fixed, track_width}, {.Percent, 0.7}}, 
+				semantic_size = {{.Fixed, track_width}, {.Grow, 0.7}}, 
 				color = .Tertiary 
 			},
 			{direction = .Vertical, gap_vertical = 0},
@@ -201,11 +213,62 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 			   send1_box.double_clicked  ||
 			   send2_box.double_clicked 
 			{
-				box_siblings_toggle_select(pitch_box.box^)
+				track_toggle_step(track_num, i)
+			}
+
+			// Set box.selected if audio state says that this step is toggled on.
+			// This is kind of ugly, but old code in the renderer relies on this bool,
+			// so we'll do this little hack for now.
+			if track.selected_steps[i] { 
+				pitch_box.box.selected  = true
+				volume_box.box.selected = true
+				send1_box.box.selected  = true
+				send2_box.box.selected  = true
+			} else { 
+				pitch_box.box.selected  = false
+				volume_box.box.selected = false
+				send1_box.box.selected  = false
+				send2_box.box.selected  = false
+			}
+
+			// If this is the current step, indicate so.
+			if app.audio.tracks[track_num].curr_step == u32(i) {
+			 	box_from_cache(
+					id("@track-{}-curr-step-indicator", track_num),
+					{
+						.Draw, .Draw_Border
+					},
+					{
+						floating_anchor_box = pitch_box.box,
+						floating_type = .Relative_Other,
+						floating_offset = {0, 0},
+						semantic_size = {{.Fixed, f32(pitch_box.box.last_width * 4)}, {.Fixed, f32(pitch_box.box.last_height)}},
+						color = .Warning_Container,
+						border = 2,
+					}
+				)
+				// printfln("created curr_step indicator: {}", curr_step_inidcator)
 			}
 		}
+	}
 
-
+	sample_label: {
+		label : string
+		if track.sound != nil { 
+			tokens, _ := str.split(track.sound_path, "\\", context.temp_allocator)
+			label = tail(tokens)^
+		} else {
+			label = "No sound loaded"
+		}
+		text(
+			id("{}@{}-file-info", label, track_num),
+			{
+				semantic_size = {{.Fit_Text_And_Grow, 1}, {.Fit_Text, 1}},
+				color = .Primary_Container,
+				text_justify = {.Center, .Center},
+			},
+			// {.Draw}
+		)
 	}
 
 	controls: {
@@ -251,6 +314,15 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 		if arm_button.clicked { 
 			app.audio.tracks[track_num].armed = !app.audio.tracks[track_num].armed 
 		}
+		if load_sound_button.clicked {
+			paths, ok := file_dialog(false)
+			if ok { 
+				path := paths[0]
+				track_set_sound(u32(track_num), path)
+			} else { 
+				println("Opening the file dialog ended in NOT returning a file path")
+			}
+		}
 	}
 
 	if track.eq.show { 
@@ -258,6 +330,13 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 			direction = .Vertical,
 		})
 		equalizer_8("@track-{}-eq", track_num)
+	}
+
+	if track.sampler.show { 
+		draggable_window(id("Track {} Sampler@sampler-{}-dragging-container", track_num, track_num), {
+			direction = .Vertical,
+		})
+		sampler("@track-{}-sampler", track_num)
 	}
 	return Track_Signals{step_signals, {}}
 }
@@ -303,6 +382,16 @@ context_menu :: proc() {
 			track.eq.show = !track.eq.show
 		}
 
+		label = track.sampler.show ? "Hide Sampler" : "Show Sampler"
+		activate_sampler_button := text_button(
+			id("{}@conext-menu-track-{}-sampler", label, track_num),
+			top_level_btn_config
+		)
+
+		if activate_sampler_button.clicked { 
+			track.sampler.show = !track.sampler.show
+		}
+
 		top_level_btn_config.color = .Error_Container
 		delete_track_button := text_button(
 			"Delete Track@conext-menu-4",
@@ -334,33 +423,27 @@ context_menu :: proc() {
 				border = 1
 			}
 			if text_button("All steps@context-add-all", btn_config).clicked {
-				track_num := box.metadata.(Metadata_Track_Step).track
-				set_nth_child_select(track_num, 1, true)
+				track_turn_on_steps(track_num, 0, 1)
 				ui_state.clicked_on_context_menu = true
 			}
 			if text_button("Every 2nd@context-add-2nd", btn_config).clicked {
-				track_num := box.metadata.(Metadata_Track_Step).track
-				set_nth_child_select(track_num, 2, true)
+				track_turn_on_steps(track_num, 0, 2)
 				ui_state.clicked_on_context_menu = true
 			}
 			if text_button("Every 3rd@context-add-3rd", btn_config).clicked {
-				track_num := box.metadata.(Metadata_Track_Step).track
-				set_nth_child_select(track_num, 3, true)
+				track_turn_on_steps(track_num, 0, 3)
 				ui_state.clicked_on_context_menu = true
 			}
 			if text_button("Every 4th@context-add-4th", btn_config).clicked {
-				track_num := box.metadata.(Metadata_Track_Step).track
-				set_nth_child_select(track_num, 4, true)
+				track_turn_on_steps(track_num, 0, 4)
 				ui_state.clicked_on_context_menu = true
 			}
 			if text_button("Every 6th@context-add-6th", btn_config).clicked {
-				track_num := box.metadata.(Metadata_Track_Step).track
-				set_nth_child_select(track_num, 6, true)
+				track_turn_on_steps(track_num, 0, 6)
 				ui_state.clicked_on_context_menu = true
 			}
 			if text_button("Every 8th@context-add-8th", btn_config).clicked {
-				track_num := box.metadata.(Metadata_Track_Step).track
-				set_nth_child_select(track_num, 8, true)
+				track_turn_on_steps(track_num, 0, 8)
 				ui_state.clicked_on_context_menu = true
 			}
 		}
@@ -391,36 +474,28 @@ context_menu :: proc() {
 				padding          = {10, 10, 10, 10},
 			}
 			if text_button("All steps@context-remove-all", btn_config).clicked {
-				track_num := box.metadata.(Metadata_Track_Step).track
-				set_nth_child_select(track_num, 1, false)
+				track_turn_off_steps(track_num, 0, 1)
 				ui_state.clicked_on_context_menu = true
 			}
 			if text_button("Every 2nd@context-remove-2nd", btn_config).clicked {
-				track_num := box.metadata.(Metadata_Track_Step).track
-				set_nth_child_select(track_num, 2, false)
+				track_turn_off_steps(track_num, 0, 2)
 				ui_state.clicked_on_context_menu = true
 			}
 			if text_button("Every 3rd@context-remove-3rd", btn_config).clicked {
-				track_num := box.metadata.(Metadata_Track_Step).track
-				set_nth_child_select(track_num, 3, false)
+				track_turn_off_steps(track_num, 0, 3)
 				ui_state.clicked_on_context_menu = true
 			}
 			if text_button("Every 4th@context-remove-4th", btn_config).clicked {
-				track_num := box.metadata.(Metadata_Track_Step).track
-				set_nth_child_select(track_num, 4, false)
+				track_turn_off_steps(track_num, 0, 4)
 				ui_state.clicked_on_context_menu = true
 			}
 			if text_button("Every 6th@context-remove-6th", btn_config).clicked {
-				track_num := box.metadata.(Metadata_Track_Step).track
-				set_nth_child_select(track_num, 6, false)
+				track_turn_off_steps(track_num, 0, 6)
 				ui_state.clicked_on_context_menu = true
-
 			}
 			if text_button("Every 8th@context-remove-8th", btn_config).clicked {
-				track_num := box.metadata.(Metadata_Track_Step).track
-				set_nth_child_select(track_num, 8, false)
+				track_turn_off_steps(track_num, 0, 8)
 				ui_state.clicked_on_context_menu = true
-
 			}
 		}
 
@@ -436,9 +511,9 @@ context_menu :: proc() {
 	context_menu_container := child_container(
 		"@context-menu",
 		{
-			semantic_size 				= Size_Fit_Children,
-			z_index 					= 100,
-			floating_type 			= .Absolute_Pixel,
+			semantic_size 		= Size_Fit_Children,
+			z_index 			= 100,
+			floating_type		= .Absolute_Pixel,
 			floating_offset 	= {f32(ui_state.context_menu.pos.x), f32(ui_state.context_menu.pos.y)},
 		},
 		{
@@ -459,6 +534,11 @@ context_menu :: proc() {
 	case Metadata_Track:
 		text(
 			"Context menu not implemented for this box type @ alskdjfalskdjfladf",
+			{semantic_size = Size_Fit_Text},
+		)
+	case Metadata_Sampler:
+		text(
+			"Context menu not implemented for this box type @ alskdaajfalskdjfladf",
 			{semantic_size = Size_Fit_Text},
 		)
 	}
@@ -487,8 +567,8 @@ file_browser_menu :: proc() {
 			{direction = .Horizontal, alignment_horizontal = .Center, alignment_vertical = .Center},
 		)
 		btn_config := Box_Config {
-			color = .Secondary,
-			border = 3,
+			color 			 = .Secondary,
+			border			 = 3,
 			padding          = {10, 10, 10, 10},
 			semantic_size    = Size_Fit_Text_And_Grow,
 			corner_radius    = 0,
@@ -514,6 +594,7 @@ file_browser_menu :: proc() {
 		// --- Don't think this sorting actually changes anything.
 		sort.quick_sort(app.browser_files[:])
 	}
+
 	files_and_folders: {
 		child_container(
 			"@browser-files-container",
@@ -689,7 +770,6 @@ equalizer_8 :: proc(id_string: string, track_num: int) {
 			// 	)
 			// }
 
-
 			handles := make([dynamic]^Box, context.temp_allocator)
 			for &band, i in eq_state.bands { 
 				handle := box_from_cache(
@@ -759,6 +839,199 @@ equalizer_8 :: proc(id_string: string, track_num: int) {
 	
 }
 
+sampler :: proc(id_string: string, track_num: int) {
+	track   := &app.audio.tracks[track_num]
+	sampler := &track.sampler
+
+	sampler_container := child_container(
+		id_string,
+		{
+			semantic_size = {{.Fixed, 850}, {.Fixed, 400}},
+			color = .Surface_Container_High
+		},
+		{
+			direction = .Horizontal
+		},
+		{.Draw}
+	)
+
+	left_controls: {
+		control_container := child_container(
+			id("@sampler-{}-left-controls"),
+			{
+				// semantic_size = {{.Percent, 0.1}, {.Percent, 1}},
+				semantic_size = Size_Grow,
+				// color = .Primary,
+			},
+			{
+				direction = .Vertical,
+				alignment_vertical = .Space_Around,
+				alignment_horizontal = .Center
+			},
+			{.Draw}
+		)
+		text_button(
+			id("Control 1@sampler-{}-controls-button-1"),
+			{
+				semantic_size = Size_Fit_Text_And_Grow
+			}
+		)
+		text_button(
+			id("Control 2@sampler-{}-controls-button-2"),
+			{
+				semantic_size = Size_Fit_Text_And_Grow
+			}
+		)
+		text_button(
+			id("Control 3@sampler-{}-controls-button-3"),
+			{
+				semantic_size = Size_Fit_Text_And_Grow
+			}
+		)
+		text_button(
+			id("Control 4@sampler-{}-controls-button-4"),
+			{
+				semantic_size = Size_Fit_Text_And_Grow
+			}
+		)
+	}
+
+	main_content: {
+		// Inside here we'll render the waveform and the slice markers.
+		waveform_parent := child_container(
+			id("@{}-waveform-display", sampler_container.box.id),
+			{
+				semantic_size = {{.Percent, 0.90}, {.Percent, 0.85}},
+				color = .Secondary,
+			},
+			{
+			},
+			{.Draw, .Clickable},
+			metadata = Metadata_Sampler{
+				track_num
+			}
+		)
+		if waveform_parent.double_clicked {
+			slice_x_pos := 
+				f32(app.mouse.pos.x - waveform_parent.box.top_left.x) / 
+				f32(waveform_parent.box.last_width)
+			new_slice := Sampler_Slice {
+				how_far = slice_x_pos,
+				which = sampler.n_slices
+			}
+			// We hard limit the amount of slices so eventually we'll need to check for that.
+			sampler.n_slices += 1
+			sampler.slices[sampler.n_slices - 1] = new_slice
+		}
+
+		// ============= Handle waveform zooming =============================
+		decrease_zoom :: proc(sampler: ^Sampler_State) {
+			zoom_factor := 1 / (1 - sampler.zoom_amount)
+			zoom_factor /= 1.2
+			sampler.zoom_amount = clamp(1 - (1 / zoom_factor), 0, 0.99999)
+		}
+		increase_zoom :: proc(sampler: ^Sampler_State) {
+			zoom_factor := 1 / (1 - sampler.zoom_amount)
+			zoom_factor *= 1.2
+			// sampler.zoom_amount = clamp(sampler.zoom_amount + zoom_factor, 0, 0.99999)
+			sampler.zoom_amount = clamp(1 - (1 / zoom_factor), 0, 0.99999)
+		}
+
+		waveform_box := waveform_parent.box
+		if waveform_parent.scrolled {
+			// ==== HELP FROM CLAUDE WITH PROPPER ZOOMING ======
+			// Calculate where the mouse is in the current visible waveform (0-1 range)
+			mouse_screen_normalized := f32(map_range(
+				f64(waveform_box.top_left.x),
+				f64(waveform_box.bottom_right.x),
+				0.0,
+				1.0,
+				f64(app.mouse.pos.x),
+			))
+
+			// Get current zoom values
+			old_zoom_amount := sampler.zoom_amount
+			old_visible_width := 1.0 - old_zoom_amount
+
+			// Calculate the waveform position under the mouse BEFORE zooming
+			// This is the key: we need to know what part of the actual waveform is under the cursor
+			waveform_position_under_mouse := sampler.zoom_point + f32(mouse_screen_normalized) * old_visible_width
+
+			if waveform_parent.scrolled_up {
+				increase_zoom(sampler)
+			} else if waveform_parent.scrolled_down {
+				decrease_zoom(sampler)
+			}
+
+			// Calculate new visible width after zoom
+			new_visible_width := 1.0 - sampler.zoom_amount
+
+			// Calculate new zoom_point to keep the same waveform position under the mouse
+			// We want: waveform_position_under_mouse = new_zoom_point + mouse_screen_normalized * new_visible_width
+			// Solving for new_zoom_point:
+			sampler.zoom_point = waveform_position_under_mouse - f32(mouse_screen_normalized) * new_visible_width
+
+			// Clamp zoom_point to valid range
+			sampler.zoom_point = clamp(sampler.zoom_point, 0, 1 - new_visible_width)
+
+			printfln("changed zoom - point: {}  amount: {}", sampler.zoom_point, sampler.zoom_amount)
+		}
+
+		text(
+			id("Here is where the waveform goes@sampler-{}-waveform-placeholder", track_num),
+			{
+				semantic_size = Size_Fit_Text,
+				color = .Secondary,
+			}
+		)
+
+		slice_config := Box_Config { 
+			line_thickness = 2,
+			color = .Warning, 
+		}
+		// Render slices:
+		for i in 0..< sampler.n_slices {
+			config := slice_config
+			slice_x_pos := sampler.slices[i].how_far * f32(waveform_parent.box.last_width) + f32(waveform_parent.box.top_left.x) 
+			config.line_start = {slice_x_pos, f32(waveform_parent.box.top_left.y)}
+			config.line_end = {slice_x_pos, f32(waveform_parent.box.bottom_right.y)}
+			line(
+				id("@sampler-{}-slice-{}", track_num, i),
+				config,
+			)
+			// Draw drag handle for slice
+			drag_handle := button(
+				id("@sampler-{}-slice-{}-handle", track_num, i),
+				{
+					floating_type = .Absolute_Pixel,
+					floating_offset = {config.line_start.x - 10, config.line_start.y},
+					semantic_size = {{.Fixed, 20}, {.Fixed, 20}},
+					color = .Error_Container,
+					z_index = 50,
+				}
+			)
+			if drag_handle.dragging {
+				change_as_prct := f32(drag_handle.drag_delta.x) / f32(waveform_parent.box.last_width)
+				sampler.slices[i].how_far += change_as_prct * 1.001
+			}
+		}
+
+		bottom_controls: {
+			child_container(
+				id("@sampler-{}-bottom-controls"),
+				{
+					color = .Secondary,
+					semantic_size = Size_Grow,
+				},
+				{
+					alignment_vertical = .Center,
+					alignment_horizontal = .Space_Between,
+				}
+			)
+		}
+	}
+}
+
 
 // ============== Helper functions for our higher level widgets ===================
 
@@ -790,7 +1063,8 @@ set_nth_child_select :: proc(track_num, nth: int, selected: bool) {
 		case Metadata_Track_Step:
 			if metadata.track != track_num do continue
 			if metadata.step % nth == 0 do box.selected = selected
-		case Metadata_Track:
+		case Metadata_Track, Metadata_Sampler:
+			panic("set_nth_child() should only be called on box with Metadata_Track_Step")
 		}
 	}
 }

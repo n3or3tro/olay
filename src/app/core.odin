@@ -53,9 +53,11 @@ Position_Floating_Type :: enum {
 Box_Padding :: struct { 
 	left, top, right, bottom: int
 }
+
 Box_Border :: struct {
 	left, top, right, bottom: int
 }
+
 // Style and layout info that has to be known upon Box creation.
 Box_Config :: struct {
 	// All other color info can be determined from the main color token, so this is all you
@@ -145,9 +147,14 @@ Metadata_Track :: struct {
 	track_num: int	
 }
 
+Metadata_Sampler :: struct { 
+	track_num : int,
+}
+
 Box_Metadata :: union {
 	Metadata_Track_Step,
 	Metadata_Track,
+	Metadata_Sampler,
 }
 
 Box_Flag :: enum {
@@ -173,6 +180,7 @@ Box_Flag :: enum {
 	Ignore_Parent_Disabled,
 	Active_Animation,
 	Draggable,
+	Drop_Source, 
 	Fixed_Width,
 	Floating_X,
 	No_Offset, //
@@ -221,6 +229,11 @@ Box :: struct {
 	last_width:   int,
 	top_left:     Vec2_int,
 	bottom_right: Vec2_int,
+	// Store where tl and br were last frame. Sometimes we need to know these co-ords for the box during UI creation and they don't 
+	// exist until the end of the frame. In most of these cases we can use the position from the last frame, this might be fucky with animations
+	// and such, but using prev_width / height has been okay so far.
+	// last_top_left:     Vec2_int,
+	// last_bottom_right: Vec2_int,
 	z_index:      int,
 	// next:         ^Box, // Sibling, aka, on the same level of the UI tree. Have the same parent.
 	keep:         bool, // Indicates whether we keep this box across frame boundaries.
@@ -657,6 +670,8 @@ compute_frame_signals :: proc(root: ^Box) {
 						app.mouse.pos.x - app.mouse_last_frame.pos.x,
 						app.mouse.pos.y - app.mouse_last_frame.pos.y,
 					}
+					// Need to be careful with the 1 frame delay thing.
+					ui_state.dragged_box = box
 				} else { 
 					next_signals.drag_delta = {0, 0}
 					// next_signals.dragging = false

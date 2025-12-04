@@ -663,8 +663,8 @@ draggable_window :: proc(id_string: string, child_layout: Box_Child_Layout, extr
 
 	title_bar_signals := box_signals(title_bar)
 	if title_bar_signals.dragging { 
-		delta_x := f32(app.mouse.pos.x - app.mouse_last_frame.pos.x)
-		delta_y := f32(app.mouse.pos.y - app.mouse_last_frame.pos.y)
+		delta_x := f32(app.mouse.pos.x - app.mouse_last_frame.pos.x) * 1.02
+		delta_y := f32(app.mouse.pos.y - app.mouse_last_frame.pos.y) * 1.02
 		offset_from_root.x = clamp(offset_from_root.x + delta_x, 0, f32(app.wx))
 		offset_from_root.y = clamp(offset_from_root.y + delta_y, 0, f32(app.wy))
 	}
@@ -720,8 +720,7 @@ circular_knob :: proc(
 		}
 	}
 	value^ = clamp(value^, min_val, max_val)
-	// printfln("value: {}, min_val: {}, max_val: {}", value^, min_val, max_val)
-    
+   
 
     // Calculate grip position
     center_x := f32(track.top_left.x + track.width / 2)

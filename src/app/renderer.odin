@@ -7,7 +7,7 @@ import "core:time"
 import "core:unicode/utf8"
 import gl "vendor:OpenGL"
 import "core:sort"
-// import ma "vendor:miniaudio"
+import ma "vendor:miniaudio"
 
 PI :: math.PI
 
@@ -451,77 +451,84 @@ get_boxes_rendering_data :: proc(box: Box, allocator := context.allocator) -> Bo
 
 // Assumes pcm_frames is from a mono version of the .wav file, BOLD assumption.
 // Might need to cache calls to this function since it's pretty costly.
-// add_waveform_rendering_data :: proc(
-// 	rect: Rect,
-// 	sound: ^ma.sound,
-// 	pcm_frames: [dynamic]f32,
-// 	rendering_data: ^[dynamic]Rect_Render_Data,
-// ) {
-// 	render_width := rect_width(rect)
-// 	render_height := rect_height(rect)
-// 	frames_read := u64(len(pcm_frames))
-// 	wav_rendering_data := make([dynamic]Rect_Render_Data, u32(render_width), allocator = context.temp_allocator)
-// 	sampler := app.samplers[get_active_track()]
-// 	// might break with very large samples.
-// 	visible_width := f64(frames_read) * f64(1 - sampler.zoom_amount)
+add_waveform_rendering_data :: proc(
+	box: Box,
+	track: Track,
+	pcm_frames: [dynamic]f32,
+	rendering_data: ^[dynamic]Rect_Render_Data,
+) {
+	sound := track.sound
+	if sound == nil {
+		return
+	}
+	printfln("inside waveform rendering function, sampler.zoom_point is: {}", track.sampler.zoom_point)
+	// render_width := rect_width(rect)
+	render_width := f32(box.last_width)
+	// render_height := rect_height(rect)
+	render_height := f32(box.last_height)
+	frames_read := u64(len(pcm_frames))
+	wav_rendering_data := make([dynamic]Rect_Render_Data, u32(render_width), allocator = context.temp_allocator)
+	sampler := track.sampler
+	// might break with very large samples.
+	visible_width := f64(frames_read) * f64(1 - sampler.zoom_amount)
 
 
-// 	// New CLAUDE fix for correct zooming.
-// 	start_sample := u64(f64(sampler.zoom_point) * f64(frames_read))
-// 	end_sample := start_sample + u64(visible_width)
+	// New CLAUDE fix for correct zooming.
+	start_sample := u64(f64(sampler.zoom_point) * f64(frames_read))
+	end_sample := start_sample + u64(visible_width)
 
-// 	// Clamp to valid range
-// 	start_sample = max(u64(0), start_sample)
-// 	end_sample = min(u64(frames_read), end_sample)
+	// Clamp to valid range
+	start_sample = max(u64(0), start_sample)
+	end_sample = min(u64(frames_read), end_sample)
 
-// 	// Figure out how much of the sound has played.
-// 	pos_in_track: u64
-// 	if ma.sound_get_cursor_in_pcm_frames(sound, &pos_in_track) != .SUCCESS {
-// 		panic("failed to get cursor position of sound")
-// 	}
+	// Figure out how much of the sound has played.
+	pos_in_track: u64
+	if ma.sound_get_cursor_in_pcm_frames(sound, &pos_in_track) != .SUCCESS {
+		panic("failed to get cursor position of sound")
+	}
 
-// 	played_color: Color = {1, 0.5, 1, 1}
-// 	unplayed_color: Color = {0.5, 0.5, 0.5, 1}
-// 	for x in 0 ..< render_width {
-// 		ratio_of_waveform := f64(x) / f64(render_width)
-// 		start := start_sample + u64((f64(x) / f64(render_width)) * (f64(end_sample - start_sample)))
-// 		end := start_sample + u64((f64(x + 1) / f64(render_width)) * (f64(end_sample - start_sample)))
-// 		if end >= frames_read {end = frames_read}
-// 		min: f32 = 1
-// 		max: f32 = -1
-// 		for i in start ..< end {
-// 			if pcm_frames[i] < min {min = pcm_frames[i]}
-// 			if pcm_frames[i] > max {max = pcm_frames[i]}
-// 		}
-// 		norm_x: f32 = f32(x) / render_width
-// 		x_pos := rect.top_left.x + norm_x * render_width
-// 		y_top := rect.top_left.y + (0.5 - max * 0.5) * render_height
-// 		y_bot := rect.top_left.y + (0.5 - min * 0.5) * render_height
-// 		new_data := Rect_Render_Data {
-// 			border_thickness = 300,
-// 			corner_radius    = 0,
-// 			edge_softness    = 0,
-// 			top_left         = Vec2_f32{x_pos - 0.5, y_top},
-// 			bottom_right     = Vec2_f32{x_pos + 0.5, y_bot},
-// 			ui_element_type  = 2.0,
-// 		}
-// 		if end <= pos_in_track {
-// 			new_data.tl_color = played_color
-// 			new_data.tr_color = played_color
-// 			new_data.bl_color = played_color
-// 			new_data.br_color = played_color
-// 		} else {
-// 			new_data.tl_color = unplayed_color
-// 			new_data.tr_color = unplayed_color
-// 			new_data.bl_color = unplayed_color
-// 			new_data.br_color = unplayed_color
-// 		}
-// 		new_data.clip_tl = {0, 0}
-// 		new_data.clip_br = {f32(app.wx^), f32(app.wy^)}
-// 		append(rendering_data, new_data)
-// 	}
-// }
-// collect_render_data_from_ui_tree :: proc(box: ^Box, render_data: ^[dynamic]Rect_Render_Data) {
+	played_color   := ui_state.dark_theme[Semantic_Color_Token.Secondary]
+	unplayed_color := ui_state.dark_theme[Semantic_Color_Token.Secondary]
+	for x in 0 ..< render_width {
+		ratio_of_waveform := f64(x) / f64(render_width)
+		start := start_sample + u64((f64(x) / f64(render_width)) * (f64(end_sample - start_sample)))
+		end := start_sample + u64((f64(x + 1) / f64(render_width)) * (f64(end_sample - start_sample)))
+		if end >= frames_read {end = frames_read}
+		min: f32 = 1
+		max: f32 = -1
+		for i in start ..< end {
+			if pcm_frames[i] < min {min = pcm_frames[i]}
+			if pcm_frames[i] > max {max = pcm_frames[i]}
+		}
+		norm_x: f32 = f32(x) / f32(render_width)
+		x_pos := f32(box.top_left.x) + norm_x * render_width
+		y_top := f32(box.top_left.y) + (0.5 - max * 0.5) * render_height
+		y_bot := f32(box.top_left.y) + (0.5 - min * 0.5) * render_height
+		new_data := Rect_Render_Data {
+			border_thickness = 300,
+			corner_radius    = 0,
+			edge_softness    = 0,
+			top_left         = Vec2_f32{x_pos - 0.5, y_top},
+			bottom_right     = Vec2_f32{x_pos + 0.5, y_bot},
+			// ui_element_type  = 2.0,
+		}
+		if end <= pos_in_track {
+			new_data.tl_color = played_color
+			new_data.tr_color = played_color
+			new_data.bl_color = played_color
+			new_data.br_color = played_color
+		} else {
+			new_data.tl_color = unplayed_color
+			new_data.tr_color = unplayed_color
+			new_data.bl_color = unplayed_color
+			new_data.br_color = unplayed_color
+		}
+		new_data.clip_tl = {0, 0}
+		new_data.clip_br = {f32(app.wx), f32(app.wy)}
+		append(rendering_data, new_data)
+	}
+}
+
 collect_render_data_from_ui_tree :: proc(render_data: ^[dynamic]Rect_Render_Data) {
 	box_list := box_tree_to_list(ui_state.root, context.temp_allocator)
 	sort.merge_sort_proc(box_list[:], proc(a, b: ^Box) -> int {
@@ -549,9 +556,6 @@ collect_render_data_from_ui_tree :: proc(render_data: ^[dynamic]Rect_Render_Data
 			append(render_data, data)
 		}
 
-		if overlay, ok := boxes_render_data.overlay.(Rect_Render_Data); ok { 
-			append(render_data, overlay)
-		}
 
 		if inner_shadow, ok := boxes_render_data.inner_shadow.(Rect_Render_Data); ok { 
 			append(render_data, inner_shadow)
@@ -581,6 +585,15 @@ collect_render_data_from_ui_tree :: proc(render_data: ^[dynamic]Rect_Render_Data
 		if text_cursor, ok := boxes_render_data.text_cursor.(Rect_Render_Data); ok { 
 			append(render_data, text_cursor)
 		}
+
+		if metadata, ok := box.metadata.(Metadata_Sampler); ok { 
+			track := app.audio.tracks[metadata.track_num]
+			add_waveform_rendering_data(box^, track, track.pcm_data.left_channel, render_data)
+		}
+		if overlay, ok := boxes_render_data.overlay.(Rect_Render_Data); ok { 
+			append(render_data, overlay)
+		}
+		
 
 		// for child in box.children {
 		// 	collect_render_data_from_ui_tree(child, render_data)
