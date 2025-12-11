@@ -627,28 +627,30 @@ multi_button_set :: proc(
 // window outside of it's parent's bounds.
 @(deferred_out = box_close_children)
 draggable_window :: proc(id_string: string, child_layout: Box_Child_Layout, extra_flags := Box_Flags{}) -> Box_Signals {
-	// We need to create the box first, even though we haven't yet calculated offset_from_root. The reason being,
-	// that offset_from_root in most cases comes from a map, and the key for that map is this boxes persistent id.
+	// This would probably break if we introduce an 'anonymous' box mechanism.
+	container_id := get_id_from_id_string(id_string)
+	offset_from_root: ^Vec2_f32
+	if container_id not_in ui_state.draggable_window_offsets {
+		// Put floating container in the center of the screen the first time it's created.
+		ui_state.draggable_window_offsets[container_id] = {f32(app.wx) / 2, f32(app.wy) / 2}
+	}
+	offset_from_root = &ui_state.draggable_window_offsets[container_id]
+	// container.config.floating_offset = offset_from_root^
+
 	container := box_from_cache(
 		id_string,
 		{},
 		{
-			floating_type = .Absolute_Pixel,
-			floating_offset = {0, 0},
-			semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}},
-			z_index = 20,
+			floating_type   = .Absolute_Pixel,
+			floating_offset = offset_from_root^,
+			semantic_size   = Size_Fit_Children,
+			z_index         = 20,
 		},
 	)
 	container_signals := box_signals(container)
 	box_open_children(container, child_layout)
 
-	offset_from_root: ^Vec2_f32
-	if container.id not_in ui_state.draggable_window_offsets {
-		ui_state.draggable_window_offsets[container.id] = {f32(app.wx) / 2, f32(app.wy) / 2}
-	}
-	offset_from_root = &ui_state.draggable_window_offsets[container.id]
-	container.config.floating_offset = offset_from_root^
-
+	
 	label := get_label_from_id_string(id_string)
 	title_bar := box_from_cache(
 		id("{}@{}-title-bar", label, container.id),
@@ -663,8 +665,8 @@ draggable_window :: proc(id_string: string, child_layout: Box_Child_Layout, extr
 
 	title_bar_signals := box_signals(title_bar)
 	if title_bar_signals.dragging { 
-		delta_x := f32(app.mouse.pos.x - app.mouse_last_frame.pos.x) * 1.02
-		delta_y := f32(app.mouse.pos.y - app.mouse_last_frame.pos.y) * 1.02
+		delta_x := f32(app.mouse.pos.x - app.mouse_last_frame.pos.x)
+		delta_y := f32(app.mouse.pos.y - app.mouse_last_frame.pos.y)
 		offset_from_root.x = clamp(offset_from_root.x + delta_x, 0, f32(app.wx))
 		offset_from_root.y = clamp(offset_from_root.y + delta_y, 0, f32(app.wy))
 	}

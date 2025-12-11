@@ -101,7 +101,7 @@ app_update :: proc() -> (all_good: bool) {
 		ui_state.mouse_down_on = nil
 		// This doesn't reclaim the memory the map used to store the values. 
 		// Just resets the map's metadata so that memory can be overwritten.
-		clear(&ui_state.next_frame_signals)
+		clear(&ui_state.frame_signals)
 	}
 	end := time.now()._nsec
 	total_frame_time := (end - start)
@@ -127,6 +127,18 @@ app_init :: proc() -> ^App {
 	app_hot_reload(app)
 	t := thread.create_and_start(audio_thread_timing_proc, priority = .High)
 	printfln("returned thread value from create_and_start: {}", t^)
+
+	wx, wy: i32
+	sdl.GetWindowSize(app.window, &wx, &wy)
+	drawable_w, drawable_h: i32  
+	sdl.GL_GetDrawableSize(app.window, &drawable_w, &drawable_h)
+	printfln("Window: {}x{}, Drawable: {}x{}, Scale: {}", 
+    wx, wy, drawable_w, drawable_h, f32(drawable_w)/f32(wx))
+	if wx != drawable_w || wy != drawable_h {
+	printfln("Window: {}x{}, Drawable: {}x{}, Scale: {}", 
+    wx, wy, drawable_w, drawable_h, f32(drawable_w)/f32(wx))
+		panic("")
+	}
 	return app
 }
 

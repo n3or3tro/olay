@@ -454,8 +454,15 @@ handle_input :: proc(event: sdl.Event) -> (exit, show_context_menu: bool) {
 	if etype == .MOUSEMOTION {
 		mouse_x, mouse_y:i32
 		sdl.GetMouseState(&mouse_x, &mouse_y)
+		x := int(event.motion.x)
+		y := int(event.motion.y)
+		// printfln("event.motion values: [{}, {}]", x, y)
 		app.mouse.pos.x = int(mouse_x)
 		app.mouse.pos.y = int(mouse_y)
+		// printfln("GetMouseState values: [{}, {}]\n", app.mouse.pos.x, app.mouse.pos.y)
+		if ([2]int{x,y} != app.mouse.pos.xy) { 
+			println("fuaaaaaark ^^^^^^")
+		}
 	}
 
 	// We cannot just rely on querying the current 'keys held down' for typing in input fields,
@@ -564,12 +571,15 @@ mouse_inside_box :: proc(box: ^Box, mouse: [2]int) -> bool {
 	mousey := int(mouse.y)
 	top_left := box.top_left
 	bottom_right := box.bottom_right
-	return mousex >= top_left.x && mousex <= bottom_right.x && mousey >= top_left.y && mousey <= bottom_right.y
+	return mousex >= top_left.x 	&& 
+		   mousex <= bottom_right.x && 
+		   mousey >= top_left.y 	&& 
+		   mousey <= bottom_right.y
 }
 
 box_signals :: proc(box: ^Box) -> Box_Signals {
 	// Return signals computed in previous frame if they exist
-	if stored_signals, ok := ui_state.next_frame_signals[box.id]; ok {
+	if stored_signals, ok := ui_state.frame_signals[box.id]; ok {
 		// Update box visual state these 
 		box.hot = stored_signals.hovering
 		box.active = stored_signals.pressed || stored_signals.clicked
@@ -628,7 +638,7 @@ compute_frame_signals :: proc(root: ^Box) {
 
 		// Get previous frame's signals
 		prev_signals: Box_Signals
-		if stored, ok := ui_state.next_frame_signals[box.id]; ok {
+		if stored, ok := ui_state.frame_signals[box.id]; ok {
 			prev_signals = stored
 		}
 
@@ -694,7 +704,7 @@ compute_frame_signals :: proc(root: ^Box) {
 		if ui_state.active_box == box {
 			box.active = true
 		}
-		ui_state.next_frame_signals[box.id] = next_signals
+		ui_state.frame_signals[box.id] = next_signals
 	}
 
 }

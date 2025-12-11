@@ -46,7 +46,9 @@ UI_State :: struct {
 	last_clicked_box:      ^Box,
 	clicked_on_context_menu: bool,
 	last_clicked_box_time: time.Time,
-	next_frame_signals:    map[string]Box_Signals,
+	// These are collected at the start of the frame, based on the UI tree from the end of the previous
+	// frame, they can be used in the current frame, therefore no 1 frame delay.
+	frame_signals:    map[string]Box_Signals,
 	// Used to help with the various bugs I was having related to input for box.value and mutating box.value.
 	steps_value_arena:     mem.Arena,
 	steps_value_allocator: mem.Allocator,
@@ -145,8 +147,8 @@ undo :: proc() {
 		return
 	}
 	event := pop(undo_stack)
-	printfln("len of undo stack: {}", len(ui_state.undo_stack))
-	printfln("undoing event: {}", event)
+	// printfln("len of undo stack: {}", len(ui_state.undo_stack))
+	// printfln("undoing event: {}", event)
 	switch change in event { 
 	case Track_Step_Change:
 		switch change.type {
@@ -172,8 +174,8 @@ redo :: proc() {
 		return
 	}
 	event := pop(redo_stack)
-	printfln("len of redo stack: {}", len(ui_state.undo_stack))
-	printfln("redoing event: {}", event)
+	// printfln("len of redo stack: {}", len(ui_state.undo_stack))
+	// printfln("redoing event: {}", event)
 	switch change in event { 
 	case Track_Step_Change:
 		switch change.type {
@@ -199,7 +201,7 @@ init_ui_state :: proc() -> ^UI_State {
 
 	ui_state.color_stack = make([dynamic]Color_RGBA)
 	ui_state.box_cache = make(map[string]^Box)
-	ui_state.next_frame_signals = make(map[string]Box_Signals)
+	ui_state.frame_signals = make(map[string]Box_Signals)
 	// ui_state.clipping_stack = make([dynamic]^Rect)
 
 	wx: i32 = 0
@@ -263,6 +265,12 @@ init_ui_state :: proc() -> ^UI_State {
 }
 
 create_ui :: proc() -> ^Box {
+	// Collect frame signals for this frame based on what the tree just looked like.
+	if ui_state.frame_num > 1 {
+		// Not sure if this is neccessary...
+		// clear(&ui_state.frame_signals)
+		compute_frame_signals(ui_state.root)
+	}
 	// This is the first step of the mark and sweep, any boxes which are not re-created this frame, will
 	// be removed from the cache at the end of the frame.
 	ui_start_time := time.now()._nsec
@@ -388,7 +396,9 @@ create_ui :: proc() -> ^Box {
 	total_layout_time := (end - start) / 1000
 
 	flow_z_positions(root)
-	compute_frame_signals(root)
+	// Moved this to the start of the frame and use the tree from the previous frame that
+	// just ended.
+	// compute_frame_signals(root)
 	ui_end_time := time.now()._nsec
 	total_ui_creation_time := (ui_end_time - ui_start_time) / 1000
 	// printfln("this frame took {} microseconds to create, layout and draw", total_ui_creation_time)
