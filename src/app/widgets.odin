@@ -325,223 +325,29 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 		}
 	}
 
-	if track.eq.show { 
-		draggable_window(id("Track {} EQ@eq-{}-dragging-container", track_num, track_num), {
+	show_eq: if track.eq.show { 
+		eq_id := id("Track {} EQ@eq-{}-dragging-container", track_num, track_num)
+		_, closed := draggable_window(eq_id, {
 			direction = .Vertical,
 		})
-		equalizer_8("@track-{}-eq", track_num)
+		if closed {
+			track.eq.show = false
+			break show_eq
+		}
+		equalizer_8(id("@track-{}-eq", track_num), track_num)
 	}
 
-	if track.sampler.show { 
-		draggable_window(id("Track {} Sampler@sampler-{}-dragging-container", track_num, track_num), {
+	show_sampler: if track.sampler.show { 
+		_, closed := draggable_window(id("Track {} Sampler@sampler-{}-dragging-container", track_num, track_num), {
 			direction = .Vertical,
 		})
-		sampler("@track-{}-sampler", track_num)
+		if closed {
+			track.sampler.show = false
+			break show_sampler
+		}
+		sampler(id("@track-{}-sampler", track_num), track_num)
 	}
 	return Track_Signals{step_signals, {}}
-}
-
-context_menu :: proc() {
-	track_steps_context_menu :: proc(box: ^Box) {
-		track_num := box.metadata.(Metadata_Track_Step).track
-		track := &app.audio.tracks[track_num]
-
-		top_level_btn_config := Box_Config {
-			semantic_size = Size_Fit_Text_And_Grow,
-			text_justify  = {.Start, .Center},
-			padding = padding(10),
-			border = 1,
-		}
-
-		top_level_btn_config.color = .Tertiary
-		add_button := text_button(
-			"Add steps@context-menu-1",
-			top_level_btn_config,
-		)
-
-		top_level_btn_config.color = .Primary_Container
-		remove_button := text_button(
-			"Remove steps@conext-menu-2",
-			top_level_btn_config,
-		)
-
-		disarm_labl := track.armed ? "Disarm" : "Arm"
-		top_level_btn_config.color = .Warning
-		disarm_button := text_button(
-			id("{} track@conext-menu-3", disarm_labl),
-			top_level_btn_config
-		)
-
-		label := track.eq.show ? "Hide EQ" : "Show EQ"
-		activate_eq_button := text_button(
-			id("{}@conext-menu-track-{}-EQ", label, track_num),
-			top_level_btn_config
-		)
-
-		if activate_eq_button.clicked { 
-			track.eq.show = !track.eq.show
-		}
-
-		label = track.sampler.show ? "Hide Sampler" : "Show Sampler"
-		activate_sampler_button := text_button(
-			id("{}@conext-menu-track-{}-sampler", label, track_num),
-			top_level_btn_config
-		)
-
-		if activate_sampler_button.clicked { 
-			track.sampler.show = !track.sampler.show
-		}
-
-		top_level_btn_config.color = .Error_Container
-		delete_track_button := text_button(
-			"Delete Track@conext-menu-4",
-			top_level_btn_config,
-		)
-
-		add_submenu_id := "@add-step-hover-container"
-		add_submenu_hovered := false
-		if submenu_box, ok := ui_state.box_cache[add_submenu_id[1:]]; ok {
-			add_submenu_hovered = mouse_inside_box(submenu_box, app.mouse.pos)
-		}
-		if add_button.hovering || add_submenu_hovered {
-			hover_container := child_container(
-				add_submenu_id,
-				{
-					floating_type = .Absolute_Pixel,
-					floating_offset = {f32(add_button.box.bottom_right.x), f32(add_button.box.top_left.y)},
-					semantic_size = Size_Fit_Children,
-					z_index = 20,
-				},
-				{direction = .Vertical, gap_vertical = 2},
-				{.Clickable},
-			)
-			btn_config := Box_Config {
-				semantic_size    = Size_Fit_Text_And_Grow,
-				text_justify 	 = {.Start, .Center},
-				color 			 = .Secondary,
-				padding          = {10, 10, 10, 10},
-				border = 1
-			}
-			if text_button("All steps@context-add-all", btn_config).clicked {
-				track_turn_on_steps(track_num, 0, 1)
-				ui_state.clicked_on_context_menu = true
-			}
-			if text_button("Every 2nd@context-add-2nd", btn_config).clicked {
-				track_turn_on_steps(track_num, 0, 2)
-				ui_state.clicked_on_context_menu = true
-			}
-			if text_button("Every 3rd@context-add-3rd", btn_config).clicked {
-				track_turn_on_steps(track_num, 0, 3)
-				ui_state.clicked_on_context_menu = true
-			}
-			if text_button("Every 4th@context-add-4th", btn_config).clicked {
-				track_turn_on_steps(track_num, 0, 4)
-				ui_state.clicked_on_context_menu = true
-			}
-			if text_button("Every 6th@context-add-6th", btn_config).clicked {
-				track_turn_on_steps(track_num, 0, 6)
-				ui_state.clicked_on_context_menu = true
-			}
-			if text_button("Every 8th@context-add-8th", btn_config).clicked {
-				track_turn_on_steps(track_num, 0, 8)
-				ui_state.clicked_on_context_menu = true
-			}
-		}
-
-		remove_submenu_id := "@remove-step-hover-container"
-		remove_submenu_hovered := false
-		if submenu_box, ok := ui_state.box_cache[remove_submenu_id[1:]]; ok {
-			remove_submenu_hovered = mouse_inside_box(submenu_box, app.mouse.pos)
-		}
-		if remove_button.hovering || remove_submenu_hovered {
-			hover_container := child_container(
-				remove_submenu_id,
-				{
-					floating_type = .Absolute_Pixel,
-					floating_offset = {
-						f32(remove_button.box.bottom_right.x),
-						f32(remove_button.box.top_left.y),
-					},
-					semantic_size = Size_Fit_Children,
-					z_index = 20,
-				},
-				{direction = .Vertical, gap_vertical = 2},
-				{.Clickable},
-			)
-			btn_config := Box_Config {
-				semantic_size    = Size_Fit_Text_And_Grow,
-				color 			 = .Secondary,
-				padding          = {10, 10, 10, 10},
-			}
-			if text_button("All steps@context-remove-all", btn_config).clicked {
-				track_turn_off_steps(track_num, 0, 1)
-				ui_state.clicked_on_context_menu = true
-			}
-			if text_button("Every 2nd@context-remove-2nd", btn_config).clicked {
-				track_turn_off_steps(track_num, 0, 2)
-				ui_state.clicked_on_context_menu = true
-			}
-			if text_button("Every 3rd@context-remove-3rd", btn_config).clicked {
-				track_turn_off_steps(track_num, 0, 3)
-				ui_state.clicked_on_context_menu = true
-			}
-			if text_button("Every 4th@context-remove-4th", btn_config).clicked {
-				track_turn_off_steps(track_num, 0, 4)
-				ui_state.clicked_on_context_menu = true
-			}
-			if text_button("Every 6th@context-remove-6th", btn_config).clicked {
-				track_turn_off_steps(track_num, 0, 6)
-				ui_state.clicked_on_context_menu = true
-			}
-			if text_button("Every 8th@context-remove-8th", btn_config).clicked {
-				track_turn_off_steps(track_num, 0, 8)
-				ui_state.clicked_on_context_menu = true
-			}
-		}
-
-		if disarm_button.clicked { 
-			app.audio.tracks[track_num].armed = !app.audio.tracks[track_num].armed
-		}
-		if delete_track_button.clicked {
-			track_delete(box.metadata.(Metadata_Track_Step).track)
-			printfln("deletring track that contains {}", ui_state.right_clicked_on.id)
-		}
-	}
-
-	context_menu_container := child_container(
-		"@context-menu",
-		{
-			semantic_size 		= Size_Fit_Children,
-			z_index 			= 100,
-			floating_type		= .Absolute_Pixel,
-			floating_offset 	= {f32(ui_state.context_menu.pos.x), f32(ui_state.context_menu.pos.y)},
-		},
-		{
-			direction 			 = .Vertical, 
-			alignment_horizontal = .Center, 
-			alignment_vertical   = .Center, 
-		},
-		{.Draw}
-	)
-
-	if ui_state.right_clicked_on.disabled { 
-		println("right clicked on a disabled box")
-		return
-	}
-	switch metadata in ui_state.right_clicked_on.metadata {
-	case Metadata_Track_Step:
-		track_steps_context_menu(ui_state.right_clicked_on)
-	case Metadata_Track:
-		text(
-			"Context menu not implemented for this box type @ alskdjfalskdjfladf",
-			{semantic_size = Size_Fit_Text},
-		)
-	case Metadata_Sampler:
-		text(
-			"Context menu not implemented for this box type @ alskdaajfalskdjfladf",
-			{semantic_size = Size_Fit_Text},
-		)
-	}
 }
 
 file_browser_menu :: proc() {
@@ -633,8 +439,9 @@ equalizer_8 :: proc(id_string: string, track_num: int) {
 	eq_state := &app.audio.tracks[track_num].eq
 	// Fixed size for now, for ease of implementation, but in the future we want this to be inside a 
 	// resizable floating container.
+	actual_id := get_id_from_id_string(id_string)
 	eq_container := child_container(
-		id_string, 
+		id("@{}-container", actual_id), 
 		{
 			semantic_size = {{.Fixed, 800}, {.Fixed, 400}},
 			color = .Secondary_Container,
@@ -646,7 +453,6 @@ equalizer_8 :: proc(id_string: string, track_num: int) {
 		},
 		{.Draw}
 	)
-	actual_id := get_id_from_id_string(id_string)
 	
 	// For now, we auto create 4 bands for each eq (1 eq per track by default).
 	active_band := &eq_state.bands[eq_state.active_band]
@@ -790,12 +596,10 @@ equalizer_8 :: proc(id_string: string, track_num: int) {
 				)
 				append(&handles, handle)
 				handle_signals := box_signals(handle)
-				if handle_signals.clicked || handle_signals.dragging { 
+				if handle_signals.clicked || handle_signals.box == ui_state.dragged_box { 
 					eq_state.active_band = i
 				}
-				if handle_signals.dragging { 
-					printfln("Dragging grip, drag delta: {}", handle_signals.drag_delta)
-					// drag_delta is automatically populated
+				if handle_signals.box == ui_state.dragged_box { 
 					mouse_y := f32(app.mouse.pos.y)
 					parent_top := f32(handle.parent.top_left.y)  
 					parent_height := f32(handle.parent.last_height)
@@ -1010,8 +814,9 @@ sampler :: proc(id_string: string, track_num: int) {
 					z_index = 50,
 				}
 			)
-			if drag_handle.dragging {
-				change_as_prct := f32(drag_handle.drag_delta.x) / f32(waveform_parent.box.last_width)
+			if drag_handle.box == ui_state.dragged_box {
+				drag_delta := get_drag_delta()
+				change_as_prct := f32(drag_delta.x) / f32(waveform_parent.box.last_width)
 				sampler.slices[i].how_far += change_as_prct * 1.001
 			}
 		}
@@ -1029,6 +834,209 @@ sampler :: proc(id_string: string, track_num: int) {
 				}
 			)
 		}
+	}
+}
+
+context_menu :: proc() {
+	track_steps_context_menu :: proc(box: ^Box) {
+		track_num := box.metadata.(Metadata_Track_Step).track
+		track := &app.audio.tracks[track_num]
+
+		top_level_btn_config := Box_Config {
+			semantic_size = Size_Fit_Text_And_Grow,
+			text_justify  = {.Start, .Center},
+			padding = padding(10),
+			border = 1,
+		}
+
+		top_level_btn_config.color = .Tertiary
+		add_button := text_button(
+			"Add steps@context-menu-1",
+			top_level_btn_config,
+		)
+
+		top_level_btn_config.color = .Primary_Container
+		remove_button := text_button(
+			"Remove steps@conext-menu-2",
+			top_level_btn_config,
+		)
+
+		disarm_labl := track.armed ? "Disarm" : "Arm"
+		top_level_btn_config.color = .Warning
+		disarm_button := text_button(
+			id("{} track@conext-menu-3", disarm_labl),
+			top_level_btn_config
+		)
+
+		label := track.eq.show ? "Hide EQ" : "Show EQ"
+		activate_eq_button := text_button(
+			id("{}@conext-menu-track-{}-EQ", label, track_num),
+			top_level_btn_config
+		)
+
+		if activate_eq_button.clicked { 
+			track.eq.show = !track.eq.show
+		}
+
+		label = track.sampler.show ? "Hide Sampler" : "Show Sampler"
+		activate_sampler_button := text_button(
+			id("{}@conext-menu-track-{}-sampler", label, track_num),
+			top_level_btn_config
+		)
+
+		if activate_sampler_button.clicked { 
+			track.sampler.show = !track.sampler.show
+		}
+
+		top_level_btn_config.color = .Error_Container
+		delete_track_button := text_button(
+			"Delete Track@conext-menu-4",
+			top_level_btn_config,
+		)
+
+		add_submenu_id := "@add-step-hover-container"
+		add_submenu_hovered := false
+		if submenu_box, ok := ui_state.box_cache[add_submenu_id[1:]]; ok {
+			add_submenu_hovered = mouse_inside_box(submenu_box, app.mouse.pos)
+		}
+		if add_button.hovering || add_submenu_hovered {
+			hover_container := child_container(
+				add_submenu_id,
+				{
+					floating_type = .Absolute_Pixel,
+					floating_offset = {f32(add_button.box.bottom_right.x), f32(add_button.box.top_left.y)},
+					semantic_size = Size_Fit_Children,
+					z_index = 20,
+				},
+				{direction = .Vertical, gap_vertical = 2},
+				{.Clickable},
+			)
+			btn_config := Box_Config {
+				semantic_size    = Size_Fit_Text_And_Grow,
+				text_justify 	 = {.Start, .Center},
+				color 			 = .Secondary,
+				padding          = {10, 10, 10, 10},
+				border = 1
+			}
+			if text_button("All steps@context-add-all", btn_config).clicked {
+				track_turn_on_steps(track_num, 0, 1)
+				ui_state.clicked_on_context_menu = true
+			}
+			if text_button("Every 2nd@context-add-2nd", btn_config).clicked {
+				track_turn_on_steps(track_num, 0, 2)
+				ui_state.clicked_on_context_menu = true
+			}
+			if text_button("Every 3rd@context-add-3rd", btn_config).clicked {
+				track_turn_on_steps(track_num, 0, 3)
+				ui_state.clicked_on_context_menu = true
+			}
+			if text_button("Every 4th@context-add-4th", btn_config).clicked {
+				track_turn_on_steps(track_num, 0, 4)
+				ui_state.clicked_on_context_menu = true
+			}
+			if text_button("Every 6th@context-add-6th", btn_config).clicked {
+				track_turn_on_steps(track_num, 0, 6)
+				ui_state.clicked_on_context_menu = true
+			}
+			if text_button("Every 8th@context-add-8th", btn_config).clicked {
+				track_turn_on_steps(track_num, 0, 8)
+				ui_state.clicked_on_context_menu = true
+			}
+		}
+
+		remove_submenu_id := "@remove-step-hover-container"
+		remove_submenu_hovered := false
+		if submenu_box, ok := ui_state.box_cache[remove_submenu_id[1:]]; ok {
+			remove_submenu_hovered = mouse_inside_box(submenu_box, app.mouse.pos)
+		}
+		if remove_button.hovering || remove_submenu_hovered {
+			hover_container := child_container(
+				remove_submenu_id,
+				{
+					floating_type = .Absolute_Pixel,
+					floating_offset = {
+						f32(remove_button.box.bottom_right.x),
+						f32(remove_button.box.top_left.y),
+					},
+					semantic_size = Size_Fit_Children,
+					z_index = 20,
+				},
+				{direction = .Vertical, gap_vertical = 2},
+				{.Clickable},
+			)
+			btn_config := Box_Config {
+				semantic_size    = Size_Fit_Text_And_Grow,
+				color 			 = .Secondary,
+				padding          = {10, 10, 10, 10},
+			}
+			if text_button("All steps@context-remove-all", btn_config).clicked {
+				track_turn_off_steps(track_num, 0, 1)
+				ui_state.clicked_on_context_menu = true
+			}
+			if text_button("Every 2nd@context-remove-2nd", btn_config).clicked {
+				track_turn_off_steps(track_num, 0, 2)
+				ui_state.clicked_on_context_menu = true
+			}
+			if text_button("Every 3rd@context-remove-3rd", btn_config).clicked {
+				track_turn_off_steps(track_num, 0, 3)
+				ui_state.clicked_on_context_menu = true
+			}
+			if text_button("Every 4th@context-remove-4th", btn_config).clicked {
+				track_turn_off_steps(track_num, 0, 4)
+				ui_state.clicked_on_context_menu = true
+			}
+			if text_button("Every 6th@context-remove-6th", btn_config).clicked {
+				track_turn_off_steps(track_num, 0, 6)
+				ui_state.clicked_on_context_menu = true
+			}
+			if text_button("Every 8th@context-remove-8th", btn_config).clicked {
+				track_turn_off_steps(track_num, 0, 8)
+				ui_state.clicked_on_context_menu = true
+			}
+		}
+
+		if disarm_button.clicked { 
+			app.audio.tracks[track_num].armed = !app.audio.tracks[track_num].armed
+		}
+		if delete_track_button.clicked {
+			track_delete(box.metadata.(Metadata_Track_Step).track)
+			printfln("deletring track that contains {}", ui_state.right_clicked_on.id)
+		}
+	}
+
+	context_menu_container := child_container(
+		"@context-menu",
+		{
+			semantic_size 		= Size_Fit_Children,
+			z_index 			= 100,
+			floating_type		= .Absolute_Pixel,
+			floating_offset 	= {f32(ui_state.context_menu.pos.x), f32(ui_state.context_menu.pos.y)},
+		},
+		{
+			direction 			 = .Vertical, 
+			alignment_horizontal = .Center, 
+			alignment_vertical   = .Center, 
+		},
+		{.Draw}
+	)
+
+	if ui_state.right_clicked_on.disabled { 
+		println("right clicked on a disabled box")
+		return
+	}
+	switch metadata in ui_state.right_clicked_on.metadata {
+	case Metadata_Track_Step:
+		track_steps_context_menu(ui_state.right_clicked_on)
+	case Metadata_Track:
+		text(
+			"Context menu not implemented for this box type @ alskdjfalskdjfladf",
+			{semantic_size = Size_Fit_Text},
+		)
+	case Metadata_Sampler:
+		text(
+			"Context menu not implemented for this box type @ alskdaajfalskdjfladf",
+			{semantic_size = Size_Fit_Text},
+		)
 	}
 }
 

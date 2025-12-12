@@ -71,8 +71,10 @@ UI_State :: struct {
 	// text boxes on screen at one time.
 	text_editors_state:    map[string]Edit_Text_State,
 	sidebar_shown:         bool,
-	dragged_box:	       ^Box,
+	// If this is nil, it's because no box is being dragged.
+	dragged_box:	       Maybe(^Box),
 	drag_offset:	       [2]int,
+	dragged_first: 		   bool,
 	// Stores offset_from_parent for every draggable window. The whole draggable window thing will
 	// break if we have a draggable window whose inside some box that ISNT the root. I.e. draggable windows
 	// only work if they're declared as a direct child of the root.
@@ -267,17 +269,21 @@ init_ui_state :: proc() -> ^UI_State {
 create_ui :: proc() -> ^Box {
 	// Collect frame signals for this frame based on what the tree just looked like.
 	if ui_state.frame_num > 1 {
-		// Not sure if this is neccessary...
+		// Not sure if this is neccessary... turns out we crash if we do this, so disable it for now.
 		// clear(&ui_state.frame_signals)
 		compute_frame_signals(ui_state.root)
 	}
-	// This is the first step of the mark and sweep, any boxes which are not re-created this frame, will
-	// be removed from the cache at the end of the frame.
+	printfln("dragged box is: {}", ui_state.dragged_box)
+
+	// This is the first step of the mark and sweep, any boxes which are not re-created this frame, 
+	// will be removed from the cache at the end of the frame.
 	ui_start_time := time.now()._nsec
 	for _, box in ui_state.box_cache {
 		box.keep = false
 	}
+
 	ui_state.changed_ui_screen = false
+
 	root := child_container(
 		"root@root", 
 		{
@@ -377,9 +383,10 @@ create_ui :: proc() -> ^Box {
 	}
 
 	if ui_state.sidebar_shown {
-		draggable_window("File browser@file-browser-dragging-container", {
+		_, closed := draggable_window("File browser@file-browser-dragging-container", {
 			direction = .Vertical,
 		})
+		if closed do ui_state.sidebar_shown = false
 		file_browser_menu()
 	}
 
@@ -404,8 +411,6 @@ create_ui :: proc() -> ^Box {
 	// printfln("this frame took {} microseconds to create, layout and draw", total_ui_creation_time)
 	return root
 }
-
-
 
 /* 
 Reset state that was set in the current frame.

@@ -21,6 +21,13 @@ get_id_from_id_string :: proc(id_string: string) -> string {
 	return id_string[from + 1:]
 }
 
+get_drag_delta :: proc() -> [2]int {
+	return {
+		app.mouse_last_frame.pos.x - app.mouse.pos.x,
+		app.mouse_last_frame.pos.y - app.mouse.pos.y,
+	}
+}
+
 print_ui_tree :: proc(root: ^Box, level: int) {
 	for _ in 0 ..< level {
 		print("  ")

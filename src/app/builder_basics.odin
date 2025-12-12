@@ -43,7 +43,7 @@ button :: proc(id_string: string, config: Box_Config, extra_flags := Box_Flags{}
 }
 
 // A container that automatically opens for children and closes at the end of the scope it's called in.
-@(deferred_out = box_close_children)
+@(deferred_out = box_regular_close_children)
 child_container :: proc(
 	id_string: string,
 	config: Box_Config,
@@ -501,9 +501,7 @@ vertical_slider :: proc(
 		},
 	)
 	grip_signals := box_signals(grip)
-	if grip_signals.dragging { 
-		printfln("Dragging grip, drag delta: {}", grip_signals.drag_delta)
-	    // drag_delta is automatically populated
+	if grip_signals.box == ui_state.dragged_box { 
 		mouse_y := f32(app.mouse.pos.y)
         track_top := f32(track.top_left.y)  // This is also from last frame
         track_height := f32(track.last_height)  // Use last_height instead of height
@@ -625,24 +623,18 @@ multi_button_set :: proc(
 // At the moment we assume all dragging windows should be draggable anywhere in the root container,
 // we could most likely restrict this to have nested floating windows. i.e. you can't drag some floating
 // window outside of it's parent's bounds.
-@(deferred_out = box_close_children)
-draggable_window :: proc(id_string: string, child_layout: Box_Child_Layout, extra_flags := Box_Flags{}) -> Box_Signals {
+@(deferred_out = box_floating_close_children)
+draggable_window :: proc(id_string: string, child_layout: Box_Child_Layout, extra_flags := Box_Flags{}) -> 
+(signals: Box_Signals, closed:bool) {
 	// This would probably break if we introduce an 'anonymous' box mechanism.
-	container_id := get_id_from_id_string(id_string)
-	offset_from_root: ^Vec2_f32
-	if container_id not_in ui_state.draggable_window_offsets {
-		// Put floating container in the center of the screen the first time it's created.
-		ui_state.draggable_window_offsets[container_id] = {f32(app.wx) / 2, f32(app.wy) / 2}
-	}
-	offset_from_root = &ui_state.draggable_window_offsets[container_id]
-	// container.config.floating_offset = offset_from_root^
-
+	// container_id := get_id_from_id_string(id_string)
+	
 	container := box_from_cache(
 		id_string,
 		{},
 		{
 			floating_type   = .Absolute_Pixel,
-			floating_offset = offset_from_root^,
+			floating_offset = box_center(ui_state.root^),
 			semantic_size   = Size_Fit_Children,
 			z_index         = 20,
 		},
@@ -650,27 +642,54 @@ draggable_window :: proc(id_string: string, child_layout: Box_Child_Layout, extr
 	container_signals := box_signals(container)
 	box_open_children(container, child_layout)
 
+	offset_from_root: ^Vec2_f32
+	if container.id not_in ui_state.draggable_window_offsets {
+		// Put floating container in the center of the screen the first time it's created.
+		// ui_state.draggable_window_offsets[container.id] = {f32(app.wx) / 2 - f32(container.last_width), f32(app.wy) / 2 - f32(container.last_height)}
+		ui_state.draggable_window_offsets[container.id] = {f32(app.wx) / 2 , f32(app.wy) / 2}
+	}
+	offset_from_root = &ui_state.draggable_window_offsets[container.id]
+	container.config.floating_offset = offset_from_root^
+
 	
+	actual_id := get_id_from_id_string(id_string)
+	child_container(
+		id("@{}-topbar", get_id_from_id_string(id_string)), 
+		{
+			semantic_size = {{.Grow, 100}, {.Fit_Children, 1}}		
+		}, 
+		{
+			direction = .Horizontal,
+		}
+	)
 	label := get_label_from_id_string(id_string)
 	title_bar := box_from_cache(
 		id("{}@{}-title-bar", label, container.id),
 		{.Draggable, .Clickable, .Draw_Text, .Draw, .Hot_Animation, .Active_Animation},
 		{
-			semantic_size = {{.Grow, 100}, {.Fit_Text, 1}},
+			semantic_size = {{.Percent, .95}, {.Fit_Text, 1}},
 			padding = {top = 5, bottom = 5},
 			color = .Tertiary,
 			z_index = container.z_index,
 		},
 	)
+	close_button :=  text_button(
+		id("x@{}-topbar-close-button",actual_id), 
+		{
+			color = .Error_Container,
+			// semantic_size =  {{.Fixed, 10}, {.Fit_Text_And_Grow, 1}}
+			semantic_size =  Size_Fit_Text_And_Grow,
+		},
+	)
 
 	title_bar_signals := box_signals(title_bar)
-	if title_bar_signals.dragging { 
+	if ui_state.dragged_box == title_bar {
 		delta_x := f32(app.mouse.pos.x - app.mouse_last_frame.pos.x)
 		delta_y := f32(app.mouse.pos.y - app.mouse_last_frame.pos.y)
-		offset_from_root.x = clamp(offset_from_root.x + delta_x, 0, f32(app.wx))
-		offset_from_root.y = clamp(offset_from_root.y + delta_y, 0, f32(app.wy))
-	}
-	return box_signals(container)
+		offset_from_root.x = clamp(offset_from_root.x + delta_x, 0, f32(app.wx - container.last_width))
+		offset_from_root.y = clamp(offset_from_root.y + delta_y, 0, f32(app.wy - container.last_height))
+	}	
+	return box_signals(container), close_button.clicked
 }
 
 circular_knob :: proc(
@@ -681,7 +700,6 @@ circular_knob :: proc(
     max_val: f32,
     knob_size: f32 = 60,  // diameter in pixels
     extra_flags := Box_Flags{}
-// ) -> Knob_Signals {
 ) {
 	actual_id := get_id_from_id_string(id_string)
 	label := get_label_from_id_string(id_string)

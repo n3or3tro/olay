@@ -248,9 +248,7 @@ Box_Signals :: struct {
 	released:       bool,
 	right_pressed:  bool,
 	right_released: bool,
-	dragging:       bool,
 	dragged_over:   bool,
-	drag_delta: 	[2]int,
 	hovering:       bool,
 	scrolled:       bool,
 	scrolled_up:    bool,
@@ -419,9 +417,20 @@ box_open_children :: proc(box: ^Box, child_layout: Box_Child_Layout) -> ^Box {
 	return box
 }
 
+
+box_close_children :: proc {
+	box_floating_close_children,
+	box_regular_close_children
+}
+
+
+box_floating_close_children :: proc(signals: Box_Signals, closed: bool) {
+	box_regular_close_children(signals)
+}
+
 // Takes in signals since this is automatically called at the end of creation various 'container' boxes.
 // And all box creation functions return the signals for the box.
-box_close_children :: proc(signals: Box_Signals) {
+box_regular_close_children :: proc(signals: Box_Signals) {
 	box := signals.box
 	assert(len(ui_state.parents_stack) > 0)
 	if box.config.semantic_size.x.type == .Fit_Children {
@@ -508,8 +517,8 @@ handle_input :: proc(event: sdl.Event) -> (exit, show_context_menu: bool) {
 			app.mouse.drag_end = app.mouse.pos
 			app.mouse.dragging = false
 			app.mouse.drag_done = true
+			ui_state.dragged_box = nil
 		case sdl.BUTTON_RIGHT:
-			println("right button up ")
 			if app.mouse.right_pressed { 	// i.e. A right click was performed.
 				app.mouse.right_clicked = true
 				show_context_menu = true
@@ -599,8 +608,8 @@ box_signals :: proc(box: ^Box) -> Box_Signals {
 
 compute_frame_signals :: proc(root: ^Box) {
 	candidates_at_mouse := make([dynamic]^Box, allocator = context.temp_allocator)
-	mouse_pos := Vec2_f32{f32(app.mouse.pos.x), f32(app.mouse.pos.y)}
 	box_list := box_tree_to_list(root, context.temp_allocator)
+
 	// Find all boxes under mouse
 	for box in box_list {
 		if mouse_inside_box(box, app.mouse.pos) && .Clickable in box.flags {
@@ -633,23 +642,25 @@ compute_frame_signals :: proc(root: ^Box) {
 
 		// Skip signal gathering if box is disabled.
 		if box.disabled { 
+			// One second thoughts, this is probably overkill since we might want to, for example
+			// right click and activate a track, if it's disabled, we can't do that.
 			continue
 		}
 
-		// Get previous frame's signals
-		prev_signals: Box_Signals
+		// Get frame signals from previous frame.
+		prev_siganls: Box_Signals
 		if stored, ok := ui_state.frame_signals[box.id]; ok {
-			prev_signals = stored
+			prev_siganls = stored
 		}
 
 		// These events should only trigger on the top most box.
 		if box == hot_box {
 			if app.mouse.left_pressed {
 				next_signals.pressed = true
-				if !prev_signals.pressed {
+				if !prev_siganls.pressed {
 					ui_state.active_box = box
 				}
-			} else if prev_signals.pressed && ui_state.mouse_down_on == box {
+			} else if prev_siganls.pressed && ui_state.mouse_down_on == box {
 				next_signals.clicked = true
 				// Double-click detection
 				if ui_state.last_clicked_box == box {
@@ -664,7 +675,7 @@ compute_frame_signals :: proc(root: ^Box) {
 
 			if app.mouse.right_pressed {
 				next_signals.right_pressed = true
-			} else if prev_signals.right_pressed {
+			} else if prev_siganls.right_pressed {
 				next_signals.right_clicked = true
 				ui_state.right_clicked_on = box
 			}
@@ -673,19 +684,16 @@ compute_frame_signals :: proc(root: ^Box) {
 			// These are events that can just trigger regardless of z-index.
 			if mouse_inside_box(box, app.mouse.pos) {
 				next_signals.hovering = true
-				// Dragging
-				if next_signals.pressed && prev_signals.pressed {
-					next_signals.dragging = true
-					next_signals.drag_delta = {
-						app.mouse.pos.x - app.mouse_last_frame.pos.x,
-						app.mouse.pos.y - app.mouse_last_frame.pos.y,
+				// Only set a new dragged box if we've previously let go of the mouse, which is indicated
+				// by ui_state.dragged_box, since this is only set to nil, when the mouse button goes up.
+				if next_signals.pressed && prev_siganls.pressed {
+					// This check avoids changing the dragged box when the mouse escapes
+					// the previous drag target.
+					if ui_state.dragged_box == nil {
+						ui_state.dragged_box = box
 					}
-					// Need to be careful with the 1 frame delay thing.
-					ui_state.dragged_box = box
-				} else { 
-					next_signals.drag_delta = {0, 0}
-					// next_signals.dragging = false
-				}
+					ui_state.dragged_first = true
+				} 
 				next_signals.dragged_over = next_signals.pressed
 				// Scrolling
 				if app.mouse.wheel.y != 0 {
@@ -700,7 +708,7 @@ compute_frame_signals :: proc(root: ^Box) {
 			}
 		}
 
-		// Maintain active state even if not hot
+		// Maintain active state even if not hot.
 		if ui_state.active_box == box {
 			box.active = true
 		}

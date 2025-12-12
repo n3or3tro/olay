@@ -71,8 +71,13 @@ app_update :: proc() -> (all_good: bool) {
 			return false
 		}
 	}
+	// Update UI state related to mouse state.
+	// if !app.mouse.left_pressed {
+	// 	ui_state.dragged_box = nil
+	// }
 
 	root := create_ui()
+
 	if show_context_menu {
 		ui_state.context_menu.active = true
 	} 
