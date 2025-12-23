@@ -49,6 +49,7 @@ box_width :: proc(box: Box) -> u32 {
 	assert(width >= 0)
 	return u32(width)
 }
+
 box_data_as_string :: proc(box_data: Box_Data, allocator := context.allocator) -> string { 
 	data_as_string: string
 	switch data in box_data {
@@ -81,4 +82,20 @@ box_center :: proc(box: Box) -> [2]f32 {
         (f32(box.top_left.x) + f32(box.bottom_right.x)) / 2,
         (f32(box.top_left.y) + f32(box.bottom_right.y)) / 2
 	};
+}
+
+box_get_padding_x_tot :: proc(box: Box) -> int { 
+	return box.config.padding.left + box.config.padding.right
+}
+
+box_get_padding_y_tot :: proc(box: Box) -> int { 
+	return box.config.padding.top + box.config.padding.bottom
+}
+
+box_get_margin_x_tot :: proc(box: Box) -> int { 
+	return box.config.margin.left + box.config.margin.right
+}
+
+box_get_margin_y_tot :: proc(box: Box) -> int { 
+	return box.config.margin.top + box.config.margin.bottom
 }

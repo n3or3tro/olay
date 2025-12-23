@@ -69,6 +69,8 @@ Box_Config :: struct {
 	border:   			int,
 	// Internal padding that will surround child elements.
 	padding: 			Box_Padding,  
+	// External space that will put empty space around the outside of this box.
+	margin: 			Box_Padding,  
 	semantic_size:      [2]Box_Size,
 	max_size:           [2]int,
 	min_size:           [2]int,
@@ -180,7 +182,8 @@ Box_Flag :: enum {
 	Ignore_Parent_Disabled,
 	Active_Animation,
 	Draggable,
-	Drop_Source, 
+	Drag_Drop_Source,
+	Drag_Drop_Sink, 
 	Fixed_Width,
 	Floating_X,
 	No_Offset, //
@@ -242,6 +245,7 @@ Box :: struct {
 
 Box_Signals :: struct {
 	clicked:        bool,
+	shift_clicked:  bool,
 	double_clicked: bool,
 	right_clicked:  bool,
 	pressed:        bool,
@@ -249,16 +253,13 @@ Box_Signals :: struct {
 	right_pressed:  bool,
 	right_released: bool,
 	dragged_over:   bool,
+	dropped_on: 	bool,
 	hovering:       bool,
 	scrolled:       bool,
 	scrolled_up:    bool,
 	scrolled_down:  bool,
 	box:            ^Box,
-	mouse:          Vec2_i32,
 }
-
-ui_vertex_shader_data :: #load("shaders/box_vertex_shader.glsl")
-ui_pixel_shader_data :: #load("shaders/box_pixel_shader.glsl")
 
 Mouse_State :: struct {
 	pos:           [2]int, // these are typed like this to follow the SDL api, else, they'd be u16
@@ -273,6 +274,8 @@ Mouse_State :: struct {
 	right_clicked: bool, // whether mouse was right clicked in this frame.
 }
 
+ui_vertex_shader_data :: #load("shaders/box_vertex_shader.glsl")
+ui_pixel_shader_data :: #load("shaders/box_pixel_shader.glsl")
 
 /* ======================= Start Core Box Code ========================= */
 
@@ -432,13 +435,16 @@ box_floating_close_children :: proc(signals: Box_Signals, closed: bool) {
 // And all box creation functions return the signals for the box.
 box_regular_close_children :: proc(signals: Box_Signals) {
 	box := signals.box
+	size := box.config.semantic_size
 	assert(len(ui_state.parents_stack) > 0)
-	if box.config.semantic_size.x.type == .Fit_Children {
+	if size.x.type == .Fit_Children || size.x.type == .Fit_Children_And_Grow {
 		box.width = sizing_calc_fit_children_width(box^)
 	}
-	if box.config.semantic_size.y.type == .Fit_Children {
+
+	if size.y.type == .Fit_Children || size.y.type == .Fit_Children_And_Grow {
 		box.height = sizing_calc_fit_children_height(box^)
 	}
+
 	pop(&ui_state.parents_stack)
 	curr_len := len(ui_state.parents_stack)
 	if curr_len > 0 {
@@ -478,9 +484,14 @@ handle_input :: proc(event: sdl.Event) -> (exit, show_context_menu: bool) {
 	// since order matters and querying some matrix of keys down does NOT preserve input order.
 	// It would work for querying if we're in the state to trigger some keyboard shortcut however.
 	if etype == .KEYDOWN {
-		app.char_queue[app.curr_chars_stored] = event.key.keysym.sym
-		app.curr_chars_stored += 1
-		app.keys_held[event.key.keysym.scancode] = true
+		#partial switch event.key.keysym.sym {
+			case .ESCAPE:
+				ui_state.dragged_box = nil
+			case:
+				app.char_queue[app.curr_chars_stored] = event.key.keysym.sym
+				app.curr_chars_stored += 1
+				app.keys_held[event.key.keysym.scancode] = true
+		}
 	}
 
 	if etype == .KEYUP {
@@ -517,7 +528,7 @@ handle_input :: proc(event: sdl.Event) -> (exit, show_context_menu: bool) {
 			app.mouse.drag_end = app.mouse.pos
 			app.mouse.dragging = false
 			app.mouse.drag_done = true
-			ui_state.dragged_box = nil
+
 		case sdl.BUTTON_RIGHT:
 			if app.mouse.right_pressed { 	// i.e. A right click was performed.
 				app.mouse.right_clicked = true
@@ -606,7 +617,7 @@ box_signals :: proc(box: ^Box) -> Box_Signals {
 	}
 }
 
-compute_frame_signals :: proc(root: ^Box) {
+collect_frame_signals :: proc(root: ^Box) {
 	candidates_at_mouse := make([dynamic]^Box, allocator = context.temp_allocator)
 	box_list := box_tree_to_list(root, context.temp_allocator)
 
@@ -669,8 +680,17 @@ compute_frame_signals :: proc(root: ^Box) {
 						next_signals.double_clicked = true
 					}
 				}
+				if app.keys_held[sdl.Scancode.LSHIFT] || app.keys_held[sdl.Scancode.RSHIFT] {
+					next_signals.shift_clicked = true
+				}
 				ui_state.last_clicked_box = box
 				ui_state.last_clicked_box_time = time.now()
+			}
+
+			if !app.mouse.left_pressed && prev_siganls.pressed {
+				if .Drag_Drop_Sink in box.flags && (ui_state.dragged_box != nil && .Drag_Drop_Source in ui_state.dragged_box.(^Box).flags) {
+					next_signals.dropped_on = true
+				}
 			}
 
 			if app.mouse.right_pressed {
@@ -692,7 +712,6 @@ compute_frame_signals :: proc(root: ^Box) {
 					if ui_state.dragged_box == nil {
 						ui_state.dragged_box = box
 					}
-					ui_state.dragged_first = true
 				} 
 				next_signals.dragged_over = next_signals.pressed
 				// Scrolling
@@ -773,7 +792,7 @@ sizing_calc_fit_children_width :: proc(box: Box) -> int {
 		total = widest
 	}
 
-	total += box.config.padding.left + box.config.padding.right
+	total += box.config.padding.left + box.config.padding.right + box.config.margin.left + box.config.margin.right
 
 	return total
 }
@@ -799,6 +818,7 @@ sizing_calc_fit_children_height :: proc(box: Box) -> int {
 	}
 	height += box.child_layout.gap_vertical * (num_of_non_floating_children(box) - 1)
 	height += box.config.padding.top + box.config.padding.bottom
+	height += box.config.margin.top + box.config.margin.bottom
 	return height
 }
 
@@ -835,13 +855,13 @@ num_of_non_floating_children :: proc(box: Box) -> int {
 sizing_grow_growable_width :: proc(box: ^Box) {
 	switch box.child_layout.direction {
 	case .Horizontal:
-		remaining_width := box.width - (box.config.padding.left + box.config.padding.right)
+		remaining_width := box.width - box_get_padding_x_tot(box^) 
 		growable_children := make([dynamic]^Box, allocator = context.temp_allocator)
 		for child in box.children {
 			if child.config.floating_type != .Not_Floating {
 				continue
 			}
-			remaining_width -= child.width
+			remaining_width -= child.width + box_get_margin_x_tot(child^)
 			size_type := child.config.semantic_size.x.type
 			if size_type == .Grow || size_type == .Fit_Text_And_Grow || size_type == .Fit_Children_And_Grow {
 				append(&growable_children, child)
@@ -853,12 +873,13 @@ sizing_grow_growable_width :: proc(box: ^Box) {
 			second_smallest := 2 << 30
 			width_increase := remaining_width
 			for child in growable_children {
-				if child.width < smallest {
+				child_tot_width := child.width + box_get_margin_x_tot(child^)
+				if child_tot_width < smallest {
 					second_smallest = smallest
-					smallest = child.width
+					smallest = child_tot_width
 				}
-				if child.width > smallest {
-					second_smallest = min(second_smallest, child.width)
+				if child_tot_width > smallest {
+					second_smallest = min(second_smallest, child_tot_width)
 					width_increase = second_smallest - smallest
 				}
 			}
@@ -870,7 +891,8 @@ sizing_grow_growable_width :: proc(box: ^Box) {
 				return
 			}
 			for child in growable_children {
-				if child.width == smallest {
+				child_tot_width := child.width + box_get_margin_x_tot(child^)
+				if  child_tot_width == smallest {
 					child.width += width_increase
 					remaining_width -= width_increase
 					sizing_calc_percent_width(child)
@@ -878,14 +900,14 @@ sizing_grow_growable_width :: proc(box: ^Box) {
 			}
 		}
 	case .Vertical:
-		growable_amount := box.width - (box.config.padding.left + box.config.padding.right) 
+		growable_amount := box.width - box_get_padding_x_tot(box^)
 		for child in box.children {
 			if child.config.floating_type != .Not_Floating {
 				continue
 			}
 			size_type := child.config.semantic_size.x.type 
 			if size_type == .Grow || size_type == .Fit_Text_And_Grow  || size_type == .Fit_Children_And_Grow {
-				child.width += growable_amount - child.width
+				child.width += growable_amount - (child.width + box_get_margin_x_tot(child^))
 				sizing_calc_percent_width(child)
 			}
 		}
@@ -899,14 +921,14 @@ sizing_grow_growable_width :: proc(box: ^Box) {
 sizing_grow_growable_height :: proc(box: ^Box) {
 	switch box.child_layout.direction {
 	case .Vertical:
-		remaining_height := box.height - (box.config.padding.top + box.config.padding.bottom)
+		remaining_height := box.height - box_get_padding_y_tot(box^)
 		growable_children := make([dynamic]^Box, allocator = context.temp_allocator)
 		for child in box.children {
 			if child.config.floating_type != .Not_Floating{
 				continue
 			}
-			remaining_height -= child.height
-			size_type := child.config.semantic_size.y.type 
+			remaining_height -= child.height + box_get_margin_y_tot(child^)
+			size_type := child.config.semantic_size.y.type
 			if size_type == .Grow  || size_type == .Fit_Text_And_Grow || size_type == .Fit_Children_And_Grow {
 				append(&growable_children, child)
 			}
@@ -917,12 +939,13 @@ sizing_grow_growable_height :: proc(box: ^Box) {
 			second_smallest := 2 << 30
 			height_increase := remaining_height
 			for child in growable_children {
-				if child.height < smallest {
+				child_tot_height := child.height + box_get_margin_y_tot(child^)
+				if child_tot_height < smallest {
 					second_smallest = smallest
-					smallest = child.height
+					smallest = child_tot_height
 				}
-				if child.height > smallest {
-					second_smallest = min(second_smallest, child.height)
+				if child_tot_height > smallest {
+					second_smallest = min(second_smallest, child_tot_height)
 					height_increase = second_smallest - smallest
 				}
 			}
@@ -935,7 +958,8 @@ sizing_grow_growable_height :: proc(box: ^Box) {
 				return
 			}
 			for child in growable_children {
-				if child.height == smallest {
+				child_tot_height := child.height + box_get_margin_y_tot(child^)
+				if child_tot_height == smallest {
 					child.height += height_increase
 					remaining_height -= height_increase
 					// Since sizing_calc_percent_height in ui.odin runs before
@@ -946,14 +970,14 @@ sizing_grow_growable_height :: proc(box: ^Box) {
 			}
 		}
 	case .Horizontal:
-		growable_amount := box.height - (box.config.padding.top + box.config.padding.bottom)
+		growable_amount := box.height - box_get_padding_y_tot(box^)
 		for child in box.children {
 			if child.config.floating_type != .Not_Floating {
 				continue
 			}
-			size_type := child.config.semantic_size.y.type 
+			size_type := child.config.semantic_size.y.type
 			if size_type == .Grow || size_type == .Fit_Text_And_Grow || size_type == .Fit_Children_And_Grow {
-				child.height += growable_amount - child.height
+				child.height += growable_amount - (child.height + box_get_margin_y_tot(child^))
 				sizing_calc_percent_height(child)
 			}
 		}
@@ -1187,7 +1211,7 @@ position_boxes :: proc(root: ^Box) {
 	position_horizontally_across_start :: proc(root: ^Box) {
 		valid_children := non_floating_children(root)
 		for child in valid_children {
-			child.top_left.x = root.top_left.x + root.config.padding.left
+			child.top_left.x = root.top_left.x + root.config.padding.left + child.config.margin.left
 			child.bottom_right.x = child.top_left.x + child.width
 		}
 	}
@@ -1418,15 +1442,15 @@ Animation_Item :: struct {
 	prev:		f32,
 }
 
-animation_update_all :: proc(dt: f32) { 
-	items := ui_state.animation_items
-	#reverse for &item, i in sarr.slice(&items) { 
-		item.progress += dt / item.time
-		if item.progress >= 1 { 
-			// remove this item from the array.
-		}
-	}
-}
+// animation_update_all :: proc(dt: f32) { 
+// 	items := ui_state.animation_items
+// 	#reverse for &item, i in sarr.slice(&items) { 
+// 		item.progress += dt / item.time
+// 		if item.progress >= 1 { 
+// 			// remove this item from the array.
+// 		}
+// 	}
+// }
 
 animation_start :: proc(id: string, initial, time: f32) { 
 }

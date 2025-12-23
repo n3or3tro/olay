@@ -148,13 +148,14 @@ audio_init :: proc() -> ^Audio_State {
 	// For testing, add an eq for each track, with 4 points equally distributed across the frequency.
 	for &track in audio_state.tracks { 
 		eq := new(EQ_State)
-		for i in 0..< 8 { 
-			band := new(EQ_Band_State)
-			band.gain = 0 
-			band.pos = i == 0 ? 0.0 : 1.0 / f32(i)
-			band.type = .Bell
-			band.q = 1
-			append(&eq.bands, band^)
+		for i in 0..< 4 { 
+			band := EQ_Band_State {
+				gain = 0,
+				pos = i == 0 ? 0.0 : 0.25 * f32(i + 1),
+				type = .Bell,
+				q = 1,
+			}
+			append(&eq.bands, band)
 		}
 		track.eq = eq^
 	}
@@ -551,10 +552,10 @@ valid_pitch :: proc(s: string) -> bool {
 Pitches are stored as ints, but represented and edited throughout the UI as strings. So These 2 functions below
 help swap to and fro.
 */
-get_pitch_from_note :: proc(pitch: string) -> int{ 
+pitch_get_from_note :: proc(pitch: string) -> int{ 
 	return int(pitch_difference("C3", pitch))
 }
-set_pitch_from_note :: proc(track, step: int, pitch: string) { 
+pitch_set_from_note :: proc(track, step: int, pitch: string) { 
 	app.audio.tracks[track].pitches[step] = int(pitch_difference("C3", pitch))
 }
 
@@ -579,6 +580,22 @@ get_note_from_num :: proc(pitch: int) -> string{
 		return "C3"
 	}
 }
+
+
+// ========================================= EQ STUFF ==============================================
+eq_add_band::proc(track_num: int, how_far:f32, band_type: EQ_Band_Type) {
+	eq := &app.audio.tracks[track_num].eq
+	new_band := EQ_Band_State {
+		bypass = false,
+		gain = 0,
+		pos = how_far,
+		q = 0.7,
+		type = band_type
+	}
+	append(&eq.bands, new_band)
+}
+// ========================================= END EQ STUFF ==========================================
+
 
 // delay_init :: proc(delay_time: f32, decay_time: f32) {
 // 	channels := ma.engine_get_channels(app.audio.engine)

@@ -29,25 +29,26 @@ COLOR_FILE_PATH :: "util/dark-theme.json"
 
 
 App_API :: struct {
-	create:            proc() -> ^app.App,
-	init:              proc(),
-	init_window:       proc(),
-	create_gl_context: proc(),
-	load_gl_procs:     proc(),
-	unload_miniaudio:  proc(),
-	update:            proc() -> bool,
-	memory:            proc() -> rawptr,
-	memory_size:       proc() -> int,
-	should_run:        proc() -> bool,
-	wants_reload:      proc() -> bool,
-	wants_restart:     proc() -> bool,
-	hot_reload:        proc(mem: rawptr) -> bool,
-	shutdown:          proc(),
-	reload_colors:     proc(mem: rawptr, color_file_path: string),
-	last_edit_dll:     time.Time,
-	last_edit_colors:  time.Time,
-	version:           int,
-	lib:               dynlib.Library,
+	create:            		 proc() -> ^app.App,
+	init:              		 proc(),
+	init_window:       		 proc(),
+	create_gl_context: 		 proc(),
+	load_gl_procs:     		 proc(),
+	unload_miniaudio:  		 proc(),
+	update:            		 proc() -> bool,
+	memory:            		 proc() -> rawptr,
+	memory_size:       		 proc() -> int,
+	should_run:        		 proc() -> bool,
+	wants_reload:      		 proc() -> bool,
+	wants_clean_reload:      proc() -> bool,
+	wants_restart:     		 proc() -> bool,
+	hot_reload:        		 proc(mem: rawptr) -> bool,
+	shutdown:          		 proc(),
+	reload_colors:     		 proc(mem: rawptr, color_file_path: string),
+	last_edit_dll:     		 time.Time,
+	last_edit_colors:  		 time.Time,
+	version:           		 int,
+	lib:               		 dynlib.Library,
 }
 
 
@@ -152,7 +153,15 @@ run_hot_reload_mode :: proc() {
 	api.load_gl_procs()
 	api.init()
 	for {
-		if should_reload() {
+		if api.wants_restart() {
+			println("Restating app...")
+			api.unload_miniaudio()
+			api.shutdown()
+			new_app_state := api.create()
+			api.init()
+			api.load_gl_procs()
+		}
+		if should_reload() || api.wants_reload() {
 			println("unloading miniaudio")
 			api.unload_miniaudio()
 			println("done unloading miniaudio")
@@ -162,15 +171,12 @@ run_hot_reload_mode :: proc() {
 			api.load_gl_procs()
 		}
 		if should_reload_colors() { 
-			println("Waiting for color file to be written.")
 			time.sleep(time.Millisecond * 100)
-			println("Trying to reload colors.")
 			api.reload_colors(api.memory(), COLOR_FILE_PATH)
 			t, err := os.last_write_time_by_name(COLOR_FILE_PATH)
 			if err != io.Error.None  { 
 				panic(tprintf("Failed to get last write time of {}", err))
 			}
-			println("Reloaded colors.")
 			api.last_edit_colors = t
 		}
 		all_good := api.update()

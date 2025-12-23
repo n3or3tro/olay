@@ -1,60 +1,60 @@
 package app
+import sarr "core:container/small_array"
+import "core:encoding/json"
 import "core:fmt"
-import "core:unicode/utf8/utf8string"
+import "core:mem"
+import os "core:os/os2"
 import "core:reflect"
 import "core:strconv"
-import os "core:os/os2"
-import "core:mem"
+import str "core:strings"
 import "core:time"
+import "core:unicode/utf8/utf8string"
 import gl "vendor:OpenGL"
 import sdl "vendor:sdl2"
-import "core:encoding/json"
-import str "core:strings"
-import sarr "core:container/small_array"
 
 id :: fmt.tprintf
 
-// Short hand pre-defined semantic_size values that we commonly use. 
-Size_Fit_Children 				:: [2]Box_Size{{.Fit_Children, 1}, {.Fit_Children, 1}}
-Size_Fit_Children_And_Grow 		:: [2]Box_Size{{.Fit_Children_And_Grow, 1}, {.Fit_Children_And_Grow, 1}}
-Size_Grow 						:: [2]Box_Size{{.Grow, 1}, {.Grow, 1}}
-Size_Fit_Text 					:: [2]Box_Size{{.Fit_Text, 1}, {.Fit_Text, 1}}
-Size_Fit_Text_And_Grow 			:: [2]Box_Size{{.Fit_Text_And_Grow, 1}, {.Fit_Text_And_Grow, 1}}
+// Short hand pre-defined semantic_size values that we commonly use.
+Size_Fit_Children :: [2]Box_Size{{.Fit_Children, 1}, {.Fit_Children, 1}}
+Size_Fit_Children_And_Grow :: [2]Box_Size{{.Fit_Children_And_Grow, 1}, {.Fit_Children_And_Grow, 1}}
+Size_Grow :: [2]Box_Size{{.Grow, 1}, {.Grow, 1}}
+Size_Fit_Text :: [2]Box_Size{{.Fit_Text, 1}, {.Fit_Text, 1}}
+Size_Fit_Text_And_Grow :: [2]Box_Size{{.Fit_Text_And_Grow, 1}, {.Fit_Text_And_Grow, 1}}
 
 UI_State :: struct {
-	root: 				   ^Box,
-	box_cache:             map[string]^Box,
+	root:                     ^Box,
+	box_cache:                map[string]^Box,
 	// I.e. the node which will parent future children if children_open() has been called.
-	parents_top:           ^Box,
-	parents_stack:         [dynamic]^Box,
-	settings_toggled:      bool,
-	color_stack:           [dynamic]Color_RGBA,
-	quad_vbuffer:          ^u32,
-	quad_vabuffer:         ^u32,
-	quad_shader_program:   u32,
-	font_atlas_texture_id: u32,
-	frame_num:             u64,
-	hot_box:               ^Box,
-	active_box:            ^Box,
-	selected_box:          ^Box,
-	last_hot_box:          ^Box,
-	last_active_box:       ^Box,
-	z_index:               i16,
-	right_clicked_on:      ^Box,
+	parents_top:              ^Box,
+	parents_stack:            [dynamic]^Box,
+	settings_toggled:         bool,
+	color_stack:              [dynamic]Color_RGBA,
+	quad_vbuffer:             ^u32,
+	quad_vabuffer:            ^u32,
+	quad_shader_program:      u32,
+	font_atlas_texture_id:    u32,
+	frame_num:                u64,
+	hot_box:                  ^Box,
+	active_box:               ^Box,
+	selected_box:             ^Box,
+	last_hot_box:             ^Box,
+	last_active_box:          ^Box,
+	z_index:                  i16,
+	right_clicked_on:         ^Box,
 	// wav_rendering_data:    map[ma.sound][dynamic]Rect_Render_Data,
 	// the visual space between border of text box and the text inside.
-	last_clicked_box:      ^Box,
-	clicked_on_context_menu: bool,
-	last_clicked_box_time: time.Time,
+	last_clicked_box:         ^Box,
+	clicked_on_context_menu:  bool,
+	last_clicked_box_time:    time.Time,
 	// These are collected at the start of the frame, based on the UI tree from the end of the previous
 	// frame, they can be used in the current frame, therefore no 1 frame delay.
-	frame_signals:    map[string]Box_Signals,
+	frame_signals:            map[string]Box_Signals,
 	// Used to help with the various bugs I was having related to input for box.value and mutating box.value.
-	steps_value_arena:     mem.Arena,
-	steps_value_allocator: mem.Allocator,
+	steps_value_arena:        mem.Arena,
+	steps_value_allocator:    mem.Allocator,
 	// Helps to stop clicks registering when you start outside an element and release on top of it.
-	mouse_down_on:         ^Box,
-	context_menu:          struct {
+	mouse_down_on:            ^Box,
+	context_menu:             struct {
 		pos:                   Vec2_f32,
 		active:                bool,
 		show_fill_note_menu:   bool,
@@ -62,35 +62,44 @@ UI_State :: struct {
 		show_add_step_menu:    bool,
 		show_remove_step_menu: bool,
 	},
-	font_state:            Font_State,
-	tab_num:               int,
+	font_state:               Font_State,
+	tab_num:                  int,
 	// Indicates whether we triggered anything that would cause us to swap UI screens
 	// and therefore we need to clear the box cache.
-	changed_ui_screen:     bool,
+	changed_ui_screen:        bool,
 	// Maps text_boxes id's to text editing state. Neccessary when we have multiple
 	// text boxes on screen at one time.
-	text_editors_state:    map[string]Edit_Text_State,
-	sidebar_shown:         bool,
+	text_editors_state:       map[string]Edit_Text_State,
+	sidebar_shown:            bool,
 	// If this is nil, it's because no box is being dragged.
-	dragged_box:	       Maybe(^Box),
-	drag_offset:	       [2]int,
-	dragged_first: 		   bool,
+	dragged_box:              Maybe(^Box),
+	drag_offset:              [2]int,
+	dropped_data:             [dynamic]Drop_Data,
 	// Stores offset_from_parent for every draggable window. The whole draggable window thing will
 	// break if we have a draggable window whose inside some box that ISNT the root. I.e. draggable windows
 	// only work if they're declared as a direct child of the root.
-	dark_theme: 			Token_To_Color_Map,
-	light_theme: 			Token_To_Color_Map,
+	dark_theme:               Token_To_Color_Map,
+	light_theme:              Token_To_Color_Map,
 	draggable_window_offsets: map[string][2]f32,
 	// Necessary shared state for animations.
-	animation_items: sarr.Small_Array(32, Animation_Item),
-	undo_stack: 			[dynamic]State_Change,
-	redo_stack: 			[dynamic]State_Change,
+	// animation_items:        sarr.Small_Array(32, Animation_Item),
+	undo_stack:               [dynamic]State_Change,
+	redo_stack:               [dynamic]State_Change,
 	// Whether or not a track's eq is showing.
-	eqs:					[dynamic]bool,
-
+	eqs:                      [dynamic]bool,
 }
 
-State_Change_Type :: enum { 
+
+// These are all the types of data that can be dropped on items that are drag-and-drop
+// enabled.
+Drop_Data :: union {
+	Browser_File,
+	string,
+	int,
+	f32,
+}
+
+State_Change_Type :: enum {
 	Track_Step,
 	Track_Volume,
 	Track_Arm_State,
@@ -99,11 +108,14 @@ State_Change_Type :: enum {
 }
 
 Track_Step_Change :: struct {
-	type: enum {
-		Pitch, Volume, Send1, Send2
+	type:      enum {
+		Pitch,
+		Volume,
+		Send1,
+		Send2,
 	},
-	track: int,
-	step:  int,
+	track:     int,
+	step:      int,
 	old_value: int,
 	new_value: int,
 }
@@ -111,29 +123,28 @@ Track_Step_Change :: struct {
 Track_Volume_Change :: struct {
 	track, step: int,
 	old_volume:  int,
-	new_value: 	 int,
+	new_value:   int,
 }
 
 Track_Arm_State_Change :: struct {
 	track, step: int,
 	old_value:   bool,
-	new_value: 	 bool,
+	new_value:   bool,
 }
 
-Track_Sound_Change :: struct { 
+Track_Sound_Change :: struct {
 	track, step: int,
 	old_value:   string,
-	new_value: 	 string,
+	new_value:   string,
 }
 
 
-State_Change :: union { 
+State_Change :: union {
 	Track_Step_Change,
 	Track_Volume_Change,
 	Track_Arm_State_Change,
 	Track_Sound_Change,
 }
-
 
 
 undo_stack_push :: proc(change: State_Change) {
@@ -143,7 +154,7 @@ undo_stack_push :: proc(change: State_Change) {
 	clear(&ui_state.redo_stack)
 }
 
-undo :: proc() { 
+undo :: proc() {
 	undo_stack := &ui_state.undo_stack
 	if len(undo_stack) == 0 {
 		return
@@ -151,7 +162,7 @@ undo :: proc() {
 	event := pop(undo_stack)
 	// printfln("len of undo stack: {}", len(ui_state.undo_stack))
 	// printfln("undoing event: {}", event)
-	switch change in event { 
+	switch change in event {
 	case Track_Step_Change:
 		switch change.type {
 		case .Pitch:
@@ -159,9 +170,9 @@ undo :: proc() {
 		case .Volume:
 			app.audio.tracks[change.track].volumes[change.step] = change.old_value
 		case .Send1:
-			app.audio.tracks[change.track].send1[change.step]   = change.old_value
+			app.audio.tracks[change.track].send1[change.step] = change.old_value
 		case .Send2:
-			app.audio.tracks[change.track].send2[change.step]   = change.old_value
+			app.audio.tracks[change.track].send2[change.step] = change.old_value
 		}
 	case Track_Arm_State_Change:
 	case Track_Volume_Change:
@@ -170,7 +181,7 @@ undo :: proc() {
 	append(&ui_state.redo_stack, event)
 }
 
-redo :: proc() { 
+redo :: proc() {
 	redo_stack := &ui_state.redo_stack
 	if len(redo_stack) == 0 {
 		return
@@ -178,7 +189,7 @@ redo :: proc() {
 	event := pop(redo_stack)
 	// printfln("len of redo stack: {}", len(ui_state.undo_stack))
 	// printfln("redoing event: {}", event)
-	switch change in event { 
+	switch change in event {
 	case Track_Step_Change:
 		switch change.type {
 		case .Pitch:
@@ -186,9 +197,9 @@ redo :: proc() {
 		case .Volume:
 			app.audio.tracks[change.track].volumes[change.step] = change.new_value
 		case .Send1:
-			app.audio.tracks[change.track].send1[change.step]   = change.new_value
+			app.audio.tracks[change.track].send1[change.step] = change.new_value
 		case .Send2:
-			app.audio.tracks[change.track].send2[change.step]   = change.new_value
+			app.audio.tracks[change.track].send2[change.step] = change.new_value
 		}
 	case Track_Arm_State_Change:
 	case Track_Volume_Change:
@@ -225,7 +236,7 @@ init_ui_state :: proc() -> ^UI_State {
 		string(ui_vertex_shader_data),
 		string(ui_pixel_shader_data),
 	)
-	if !quad_shader_ok { 
+	if !quad_shader_ok {
 		msg, type := gl.get_last_error_message()
 		println(msg, type)
 		panic("")
@@ -271,11 +282,10 @@ create_ui :: proc() -> ^Box {
 	if ui_state.frame_num > 1 {
 		// Not sure if this is neccessary... turns out we crash if we do this, so disable it for now.
 		// clear(&ui_state.frame_signals)
-		compute_frame_signals(ui_state.root)
+		collect_frame_signals(ui_state.root)
 	}
-	printfln("dragged box is: {}", ui_state.dragged_box)
 
-	// This is the first step of the mark and sweep, any boxes which are not re-created this frame, 
+	// This is the first step of the mark and sweep, any boxes which are not re-created this frame,
 	// will be removed from the cache at the end of the frame.
 	ui_start_time := time.now()._nsec
 	for _, box in ui_state.box_cache {
@@ -284,15 +294,10 @@ create_ui :: proc() -> ^Box {
 
 	ui_state.changed_ui_screen = false
 
-	root := child_container(
-		"root@root", 
-		{
+	root := child_container("root@root", {
 			semantic_size = {{.Fixed, f32(app.wx)}, {.Fixed, f32(app.wy)}},
 			// color = .Inactive,
-		},
-		{direction=.Vertical},
-		{.Draw}
-	).box
+		}, {direction = .Vertical}, {.Draw}).box
 	ui_state.root = root
 
 	topbar()
@@ -302,94 +307,91 @@ create_ui :: proc() -> ^Box {
 			child_container(
 				"@all-tracks-container",
 				{
-					semantic_size = {{.Fit_Children, 1}, 
-					// We hardcode the height of the topbar otherwise the layout gets annoying.
-					{.Fixed, f32(app.wy - TOPBAR_HEIGHT)}}
+					semantic_size = {
+						{.Fit_Children, 1},
+						// We hardcode the height of the topbar otherwise the layout gets annoying.
+						{.Fixed, f32(app.wy - TOPBAR_HEIGHT)},
+					},
 				},
-				{
-					direction = .Horizontal,
-					gap_horizontal = 3
-				}
+				{direction = .Horizontal, gap_horizontal = 3},
 			)
 
 			for track, i in app.audio.tracks {
 				audio_track(i, 160)
 			}
 		}
-		if text_button(
-			"+@add-track-button", 
-			{
-				floating_type =.Center_Right,
-				padding = {10,10,10,10},
-				border = 2,
-				semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}},
-				color = .Warning
-			}
-		).clicked {
+		if text_button("+@add-track-button", {floating_type = .Center_Right, padding = {10, 10, 10, 10}, border = 2, semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}}, color = .Warning}).clicked {
 			track_add_new(app.audio)
 		}
 	} else {
 		multi_button_set(
-			"@test-radio-buttons", 
-			{
-				semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}},
-			}, 
-			{
-				direction =.Vertical,
-				gap_horizontal = 20,
-				gap_vertical = 10
-			}, 
-			false, 
-			[]int{8,2,10,14,27, 4242, 23423, 123,4747}
+			"@test-radio-buttons",
+			{semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}}},
+			{direction = .Vertical, gap_horizontal = 20, gap_vertical = 10},
+			false,
+			[]int{8, 2, 10, 14, 27, 4242, 23423, 123, 4747},
 		)
 		child_container(
-			"@fasdflaksjd", 
-			{
-				semantic_size 	= {{.Fixed, 300}, {.Fixed, 100}},
-				color 			= .Inactive,
-			}, 
-			{
-				alignment_horizontal = .Center,
-				alignment_vertical   = .Center,
-				direction 			 = .Horizontal
-			},
-			{.Draw}
+			"@fasdflaksjd",
+			{semantic_size = {{.Fixed, 300}, {.Fixed, 100}}, color = .Inactive},
+			{alignment_horizontal = .Center, alignment_vertical = .Center, direction = .Horizontal},
+			{.Draw},
 		)
-		text_button(
-			"hey@lllll", 
-			{
-				color 		  = .Primary,
-				semantic_size = {{.Grow, 1}, {.Grow, 10}}
-			}
-		)
-		text_button(
-			"there@aaaaa", 
-			{
-				color 		  = .Primary,
-				semantic_size = {{.Grow, 1}, {.Grow, 10}}
-			}
-		)
-		text_button(
-			"baby@bbbbbbb", 
-			{
-				color 		  = .Primary,
-				semantic_size = {{.Grow, 1}, {.Grow, 10}}
-			}
-		)
+		text_button("hey@lllll", {color = .Primary, semantic_size = {{.Grow, 1}, {.Grow, 10}}})
+		text_button("there@aaaaa", {color = .Primary, semantic_size = {{.Grow, 1}, {.Grow, 10}}})
+		text_button("baby@bbbbbbb", {color = .Primary, semantic_size = {{.Grow, 1}, {.Grow, 10}}})
 	}
 
-	if ui_state.context_menu.active { 
+	if ui_state.context_menu.active {
 		context_menu()
 	}
 
 	if ui_state.sidebar_shown {
-		_, closed := draggable_window("File browser@file-browser-dragging-container", {
-			direction = .Vertical,
-		})
+		_, closed := draggable_window("File browser@file-browser-dragging-container", {direction = .Vertical})
 		if closed do ui_state.sidebar_shown = false
 		file_browser_menu()
 	}
 
+	// Render current dragging item under the mouse if applicable.
+	if ui_state.dragged_box != nil {
+		dragged_box := ui_state.dragged_box.(^Box)
+		if .Drag_Drop_Source in dragged_box.flags {
+			printfln("dragging: {}", dragged_box.id)
+			printfln("droppable data is: {}", ui_state.dropped_data[:])
+			cfg := dragged_box.config
+			cfg.floating_type = .Absolute_Pixel
+			cfg.floating_offset = {f32(app.mouse.pos.x), f32(app.mouse.pos.y)}
+			cfg.z_index = 100
+			drag_ghost := box_from_cache(id("the ghost@{}-drag-ghost", dragged_box.id), {.Draw}, cfg)
+		}
+	}
+
+	// Draw helper text in the bottom right corner
+	{
+		child_container(
+			"@helper-text-bottom-right",
+			{
+				semantic_size = Size_Fit_Children,
+				color = .Surface_Variant,
+				floating_type = .Relative_Parent,
+				floating_anchor_box = ui_state.root,
+				floating_offset = {1, 1},
+			},
+			{direction = .Vertical, alignment_horizontal = .Start, gap_vertical = 5},
+		)
+		text(
+			"F5 -> Hot reload DLL, keep data@helper-text-1",
+			{color = .Secondary, text_justify = {.Start, .Center}, semantic_size = Size_Fit_Text},
+		)
+		text(
+			"F3 -> Hot reload DLL, clear data@helper-text-1",
+			{color = .Secondary, text_justify = {.Start, .Center}, semantic_size = Size_Fit_Text},
+		)
+		text(
+			"F1 -> Restart, keep DLL, clear data@helper-text-1",
+			{color = .Secondary, text_justify = {.Start, .Center}, semantic_size = Size_Fit_Text},
+		)
+	}
 	// animation_update_all()
 	start := time.now()._nsec
 	sizing_calc_percent_width(root)
@@ -403,9 +405,7 @@ create_ui :: proc() -> ^Box {
 	total_layout_time := (end - start) / 1000
 
 	flow_z_positions(root)
-	// Moved this to the start of the frame and use the tree from the previous frame that
-	// just ended.
-	// compute_frame_signals(root)
+
 	ui_end_time := time.now()._nsec
 	total_ui_creation_time := (ui_end_time - ui_start_time) / 1000
 	// printfln("this frame took {} microseconds to create, layout and draw", total_ui_creation_time)
@@ -431,7 +431,7 @@ reset_ui_state :: proc() {
 	ui_state.active_box = nil
 	ui_state.hot_box = nil
 
-	// if app.mouse_last_frame.clicked && !ui_state.clicked_on_context_menu { 
+	// if app.mouse_last_frame.clicked && !ui_state.clicked_on_context_menu {
 	if app.mouse_last_frame.clicked {
 		ui_state.context_menu.active = false
 	}
@@ -451,7 +451,7 @@ reset_ui_state :: proc() {
 		box := ui_state.box_cache[key]
 
 		// Delete editor state related to box if it exists
-		// if .Edit_Text in box.flags { 
+		// if .Edit_Text in box.flags {
 		// 	delete_key(&ui_state.text_editors_state, box.id)
 		// }
 
@@ -465,8 +465,8 @@ reset_ui_state :: proc() {
 	ui_state.parents_top = nil
 }
 
-// These are color tokens generated by the material color util we have. They map onto things like 
-// button color, button hover state, etc. 
+// These are color tokens generated by the material color util we have. They map onto things like
+// button color, button hover state, etc.
 Semantic_Color_Token :: enum {
 	Primary,
 	On_Primary,
@@ -514,42 +514,42 @@ Semantic_Color_Token :: enum {
 
 Token_To_Color_Map :: map[Semantic_Color_Token]Color_RGBA
 
-parse_json_token_color_mapping :: proc(path: string, allocator:=context.allocator) -> Token_To_Color_Map { 
+parse_json_token_color_mapping :: proc(path: string, allocator := context.allocator) -> Token_To_Color_Map {
 	file_data, err := os.read_entire_file_from_path(path, context.temp_allocator)
-	if err != nil { 
+	if err != nil {
 		panic(tprintf("Failed to open file at: {}", path))
 	}
 
 	json_data, json_err := json.parse(file_data, allocator = context.temp_allocator)
-	if json_err != .None { 
+	if json_err != .None {
 		panic(tprintf("Failed to parse file, got err: {}", json_err))
 	}
-	#partial switch json_token_map in json_data { 
-		case json.Object:
-			res := new(Token_To_Color_Map, allocator)
-			token_names := reflect.enum_field_names(Semantic_Color_Token)
-			for color_token in Semantic_Color_Token {
-				// Added the snake case things, so just check that carefully if anything is broken now.
-				key := str.to_snake_case(token_names[color_token], context.temp_allocator)
-				val := json_token_map[key]
-				res[color_token] = convert_hash_color_to_rgba(val.(json.String))
-			}
-			return res^
-		case:
-			panic("Parsing json color theme didn't return an object.")
+	#partial switch json_token_map in json_data {
+	case json.Object:
+		res := new(Token_To_Color_Map, allocator)
+		token_names := reflect.enum_field_names(Semantic_Color_Token)
+		for color_token in Semantic_Color_Token {
+			// Added the snake case things, so just check that carefully if anything is broken now.
+			key := str.to_snake_case(token_names[color_token], context.temp_allocator)
+			val := json_token_map[key]
+			res[color_token] = convert_hash_color_to_rgba(val.(json.String))
+		}
+		return res^
+	case:
+		panic("Parsing json color theme didn't return an object.")
 	}
 	panic("Failed to Token_To_Color_Map")
 }
 
-convert_hash_color_to_rgba :: proc(in_color: string) -> Color_RGBA { 
-	if len(in_color) != 7 && len(in_color) != 9 { 
+convert_hash_color_to_rgba :: proc(in_color: string) -> Color_RGBA {
+	if len(in_color) != 7 && len(in_color) != 9 {
 		panic(tprintf("Color must be of the form #rrggbb, you sent: {}", in_color))
 	}
 	color: string
 	// Check for this incase they pass in an alpha value, like #fa8422ff instead of #fa8422
 	if len(color) == 9 {
 		color = in_color[1:7]
-	} else { 
+	} else {
 		color = in_color[1:]
 	}
 
@@ -563,47 +563,36 @@ convert_hash_color_to_rgba :: proc(in_color: string) -> Color_RGBA {
 	g := f32(_g) / 255
 	b := f32(_b) / 255
 
-	return Color_RGBA {r, g, b, 1}
+	return Color_RGBA{r, g, b, 1}
 }
 
 // Short hand helper functions for various padding scenarios
-padding_x :: proc(amount: int) -> Box_Padding{ 
-	return Box_Padding { 
-		left = amount,
-		right = amount
-	}
+padding_x :: proc(amount: int) -> Box_Padding {
+	return Box_Padding{left = amount, right = amount}
 }
-padding_y :: proc(amount: int) -> Box_Padding{
-	return Box_Padding { 
-		top = amount,
-		bottom = amount
-	}
+padding_y :: proc(amount: int) -> Box_Padding {
+	return Box_Padding{top = amount, bottom = amount}
 }
-padding :: proc(amount: int) -> Box_Padding{
-	return Box_Padding {
-		left   = amount, 
-		top    = amount,
-		right  = amount,
-		bottom = amount,
-	}
+padding :: proc(amount: int) -> Box_Padding {
+	return Box_Padding{left = amount, top = amount, right = amount, bottom = amount}
 }
 
 // Short hand helper functions for borders
-// border_x :: proc(amount: int) -> Box_Border{ 
-// 	return Box_Border { 
+// border_x :: proc(amount: int) -> Box_Border{
+// 	return Box_Border {
 // 		left = amount,
 // 		right = amount
 // 	}
 // }
 // borer_y :: proc(amount: int) -> Box_Border{
-// 	return Box_Border { 
+// 	return Box_Border {
 // 		top = amount,
 // 		bottom = amount
 // 	}
 // }
 // border :: proc(amount: int) -> Box_Border{
 // 	return Box_Border {
-// 		left   = amount, 
+// 		left   = amount,
 // 		top    = amount,
 // 		right  = amount,
 // 		bottom = amount,

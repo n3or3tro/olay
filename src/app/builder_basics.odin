@@ -425,7 +425,7 @@ edit_text_box :: proc(
 				track_num := text_container.metadata.(Metadata_Track_Step).track
 				step_num := text_container.metadata.(Metadata_Track_Step).step
 				old_pitch := app.audio.tracks[track_num].pitches[step_num]
-				new_pitch := get_pitch_from_note(new_data)
+				new_pitch := pitch_get_from_note(new_data)
 				if new_pitch == old_pitch {
 					break update_audio_data
 				}
@@ -492,12 +492,12 @@ vertical_slider :: proc(
 		id("{}-grip", get_id_from_id_string(id_string)),
 		{.Clickable, .Draggable, .Draw, .Hot_Animation},
 		{
-			semantic_size = {{.Percent, 0.9}, {.Percent, 0.1}},
-			color = .Tertiary,
-			floating_type = .Relative_Parent,
+			semantic_size   = {{.Percent, 0.9}, {.Percent, 0.1}},
+			color           = .Tertiary,
+			floating_type   = .Relative_Parent,
 			floating_offset = {0.5, map_range(min_val, max_val, 0, 1, slider_value^)},
-			corner_radius = 2,
-			edge_softness = 2,
+			corner_radius   = 2,
+			edge_softness   = 2,
 		},
 	)
 	grip_signals := box_signals(grip)
@@ -665,7 +665,7 @@ draggable_window :: proc(id_string: string, child_layout: Box_Child_Layout, extr
 	label := get_label_from_id_string(id_string)
 	title_bar := box_from_cache(
 		id("{}@{}-title-bar", label, container.id),
-		{.Draggable, .Clickable, .Draw_Text, .Draw, .Hot_Animation, .Active_Animation},
+		{.Clickable, .Draw_Text, .Draw, .Hot_Animation, .Active_Animation},
 		{
 			semantic_size = {{.Percent, .95}, {.Fit_Text, 1}},
 			padding = {top = 5, bottom = 5},

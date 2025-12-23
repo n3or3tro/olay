@@ -9,7 +9,9 @@ so they'll need some re-thinking when I ship the UI stuff as a lib.
 
 package app
 import "core:sort"
+import "core:math/rand"
 import str "core:strings"
+import "core:slice"
 
 
 topbar :: proc() {
@@ -132,8 +134,9 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 	}
 
 	step_signals: Track_Steps_Signals
+	track_dropped_on: bool
 	steps: {
-		child_container(
+		steps_container := child_container(
 			id("@track-steps-container-{}", track_num),
 			{
 				// semantic_size = {{.Fixed, track_width}, {.Percent, 0.7}}, 
@@ -141,6 +144,7 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 				color = .Tertiary 
 			},
 			{direction = .Vertical, gap_vertical = 0},
+			{.Drag_Drop_Source}
 		)
 
 		substep_config: Box_Config = {
@@ -148,13 +152,14 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 			color 			 = .Primary,
 			border 			 = 1,
 		}
-		substep_extra_flags := Box_Flags{.Draw_Border, .Track_Step}
+		substep_extra_flags := Box_Flags{.Draw_Border, .Track_Step, .Drag_Drop_Sink}
 
 		for i in 0 ..< N_TRACK_STEPS {
-			child_container(
+			step_row_container := child_container(
 				id("@track-{}-row-{}-steps-container", track_num, i),
 				{semantic_size = {{.Fixed, track_width}, {.Percent, f32(1) / N_TRACK_STEPS}}},
 				{direction = .Horizontal, gap_horizontal = 0},
+				{.Drag_Drop_Sink}
 			)
 
 			pitch_box := edit_text_box(
@@ -216,6 +221,16 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 				track_toggle_step(track_num, i)
 			}
 
+			if pitch_box.dropped_on  ||
+			   volume_box.dropped_on ||
+			   send1_box.dropped_on  ||
+			   send2_box.dropped_on  ||
+			   step_row_container.dropped_on 
+			{
+				track_dropped_on = true
+			}
+
+
 			// Set box.selected if audio state says that this step is toggled on.
 			// This is kind of ugly, but old code in the renderer relies on this bool,
 			// so we'll do this little hack for now.
@@ -252,6 +267,25 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 		}
 	}
 
+	// Because we check this here, only the steps part will 'absorb' a file if dropped,
+	// can be refactored to support the whole track, but it'll be uglier.
+	if track_dropped_on {
+		println("helooooooooooooooooooooo")
+		// Right now we'll panic if the drop data len > 1, but IRL this probably isn't an error behaviour,
+		// should probably just only accept the first file in the selection.
+		drop_data := pop(&ui_state.dropped_data)
+		cpath: cstring
+		#partial switch val in drop_data {
+			case string:
+				cpath = str.clone_to_cstring(val)
+				defer delete(cpath)
+			case:
+				printfln("Error: Dropped {} onto track. Tracks only accept file paths as drop data.", val)
+		}
+		track_set_sound(u32(track_num), cpath)
+		printfln("set track {} to have sound {}", track_num, cpath)
+	}
+
 	sample_label: {
 		label : string
 		if track.sound != nil { 
@@ -267,6 +301,7 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 				color = .Primary_Container,
 				text_justify = {.Center, .Center},
 			},
+			{.Drag_Drop_Source}
 			// {.Draw}
 		)
 	}
@@ -283,7 +318,7 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 				alignment_horizontal = .Start, 
 				alignment_vertical = .End
 			},
-			{.Draw}
+			{.Draw, .Drag_Drop_Source}
 		)
 		arm_label := app.audio.tracks[track_num].armed ? "unarm" : "arm"
 		arm_button := text_button(
@@ -362,11 +397,12 @@ file_browser_menu :: proc() {
 		{direction = .Vertical},
 		{.Draw}
 	)
+
 	top_menu: {
 		child_container(
 			"@file-browser-options-container",
 			{
-				semantic_size 	= Size_Fit_Children,
+				semantic_size 	= Size_Fit_Children_And_Grow,
 				padding 		= padding(10),
 				color 			= .Tertiary,
 			},
@@ -376,15 +412,17 @@ file_browser_menu :: proc() {
 			color 			 = .Secondary,
 			border			 = 3,
 			padding          = {10, 10, 10, 10},
-			semantic_size    = Size_Fit_Text_And_Grow,
+			// semantic_size    = Size_Fit_Text_And_Grow,
+			semantic_size    = {{.Fit_Text, 1}, {.Fit_Text_And_Grow, 1}},
 			corner_radius    = 0,
 		}
-		option_load := text_button("Add@browser-options-folder-button", btn_config)
-		option_sort := text_button("Sort@browser-options-sort-button", btn_config)
-		box_from_cache("@filler-hehe", {.Draw}, {semantic_size = Size_Grow})
-		option_flip := text_button("Flip@browser-options-flip-button", btn_config)
+		load := text_button("Add Files@browser-options-folder-button", btn_config)
+		sort_files := text_button("Sort@browser-options-sort-button", btn_config)
+		flip := text_button("Flip@browser-options-flip-button", btn_config)
+		box_from_cache("@filler-hehe-mwahaha", {},  {semantic_size = Size_Grow})
+		add_folder := text_button("Add Folder@browser-options-add-folder", btn_config)
 
-		if option_load.clicked {
+		if load.clicked {
 			res, ok := file_dialog_windows(true, context.temp_allocator)
 			if !ok {
 				// panic(
@@ -394,16 +432,35 @@ file_browser_menu :: proc() {
 			}
 			for path in res {
 				path_string := str.clone_from_cstring(path)
-				append(&app.browser_files, path_string)
+				file := Browser_File { 
+					name   = path_string, 
+					parent = app.browser_selected_dir,
+					id 	   = int(rand.int63())
+				}
+				append(&app.browser_selected_dir.files, file)
 			}
 		}
-		// --- Don't think this sorting actually changes anything.
-		sort.quick_sort(app.browser_files[:])
+
+		if add_folder.clicked {
+			name := str.clone(tprintf("new_dir_{}", rand.int31()))
+			new_folder := Browser_Directory {
+				// Not sure why, but if I don't clone this string, shit breaks and it doesn't dispaly properly.
+				name = name
+			}
+			new_folder.parent = app.browser_selected_dir
+			append(&app.browser_selected_dir.sub_directories, new_folder)
+			printfln("added {} to {}", new_folder.name, app.browser_selected_dir.name)
+		}
+
+		if sort_files.clicked {
+			// --- Don't think this sorting actually changes anything.
+			// sort.quick_sort(app.browser_selected_dir.files[:])
+		}
 	}
 
 	files_and_folders: {
 		child_container(
-			"@browser-files-container",
+			"@browser-subdirs-container",
 			{
 				semantic_size = Size_Fit_Children, 
 				color = .Surface,
@@ -415,23 +472,123 @@ file_browser_menu :: proc() {
 			},
 		)
 
-		// Can see having issues with the index being in the id here.
-		for file, i in app.browser_files {
-			text(
-				id("{}@browser-file-{}", file, i),
-				{
-					semantic_size = Size_Fit_Text_And_Grow,
-					padding = padding(5),
-					corner_radius = 4,
-					text_justify = {.Start, .Center},
-					color = .Surface
-				},
-				{.Hot_Animation, .Clickable}
-			)
-			// Don't draw divider on last line.
-			if i != len(app.browser_files) - 1  {
+		create_subdirs_files :: proc(dir: ^Browser_Directory, level: int) {
+			// Create folder part.
+			// Will have ID collision if 2 folders are named the same thing.
+			
+			{
+									// Indentation padding.
+				// box_from_cache(
+				// 	tprintf("{}", rand.int63()), 
+				// 	{},
+				// 	{
+				// 		semantic_size = {{.Fixed, f32(3 * level), }, {.Fixed, 5}},
+				// 	}
+				// )
+				child_container(
+					id("@{}-dispaly-container", dir.name),
+					{
+						semantic_size = Size_Fit_Children_And_Grow,
+						padding = {left = 5 * level}
+					},
+					{
+						gap_horizontal = 1
+					}
+				)
+				arrow_name := dir.collapsed ? ">" : "v"
+				arrow_box := text_button(
+					id("{}@{}-arrow_box", arrow_name, dir.name),
+					{ 
+						semantic_size = {{.Fit_Text, 1}, {.Fit_Text_And_Grow, 1}},
+						color = app.browser_selected_dir != dir ? .Secondary_Container : .Warning,
+						text_justify = {.Start, .Center},
+						padding = padding(5),
+					},
+				)
+				if arrow_box.clicked { 
+					dir.collapsed = !dir.collapsed
+				}
+				dir_box := text_button(
+					id("Folder: {}@browser-folder-{}", dir.name, dir.name), 
+					{
+						border = 1,
+						color = app.browser_selected_dir != dir ? .Secondary_Container : .Warning,
+						semantic_size = Size_Fit_Text_And_Grow,
+						text_justify = {.Start, .Center},
+						padding = padding(5),
+					},
+					{.Drag_Drop_Sink}
+				)	
+
+				if dir_box.clicked {
+					dir_box.box.selected = !dir_box.box.selected
+					app.browser_selected_dir = dir
+				}
+
+				handle_drop: if dir_box.dropped_on {
+					if len(ui_state.dropped_data) > 0 { 
+						drop_data := pop(&ui_state.dropped_data)
+						// Linear searching will become inefficient when a folder has ALOT of child files.
+						if dropped_file, ok := drop_data.(Browser_File); ok {
+							if dropped_file.parent == dir do break handle_drop
+							for file, idx in dropped_file.parent.files {
+								if file.id == dropped_file.id {
+									ordered_remove(&dropped_file.parent.files, idx)
+									break
+								}
+							}
+							dropped_file.parent = dir
+							append_elem(&dir.files, dropped_file)	
+						} else {
+							printfln("Tried to drop {} into folder, which can't happen", drop_data)
+						}
+					}
+				}
+			}
+
+			if !dir.collapsed {
+				// Can see having issues with the index being in the id here.
+				for file, i in dir.files {
+					file_entry := text_button(
+						id("{}@browser-file-{}-{}", file.name, i, file.name),
+						{
+							semantic_size = Size_Fit_Text_And_Grow,
+							padding = padding(5),
+							margin = {left = 5 * (level + 1)},
+							corner_radius = 4,
+							text_justify = {.Start, .Center},
+							color = .Surface
+						},
+						{.Hot_Animation, .Clickable, .Drag_Drop_Source}
+					)
+
+					if file_entry.box == ui_state.dragged_box {
+						// Pretty inefficient if you have more a long list
+						if !slice.contains(ui_state.dropped_data[:], file) {
+							append(&ui_state.dropped_data, file)
+						}
+					}
+
+					if file_entry.clicked {
+						file_entry.box.selected = !file_entry.box.selected
+					}
+
+					if file_entry.shift_clicked {
+						siblings := box_get_siblings(file_entry.box^, context.temp_allocator)
+						println(siblings)
+					}
+
+					if file_entry.box.selected {
+						file_entry.box.config.color = .Primary
+					}
+				}
+                for &subdir in dir.sub_directories {
+                    create_subdirs_files(&subdir, level + 1)
+                }
 			}
 		}
+
+		create_subdirs_files(app.browser_root_dir, 0)
 	}
 }
 
@@ -519,8 +676,15 @@ equalizer_8 :: proc(id_string: string, track_num: int) {
 					color = .Inverse_On_Surface,
 				},
 				{alignment_horizontal = .Space_Between},
-				{.Draw},
+				{.Draw, .Clickable},
 			)
+			if frequency_display_container.double_clicked {
+				box := frequency_display_container.box
+				printfln("tail before adding: {}", tail(eq_state.bands[:]))
+				eq_add_band(track_num, f32(map_range(f64(box.top_left.x), f64(box.bottom_right.x), 0.0, 1.0, f64(app.mouse_last_frame.pos.x))), .Bell)
+				println("added band to track {}", track_num)
+				printfln("tail after adding: {}", tail(eq_state.bands[:]))
+			}
 			/* Draw background frequency ranges. */
 			// Draw DB levels: 
 			line_base_config := Box_Config {
@@ -612,6 +776,9 @@ equalizer_8 :: proc(id_string: string, track_num: int) {
 					normalized_pos = clamp((mouse_x - parent_left) / parent_width, 0, 1)
 					band.pos = map_range(f32(0), f32(1), 0, 1, normalized_pos)
 				}
+				if handle_signals.double_clicked { 
+					ordered_remove(&eq_state.bands, i)
+				}
 			}
 			// Draw lines between handles.
 			for handle, i in handles { 
@@ -625,10 +792,14 @@ equalizer_8 :: proc(id_string: string, track_num: int) {
 					z_index = 35,
 					edge_softness = 1,
 				}
-				line(
+				l := line(
 					id("@{}-line-from-{}-to-{}", actual_id, i, i+1),
 					config,
+					{.Clickable}
 				)
+				if l.double_clicked {
+					println("double clicked on line")
+				}
 			}
 		}
 		level_meter := box_from_cache(

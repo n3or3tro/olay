@@ -135,13 +135,17 @@ when ODIN_OS == .Windows {
 				if n_nulls == 2 { 	// 2 nulls == end of files.
 					break
 				}
-				file_suffix := utf8.runes_to_string(child_file[:])
-				file_path := tprintf("{}\\{}", parent_dir, file_suffix)
-				cstring_path := s.clone_to_cstring(file_path)
-				delete(file_suffix)
-				// delete(file_path)
-				append(&results, cstring_path)
-				clear_dynamic_array(&child_file)
+				// Parent directory of selection was being added, this conditional
+				// should prevent that.
+				if len(child_file) > 0 {
+					file_suffix := utf8.runes_to_string(child_file[:])
+					file_path := tprintf("{}\\{}", parent_dir, file_suffix)
+					cstring_path := s.clone_to_cstring(file_path)
+					delete(file_suffix)
+					// delete(file_path)
+					append(&results, cstring_path)
+					clear_dynamic_array(&child_file)
+				}
 			} else {
 				n_nulls = 0
 				append(&child_file, rune(ch))

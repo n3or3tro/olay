@@ -1,12 +1,12 @@
 package app
-import "core:math"
 import "base:intrinsics"
+import "core:math"
 import alg "core:math/linalg"
+import "core:sort"
 import str "core:strings"
 import "core:time"
 import "core:unicode/utf8"
 import gl "vendor:OpenGL"
-import "core:sort"
 import ma "vendor:miniaudio"
 
 PI :: math.PI
@@ -67,19 +67,19 @@ get_default_rendering_data :: proc(box: Box) -> Rect_Render_Data {
 	return data
 }
 
-@(private="file")
-box_coord_to_vec2f32 :: proc(coord: [2]int) -> Vec2_f32{ 
+@(private = "file")
+box_coord_to_vec2f32 :: proc(coord: [2]int) -> Vec2_f32 {
 	return Vec2_f32{f32(coord.x), f32(coord.y)}
 }
 
 
-Boxes_Rendering_Data :: struct { 
-	additional_data: 	[dynamic]Rect_Render_Data,
-	box: 				Maybe(Rect_Render_Data),
-	overlay:			Maybe(Rect_Render_Data),
-	outer_shadow:		Maybe(Rect_Render_Data),
-	inner_shadow:		Maybe(Rect_Render_Data),
-	text_cursor:		Maybe(Rect_Render_Data),
+Boxes_Rendering_Data :: struct {
+	additional_data: [dynamic]Rect_Render_Data,
+	box:             Maybe(Rect_Render_Data),
+	overlay:         Maybe(Rect_Render_Data),
+	outer_shadow:    Maybe(Rect_Render_Data),
+	inner_shadow:    Maybe(Rect_Render_Data),
+	text_cursor:     Maybe(Rect_Render_Data),
 }
 
 // sets circumstantial (hovering, clicked, etc) rendering data like radius, borders, etc
@@ -88,42 +88,38 @@ Boxes_Rendering_Data :: struct {
 2nd: A list of related things like borders, shadows, etc.
 3rd: An overlay (for example to grey out a disabled track)
 */
-@(private="file")
-distance :: proc(a, b: [2]$T) -> f32 where intrinsics.type_is_numeric(T) { 
+@(private = "file")
+distance :: proc(a, b: [2]$T) -> f32 where intrinsics.type_is_numeric(T) {
 	// distance = sqrt((x2 - x1)² + (y2 - y1)²)
-	return math.sqrt(
-		(b.x - a.x) * (b.x - a.x) +
-		(b.y - a.y) * (b.y - a.y)
-	)
+	return math.sqrt((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y))
 }
 
-get_boxes_rendering_data :: proc(box: Box, allocator := context.allocator) -> Boxes_Rendering_Data
-{
+get_boxes_rendering_data :: proc(box: Box, allocator := context.allocator) -> Boxes_Rendering_Data {
 	additional_render_data := make([dynamic]Rect_Render_Data, context.temp_allocator)
 	result := Boxes_Rendering_Data {
-		additional_data = additional_render_data
+		additional_data = additional_render_data,
 	}
 
 	color := ui_state.dark_theme[box.config.color]
 
-	if .Line in box.flags { 
+	if .Line in box.flags {
 		// A bit of trig to work shit out for the line. Since top_left and bottom_right,
-		// form a rectangle, we can cut it in half to get 2 equal triangles and use 
+		// form a rectangle, we can cut it in half to get 2 equal triangles and use
 		// basic trig to work out the rotation angle to pass to the GPU.
-		start 		:= box.config.line_start
-		end 		:= box.config.line_end
-		center 		:= (start + end) * 0.5
+		start := box.config.line_start
+		end := box.config.line_end
+		center := (start + end) * 0.5
 		// Classic pythagoras.
-		length 		:= distance(start, end)
-		angle  		:= math.atan2(end.y - start.y, end.x - start.x)
-		thickness 	:= f32(box.config.line_thickness)
+		length := distance(start, end)
+		angle := math.atan2(end.y - start.y, end.x - start.x)
+		thickness := f32(box.config.line_thickness)
 
 		// In the rest of our UI: box.tl < box.br is always true. This doesn't hold for
 		// lines where start < end isn't always true. Thus we must construct a valid quad
 		// for our line from scratch based on the other things we know about the line.
-		half_size 		:= Vec2_f32{length / 2, thickness / 2}
-		top_left 		:= center - half_size
-		bottom_right 	:= center + half_size
+		half_size := Vec2_f32{length / 2, thickness / 2}
+		top_left := center - half_size
+		bottom_right := center + half_size
 
 		line_render_data: Rect_Render_Data = {
 			top_left         = top_left,
@@ -135,7 +131,7 @@ get_boxes_rendering_data :: proc(box: Box, allocator := context.allocator) -> Bo
 			corner_radius    = f32(box.config.corner_radius),
 			edge_softness    = f32(box.config.edge_softness),
 			border_thickness = 100000,
-			rotation_radians = angle
+			rotation_radians = angle,
 			// clip_tl          = box.clipping_container.top_left,
 			// clip_br          = box.clipping_container.bottom_right,
 		}
@@ -158,8 +154,8 @@ get_boxes_rendering_data :: proc(box: Box, allocator := context.allocator) -> Bo
 		// clip_br          = box.clipping_container.bottom_right,
 	}
 	// Cheap and dirty way to anti alias non squared off edges.
-	if box_render_data.corner_radius > 0 && box_render_data.edge_softness == 0 { 
-		box_render_data.edge_softness = 0.7 
+	if box_render_data.corner_radius > 0 && box_render_data.edge_softness == 0 {
+		box_render_data.edge_softness = 0.7
 	}
 
 	if box.disabled {
@@ -169,74 +165,74 @@ get_boxes_rendering_data :: proc(box: Box, allocator := context.allocator) -> Bo
 		// be uniform. For now we'll just pick a random color.
 		color := Color_RGBA{0, 0, 0, -0.17} + ui_state.dark_theme[Semantic_Color_Token.Inactive]
 		data := Rect_Render_Data {
-			tl_color = color,
-			tr_color = color,
-			bl_color = color,
-			br_color = color,
-			top_left = box_coord_to_vec2f32(box.top_left),
+			tl_color     = color,
+			tr_color     = color,
+			bl_color     = color,
+			br_color     = color,
+			top_left     = box_coord_to_vec2f32(box.top_left),
 			bottom_right = box_coord_to_vec2f32(box.bottom_right),
 		}
 		result.overlay = data
 	}
 
-	if box.signals.hovering && .Clickable in box.flags { 
+	if box.signals.hovering && .Clickable in box.flags {
 		// Create frosted glass overlay.
-		if .Hot_Animation in box.flags && !box.signals.pressed { 
-			glass_overlay := Rect_Render_Data { 
-				top_left = box_coord_to_vec2f32(box.top_left),
-				bottom_right = box_coord_to_vec2f32(box.bottom_right),
+		if .Hot_Animation in box.flags && !box.signals.pressed {
+			glass_overlay := Rect_Render_Data {
+				top_left         = box_coord_to_vec2f32(box.top_left),
+				bottom_right     = box_coord_to_vec2f32(box.bottom_right),
 				// Graident from semi-transparent white to transparent at bottom
-				tl_color = {1, 1, 1, 0.05},
-				tr_color = {1, 1, 1, 0.05},
-				bl_color = {1, 1, 1, 0.4},
-				br_color = {1, 1, 1, 0.4},
-				corner_radius = f32(box.config.corner_radius),
-				edge_softness = 1.5, // subtle glow
-				border_thickness = 10000
+				tl_color         = {1, 1, 1, 0.05},
+				tr_color         = {1, 1, 1, 0.05},
+				bl_color         = {1, 1, 1, 0.4},
+				br_color         = {1, 1, 1, 0.4},
+				corner_radius    = f32(box.config.corner_radius),
+				edge_softness    = 1.5, // subtle glow
+				border_thickness = 10000,
 			}
 
 			// Create drop shadow for depth
-			shadow := Rect_Render_Data{
-				top_left = box_coord_to_vec2f32(box.top_left) + {4, 4}, // Offset for shadow
-				bottom_right = box_coord_to_vec2f32(box.bottom_right) + {4, 4},
-				tl_color = {0, 0, 0, 0.3},
-				tr_color = {0, 0, 0, 0.3},
-				bl_color = {0, 0, 0, 0.6},
-				br_color = {0, 0, 0, 0.6},
-				corner_radius = box_render_data.corner_radius,
-				edge_softness = 3.0, // Soft shadow
+			shadow := Rect_Render_Data {
+				top_left         = box_coord_to_vec2f32(box.top_left) + {4, 4}, // Offset for shadow
+				bottom_right     = box_coord_to_vec2f32(box.bottom_right) + {4, 4},
+				tl_color         = {0, 0, 0, 0.3},
+				tr_color         = {0, 0, 0, 0.3},
+				bl_color         = {0, 0, 0, 0.6},
+				br_color         = {0, 0, 0, 0.6},
+				corner_radius    = box_render_data.corner_radius,
+				edge_softness    = 3.0, // Soft shadow
 				border_thickness = 10000,
 			}
-			result.outer_shadow  = shadow
+			result.outer_shadow = shadow
 			result.overlay = glass_overlay
-		} else if .Active_Animation in box.flags && box.signals.pressed { 
-			glass_overlay := Rect_Render_Data { 
-				top_left = box_coord_to_vec2f32(box.top_left),
-				bottom_right = box_coord_to_vec2f32(box.bottom_right),
+		} else if .Active_Animation in box.flags && box.signals.pressed {
+			glass_overlay := Rect_Render_Data {
+				top_left         = box_coord_to_vec2f32(box.top_left),
+				bottom_right     = box_coord_to_vec2f32(box.bottom_right),
 				// Graident from semi-transparent white to transparent at bottom
-				tl_color = {1, 1, 1, 0.2},
-				tr_color = {1, 1, 1, 0.2},
-				bl_color = {1, 1, 1, 0.05},
-				br_color = {1, 1, 1, 0.05},
-				corner_radius = f32(box.config.corner_radius),
-				edge_softness = 1.5, // subtle glow
-				border_thickness = 10000
+				tl_color         = {1, 1, 1, 0.2},
+				tr_color         = {1, 1, 1, 0.2},
+				bl_color         = {1, 1, 1, 0.05},
+				br_color         = {1, 1, 1, 0.05},
+				corner_radius    = f32(box.config.corner_radius),
+				edge_softness    = 1.5, // subtle glow
+				border_thickness = 10000,
 			}
 			result.overlay = glass_overlay
 
 			// Inner shadow (render AFTER the main element)
-			inner_shadow := Rect_Render_Data{
-				top_left = box_coord_to_vec2f32(box.top_left),
-				bottom_right = box_coord_to_vec2f32(box.bottom_right),
-				tl_color = {0, 0, 0, 0.3},
-				tr_color = {0, 0, 0, 0.2},
-				bl_color = {0, 0, 0, 0.2},
-				br_color = {0, 0, 0, 0.15},
-				corner_radius = box_render_data.corner_radius,
-				edge_softness = 3.0,
+			inner_shadow := Rect_Render_Data {
+				top_left         = box_coord_to_vec2f32(box.top_left),
+				bottom_right     = box_coord_to_vec2f32(box.bottom_right),
+				tl_color         = {0, 0, 0, 0.3},
+				tr_color         = {0, 0, 0, 0.2},
+				bl_color         = {0, 0, 0, 0.2},
+				br_color         = {0, 0, 0, 0.15},
+				corner_radius    = box_render_data.corner_radius,
+				edge_softness    = 3.0,
 				border_thickness = 10000,
 			}
-			result.inner_shadow = inner_shadow	
+			result.inner_shadow = inner_shadow
 			// Darken the main element
 			// box_render_data.tl_color *= 0.9
 			// box_render_data.tr_color *= 0.9
@@ -266,9 +262,9 @@ get_boxes_rendering_data :: proc(box: Box, allocator := context.allocator) -> Bo
 		}
 		// Add cursor inside text box. Blinking is kinda jank right now.
 		if .Edit_Text in box.flags &&
-		should_render_text_cursor() &&
-		ui_state.last_active_box != nil &&
-		ui_state.last_active_box.id == box.id {
+		   should_render_text_cursor() &&
+		   ui_state.last_active_box != nil &&
+		   ui_state.last_active_box.id == box.id {
 			box_data_string := box_data_as_string(box.data, context.temp_allocator)
 			color := Color_RGBA{0, 0.5, 1, 1}
 			cursor_x_pos := f32(calc_cursor_pos(box, box_data_string))
@@ -287,8 +283,8 @@ get_boxes_rendering_data :: proc(box: Box, allocator := context.allocator) -> Bo
 	}
 
 	// Need to figure out how to make my SDL hollow stuff work with independantly sized sides of a border.
-	// Previously you could just have borders on or off 
-	if  box.config.border > 0 {
+	// Previously you could just have borders on or off
+	if box.config.border > 0 {
 		top_color := ui_state.dark_theme[.Outline]
 		// printfln("box {} has a border of thickness: {}", box.id, box.config.border)
 		border_rect := box_render_data
@@ -298,7 +294,7 @@ get_boxes_rendering_data :: proc(box: Box, allocator := context.allocator) -> Bo
 		border_rect.tr_color = top_color
 		border_rect.bl_color = top_color
 		border_rect.br_color = top_color
-		if box.signals.hovering { 
+		if box.signals.hovering {
 			hover_color := ui_state.dark_theme[.Warning_Container]
 			border_rect.tl_color = hover_color
 			border_rect.tr_color = hover_color
@@ -349,7 +345,7 @@ get_boxes_rendering_data :: proc(box: Box, allocator := context.allocator) -> Bo
 	// 	}
 	// }
 
-	if .Draw in box.flags { 
+	if .Draw in box.flags {
 		result.box = box_render_data
 	}
 	return result
@@ -487,7 +483,7 @@ add_waveform_rendering_data :: proc(
 		panic("failed to get cursor position of sound")
 	}
 
-	played_color   := ui_state.dark_theme[Semantic_Color_Token.Secondary]
+	played_color := ui_state.dark_theme[Semantic_Color_Token.Secondary]
 	unplayed_color := ui_state.dark_theme[Semantic_Color_Token.Secondary]
 	for x in 0 ..< render_width {
 		ratio_of_waveform := f64(x) / f64(render_width)
@@ -543,12 +539,12 @@ collect_render_data_from_ui_tree :: proc(render_data: ^[dynamic]Rect_Render_Data
 	for box in box_list {
 		boxes_render_data := get_boxes_rendering_data(box^, context.temp_allocator)
 
-		if shadow, ok := boxes_render_data.outer_shadow.(Rect_Render_Data); ok{ 
+		if shadow, ok := boxes_render_data.outer_shadow.(Rect_Render_Data); ok {
 			append(render_data, shadow)
 		}
 
 		// Some boxes may not need to be rendered themselves, but their related data to that box may need to be rendered.
-		if box_data, ok := boxes_render_data.box.(Rect_Render_Data); ok{ 
+		if box_data, ok := boxes_render_data.box.(Rect_Render_Data); ok {
 			append(render_data, box_data)
 		}
 
@@ -557,7 +553,7 @@ collect_render_data_from_ui_tree :: proc(render_data: ^[dynamic]Rect_Render_Data
 		}
 
 
-		if inner_shadow, ok := boxes_render_data.inner_shadow.(Rect_Render_Data); ok { 
+		if inner_shadow, ok := boxes_render_data.inner_shadow.(Rect_Render_Data); ok {
 			append(render_data, inner_shadow)
 		}
 
@@ -568,8 +564,8 @@ collect_render_data_from_ui_tree :: proc(render_data: ^[dynamic]Rect_Render_Data
 			} else {
 				text_to_render = box.label
 			}
-			if .Track_Step in box.flags { 
-				if !box.selected { 
+			if .Track_Step in box.flags {
+				if !box.selected {
 					break draw_text
 				}
 			}
@@ -582,25 +578,25 @@ collect_render_data_from_ui_tree :: proc(render_data: ^[dynamic]Rect_Render_Data
 			}
 		}
 
-		if text_cursor, ok := boxes_render_data.text_cursor.(Rect_Render_Data); ok { 
+		if text_cursor, ok := boxes_render_data.text_cursor.(Rect_Render_Data); ok {
 			append(render_data, text_cursor)
 		}
 
-		if metadata, ok := box.metadata.(Metadata_Sampler); ok { 
+		if metadata, ok := box.metadata.(Metadata_Sampler); ok {
 			track := app.audio.tracks[metadata.track_num]
 			add_waveform_rendering_data(box^, track, track.pcm_data.left_channel, render_data)
 		}
-		if overlay, ok := boxes_render_data.overlay.(Rect_Render_Data); ok { 
+		if overlay, ok := boxes_render_data.overlay.(Rect_Render_Data); ok {
 			append(render_data, overlay)
 		}
-		
+
 
 		// for child in box.children {
 		// 	collect_render_data_from_ui_tree(child, render_data)
 		// }
 	}
 }
- 
+
 /*
 Returns the quads which we will sample the font pixels into. 
 This is probably where I'd implement subpixel positioning and stuff, but for now
@@ -631,7 +627,7 @@ get_text_quads :: proc(
 	switch box.config.text_justify.y {
 	case .Center:
 		// baseline_y = box.top_left.y + int(vertical_diff_half)
-		baseline_y = box.bottom_right.y - int(vertical_diff_half) 
+		baseline_y = box.bottom_right.y - int(vertical_diff_half)
 	case .Start:
 		baseline_y = box.top_left.y + box.config.padding.top
 	case .End:
@@ -639,14 +635,14 @@ get_text_quads :: proc(
 	}
 	pen_x := baseline_x
 	// Doesn't need to be dynamically sized but static allocated size may confuse user.
-	glyph_rects  := make([dynamic]Rect_Render_Data, len(glyph_buffer), allocator)
-	atlas_width  := ui_state.font_state.atlas.row_width
+	glyph_rects := make([dynamic]Rect_Render_Data, len(glyph_buffer), allocator)
+	atlas_width := ui_state.font_state.atlas.row_width
 	atlas_height := ui_state.font_state.atlas.num_rows
 	for glyph, i in glyph_buffer {
 		cache_record := glyph.cache_record
-		final_x  := f32(baseline_x) + glyph.pos.x
-		final_y  := f32(baseline_y) + glyph.pos.y
-		descent  := cache_record.height - cache_record.bearing_y // Descent below baseline.
+		final_x := f32(baseline_x) + glyph.pos.x
+		final_y := f32(baseline_y) + glyph.pos.y
+		descent := cache_record.height - cache_record.bearing_y // Descent below baseline.
 		tex_tl_x := f32(cache_record.atlas_x) / f32(atlas_width)
 		tex_tl_y := f32(cache_record.atlas_y) / f32(atlas_height)
 		tex_br_x := f32(cache_record.atlas_x + cache_record.width) / f32(atlas_width)
@@ -770,39 +766,39 @@ clear_screen :: proc() {
 	gl.Clear(gl.COLOR_BUFFER_BIT)
 }
 
-@(private="file")
+@(private = "file")
 // The material color palette generates text colors that go ontop of the base colors,
 // so this function just pulls that out
-get_text_color_from_base :: proc(color_token: Semantic_Color_Token) -> Color_RGBA{ 
+get_text_color_from_base :: proc(color_token: Semantic_Color_Token) -> Color_RGBA {
 	#partial switch color_token {
-		case .Primary:
-			return ui_state.dark_theme[.On_Primary]
-		case .Secondary:
-			return ui_state.dark_theme[.On_Secondary]
-		case .Tertiary:
-			return ui_state.dark_theme[.On_Tertiary]
-		case .Background:
-			return ui_state.dark_theme[.On_Background]
-		case .Inactive:
-			return ui_state.dark_theme[.On_Inactive]
-		case .Error:
-			return ui_state.dark_theme[.On_Error]
-		case .Primary_Container:
-			return ui_state.dark_theme[.On_Primary_Container]
-		case .Secondary_Container:
-			return ui_state.dark_theme[.On_Secondary_Container]
-		case .Tertiary_Container:
-			return ui_state.dark_theme[.On_Tertiary_Container]
-		case .Error_Container:
-			return ui_state.dark_theme[.On_Error_Container]
-		case .Surface:
-			return ui_state.dark_theme[.On_Surface]
-		case .Surface_Variant:
-			return ui_state.dark_theme[.On_Surface_Variant]
-		case .Warning:
-			return ui_state.dark_theme[.On_Warning]
-		case .Warning_Container:
-			return ui_state.dark_theme[.On_Warning_Container]
+	case .Primary:
+		return ui_state.dark_theme[.On_Primary]
+	case .Secondary:
+		return ui_state.dark_theme[.On_Secondary]
+	case .Tertiary:
+		return ui_state.dark_theme[.On_Tertiary]
+	case .Background:
+		return ui_state.dark_theme[.On_Background]
+	case .Inactive:
+		return ui_state.dark_theme[.On_Inactive]
+	case .Error:
+		return ui_state.dark_theme[.On_Error]
+	case .Primary_Container:
+		return ui_state.dark_theme[.On_Primary_Container]
+	case .Secondary_Container:
+		return ui_state.dark_theme[.On_Secondary_Container]
+	case .Tertiary_Container:
+		return ui_state.dark_theme[.On_Tertiary_Container]
+	case .Error_Container:
+		return ui_state.dark_theme[.On_Error_Container]
+	case .Surface:
+		return ui_state.dark_theme[.On_Surface]
+	case .Surface_Variant:
+		return ui_state.dark_theme[.On_Surface_Variant]
+	case .Warning:
+		return ui_state.dark_theme[.On_Warning]
+	case .Warning_Container:
+		return ui_state.dark_theme[.On_Warning_Container]
 	}
 	panic(tprintf("We haven't defined a mapping for a text color that sits on top of base color {}", color_token))
 }

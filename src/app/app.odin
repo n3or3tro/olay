@@ -6,6 +6,7 @@ import "core:thread"
 import "core:time"
 import gl "vendor:OpenGL"
 import sdl "vendor:sdl2"
+import str "core:strings"
 
 PROFILING :: #config(profile, false)
 
@@ -17,29 +18,36 @@ aprintf	  :: fmt.aprintf
 tprintf	  :: fmt.tprintf
 tprintfln :: fmt.aprintfln
 
-Browser_File :: string
+Browser_File :: struct { 
+	// Pseudo GID for sorting and ID shit.
+	id:   int, 
+	name: string,
+	parent: ^Browser_Directory,
+}
 
 Browser_Directory :: struct {
-	name:           string,
-	subdirectories: [dynamic]Browser_Directory,
-	files:          [dynamic]Browser_File,
+	name:            string,
+	parent: 		 ^Browser_Directory,
+	sub_directories: [dynamic]Browser_Directory,
+	files:           [dynamic]Browser_File,
+	selected_files:  [2]int, // [start ..= end]
+	collapsed: 		 bool,
 }
 
 App :: struct {
-	char_queue:        [128]sdl.Keycode,
-	keys_held:         [sdl.NUM_SCANCODES]bool,
-	mouse:             Mouse_State,
-	mouse_last_frame:  Mouse_State,
-	ui_state:          ^UI_State,
-	window:            ^sdl.Window,
-	curr_chars_stored: u32,
-	wx:                int,
-	wy:                int,
-	audio:             ^Audio_State,
-	// For testing purposes we just store the path to the file, but in the future probs have
-	// a more structured thing going on here.
-	browser_files:     [dynamic]string,
-	running:           bool,
+	char_queue:        		  [128]sdl.Keycode,
+	keys_held:         		  [sdl.NUM_SCANCODES]bool,
+	mouse:             		  Mouse_State,
+	mouse_last_frame:  		  Mouse_State,
+	ui_state:          		  ^UI_State,
+	window:            		  ^sdl.Window,
+	curr_chars_stored: 		  u32,
+	wx:                		  int,
+	wy:                		  int,
+	audio:             		  ^Audio_State,
+	browser_root_dir:  		  ^Browser_Directory,
+	browser_selected_dir:     ^Browser_Directory,
+	running:           		  bool,
 }
 
 Window :: sdl.Window
@@ -71,10 +79,6 @@ app_update :: proc() -> (all_good: bool) {
 			return false
 		}
 	}
-	// Update UI state related to mouse state.
-	// if !app.mouse.left_pressed {
-	// 	ui_state.dragged_box = nil
-	// }
 
 	root := create_ui()
 
@@ -85,6 +89,18 @@ app_update :: proc() -> (all_good: bool) {
 		ui_state.context_menu.active = false
 	}
 
+	// We do this here instead of in the 'handle_input()' because handle_input runs at the start of the frame,
+	// but this data needs to exist for the lifetime of the frame.
+
+	// if !app.mouse.left_pressed {
+	// 	ui_state.dragged_box = nil
+	// 	// Might want to shrink it if we're dragging around huge data one time,
+	// 	// and then never again...
+	// 	clear(&ui_state.dropped_data)
+	// }
+
+
+
 	rect_render_data := make([dynamic]Rect_Render_Data, context.temp_allocator)
 	collect_render_data_from_ui_tree(&rect_render_data)
 	if ui_state.frame_num > 0 {
@@ -92,6 +108,15 @@ app_update :: proc() -> (all_good: bool) {
 	}
 	sdl.GL_SwapWindow(app.window)
 
+	// We do this here instead of inside 'handle_input' because handle_input runs at the start of the frame,
+	// and this data must live till the end of the frame.
+	if !app.mouse.left_pressed {
+		ui_state.dragged_box = nil
+		// Might want to shrink it if we're dragging around huge data one time,
+		// and then never again...
+		clear(&ui_state.dropped_data)
+	}
+	
 	reset_ui_state()
 	free_all(context.temp_allocator)
 	app.ui_state.frame_num += 1
@@ -127,23 +152,15 @@ app_init :: proc() -> ^App {
 	ui_state = app.ui_state
 	ui_state.parents_stack = make([dynamic]^Box)
 	init_ui_state()
+	root_dir := new(Browser_Directory)
+	root_dir.name = str.clone("Root dir")
+	app.browser_selected_dir = root_dir
+	app.browser_root_dir  = root_dir
 	app.audio = audio_init()
 	app.running = true
 	app_hot_reload(app)
-	t := thread.create_and_start(audio_thread_timing_proc, priority = .High)
-	printfln("returned thread value from create_and_start: {}", t^)
 
-	wx, wy: i32
-	sdl.GetWindowSize(app.window, &wx, &wy)
-	drawable_w, drawable_h: i32  
-	sdl.GL_GetDrawableSize(app.window, &drawable_w, &drawable_h)
-	printfln("Window: {}x{}, Drawable: {}x{}, Scale: {}", 
-    wx, wy, drawable_w, drawable_h, f32(drawable_w)/f32(wx))
-	if wx != drawable_w || wy != drawable_h {
-	printfln("Window: {}x{}, Drawable: {}x{}, Scale: {}", 
-    wx, wy, drawable_w, drawable_h, f32(drawable_w)/f32(wx))
-		panic("")
-	}
+	t := thread.create_and_start(audio_thread_timing_proc, priority = .High)
 	return app
 }
 
@@ -216,13 +233,21 @@ app_should_run :: proc() -> bool {
 }
 
 @(export)
+// Trigger a build of the DLL and hot reload it in, keeping existing state.
 app_wants_reload :: proc() -> bool {
 	return app.keys_held[sdl.SCANCODE_F5]
 }
 
 @(export)
+// I.e. fully reset state as if you just launched the app.
+// Won't trigger a rebuild of the DLL.
 app_wants_restart :: proc() -> bool {
-	return app.keys_held[sdl.SCANCODE_F6]
+	return app.keys_held[sdl.SCANCODE_F1]
+}
+
+@(export)
+app_wants_clean_reload :: proc() -> bool {
+	return app.keys_held[sdl.SCANCODE_F7]
 }
 
 @(export)
@@ -253,6 +278,11 @@ app_unload_miniaudio :: proc() {
 }
 
 @(export)
+app_delete :: proc() {
+
+}
+
+@(export)
 app_shutdown :: proc() {
 	free(app.ui_state.quad_vbuffer)
 	free(app.ui_state.quad_vabuffer)
@@ -266,12 +296,8 @@ app_shutdown :: proc() {
 		delete(val.children)
 		free(val)
 	}
-	// for entry in app.ui_state.temp_boxes {
-	// 	free(entry)
-	// }
 	delete_map(app.ui_state.box_cache)
-	// delete(app.ui_state.temp_boxes)
-	sdl.DestroyWindow(app.window)
+	// sdl.DestroyWindow(app.window)
 
 	delete(ui_state.font_state.rendered_glyph_cache)
 	delete(ui_state.font_state.shaped_string_cache)
