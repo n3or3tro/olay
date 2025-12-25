@@ -777,22 +777,28 @@ sizing_calc_fit_children_width :: proc(box: Box) -> int {
 	case .Horizontal:
 		for child in box.children {
 			if child.config.floating_type == .Not_Floating{
-				total += child.width
+				total += child.width + box_get_margin_x_tot(child^)
 			}
 		}
-		total += box.child_layout.gap_horizontal * (num_of_non_floating_children(box) - 1)
+		num_children := num_of_non_floating_children(box)
+		if num_children > 1 {
+			total += box.child_layout.gap_horizontal * (num_children - 1)
+		}
 
 	case .Vertical:
 		widest := 0
 		for child in box.children {
-			if child.config.floating_type == .Not_Floating && child.width > widest {
-				widest = child.width
+			if child.config.floating_type == .Not_Floating {
+				child_total_width := child.width + box_get_margin_x_tot(child^)
+				if child_total_width > widest {
+					widest = child_total_width
+				}
 			}
 		}
 		total = widest
 	}
 
-	total += box.config.padding.left + box.config.padding.right + box.config.margin.left + box.config.margin.right
+	total += box.config.padding.left + box.config.padding.right
 
 	return total
 }
@@ -804,21 +810,26 @@ sizing_calc_fit_children_height :: proc(box: Box) -> int {
 	case .Vertical:
 		for child in box.children {
 			if child.config.floating_type == .Not_Floating {
-				height += child.height
+				height += child.height + box_get_margin_y_tot(child^)
 			}
 		}
 	case .Horizontal:
 		tallest := 0
 		for child in box.children {
-			if child.config.floating_type == .Not_Floating && child.height > tallest {
-				tallest = child.height
+			if child.config.floating_type == .Not_Floating {
+				child_total_height := child.height + box_get_margin_y_tot(child^)
+				if child_total_height > tallest {
+					tallest = child_total_height
+				}
 			}
 		}
 		height = tallest
 	}
-	height += box.child_layout.gap_vertical * (num_of_non_floating_children(box) - 1)
+	num_children := num_of_non_floating_children(box)
+	if num_children > 1 {
+		height += box.child_layout.gap_vertical * (num_children - 1)
+	}
 	height += box.config.padding.top + box.config.padding.bottom
-	height += box.config.margin.top + box.config.margin.bottom
 	return height
 }
 
@@ -1006,7 +1017,7 @@ sizing_calc_percent_width :: proc(box: ^Box) {
 	available_width := box.width - (box.config.padding.left + box.config.padding.right)
 
 	for child in box.children {
-		if child.config.semantic_size.x.type == .Percent && no_layout_conflict(child) {
+		if child.config.floating_type == .Not_Floating && child.config.semantic_size.x.type == .Percent && no_layout_conflict(child) {
 			child.width = int(child.config.semantic_size.x.amount * f32(available_width))
 		}
 	}
@@ -1031,7 +1042,7 @@ sizing_calc_percent_height :: proc(box: ^Box) {
 	// Need to account for child gap too.
 	available_height := box.height - (box.config.padding.top + box.config.padding.bottom)
 	for child in box.children {
-		if child.config.semantic_size.y.type == .Percent && no_layout_conflict(child) {
+		if child.config.floating_type == .Not_Floating && child.config.semantic_size.y.type == .Percent && no_layout_conflict(child) {
 			child.height = int(child.config.semantic_size.y.amount * f32(available_height))
 		}
 	}
@@ -1124,9 +1135,9 @@ position_boxes :: proc(root: ^Box) {
 		prev_sibling: ^Box
 		for child in siblings {
 			if prev_sibling == nil {
-				child.top_left.x = start_x
+				child.top_left.x = start_x + child.config.margin.left
 			} else {
-				child.top_left.x = prev_sibling.bottom_right.x + gap
+				child.top_left.x = prev_sibling.bottom_right.x + prev_sibling.config.margin.right + gap + child.config.margin.left
 			}
 			child.bottom_right.x = child.top_left.x + child.width
 			prev_sibling = child
@@ -1145,7 +1156,7 @@ position_boxes :: proc(root: ^Box) {
 		gap := root.child_layout.gap_horizontal
 		valid_children := non_floating_children(root)
 		for child in valid_children {
-			total_child_width += child.width
+			total_child_width += child.width + box_get_margin_x_tot(child^)
 		}
 		available_width :=
 			root.width -
@@ -1165,20 +1176,20 @@ position_boxes :: proc(root: ^Box) {
 		total_child_raw_width := 0
 		valid_children := non_floating_children(root)
 		for child in valid_children {
-			total_child_raw_width += child.width
+			total_child_raw_width += child.width + box_get_margin_x_tot(child^)
 		}
 		total_child_width := total_child_raw_width + (gap * (len(valid_children) - 1) + padding)
 		start_x := root.bottom_right.x - total_child_width
 		place_siblings_horizontally(root^, valid_children[:], start_x, gap)
 	}
 
-	// Space between all children should equal space between start edge 
+	// Space between all children should equal space between start edge
 	// and first child and end edge and last child.
 	position_horizontally_space_around :: proc(root: ^Box) {
 		total_child_width := 0
 		valid_children := non_floating_children(root)
 		for child in valid_children {
-			total_child_width += child.width
+			total_child_width += child.width + box_get_margin_x_tot(child^)
 		}
 		remaining_space := root.width - total_child_width
 		n_gaps := len(root.children) + 1
@@ -1195,7 +1206,7 @@ position_boxes :: proc(root: ^Box) {
 		total_child_raw_width := 0
 		valid_children := non_floating_children(root)
 		for child in valid_children {
-			total_child_raw_width += child.width
+			total_child_raw_width += child.width + box_get_margin_x_tot(child^)
 		}
 		total_child_width := total_child_raw_width + padding
 		remaining_space := root.width - total_child_width
@@ -1220,8 +1231,9 @@ position_boxes :: proc(root: ^Box) {
 		valid_children := non_floating_children(root)
 		available_width := root.width - (root.config.padding.left + root.config.padding.right)
 		for child in valid_children {
-			half_width_diff := (available_width - child.width) / 2
-			child.top_left.x = root.top_left.x + half_width_diff + root.config.padding.left
+			child_total_width := child.width + box_get_margin_x_tot(child^)
+			half_width_diff := (available_width - child_total_width) / 2
+			child.top_left.x = root.top_left.x + half_width_diff + root.config.padding.left + child.config.margin.left
 			child.bottom_right.x = child.top_left.x + child.width
 		}
 	}
@@ -1229,7 +1241,7 @@ position_boxes :: proc(root: ^Box) {
 	position_horizontally_across_end :: proc(root: ^Box) {
 		valid_children := non_floating_children(root)
 		for child in valid_children {
-			child.bottom_right.x = root.bottom_right.x - root.config.padding.right
+			child.bottom_right.x = root.bottom_right.x - root.config.padding.right - child.config.margin.right
 			child.top_left.x = child.bottom_right.x - child.width
 		}
 	}
@@ -1242,9 +1254,9 @@ position_boxes :: proc(root: ^Box) {
 		prev_sibling: ^Box
 		for child in siblings {
 			if prev_sibling == nil {
-				child.top_left.y = start_y
+				child.top_left.y = start_y + child.config.margin.top
 			} else {
-				child.top_left.y = prev_sibling.bottom_right.y + gap
+				child.top_left.y = prev_sibling.bottom_right.y + prev_sibling.config.margin.bottom + gap + child.config.margin.top
 			}
 			child.bottom_right.y = child.top_left.y + child.height
 			prev_sibling = child
@@ -1264,7 +1276,7 @@ position_boxes :: proc(root: ^Box) {
 		siblings := non_floating_children(root)
 		total_children_height := 0
 		for child in siblings {
-			total_children_height += child.height
+			total_children_height += child.height + box_get_margin_y_tot(child^)
 		}
 		available_height :=
 			root.height -
@@ -1280,17 +1292,17 @@ position_boxes :: proc(root: ^Box) {
 		padding := root.config.padding.top + root.config.padding.bottom
 		total_children_height := 0
 		for child in siblings {
-			total_children_height += child.height
+			total_children_height += child.height + box_get_margin_y_tot(child^)
 		}
 		start_y := root.bottom_right.y - total_children_height
 		place_siblings_vertically(root^, siblings[:], start_y, gap)
 	}
 
-	position_vertically_space_between :: proc(root: ^Box)  { 
+	position_vertically_space_between :: proc(root: ^Box)  {
 		siblings := non_floating_children(root)
 		total_children_height := 0
 		for child in siblings {
-			total_children_height += child.height
+			total_children_height += child.height + box_get_margin_y_tot(child^)
 		}
 		// total_children_height += (len(siblings) - 1) * gap
 		remaining_height := root.height - total_children_height
@@ -1299,17 +1311,17 @@ position_boxes :: proc(root: ^Box) {
 		place_siblings_vertically(root^, siblings[:], start_y, gap)
 	}
 
-	position_vertically_space_around :: proc(root: ^Box)  { 
+	position_vertically_space_around :: proc(root: ^Box)  {
 		siblings := non_floating_children(root)
 		total_children_height := 0
 		for child in siblings {
-			total_children_height += child.height
+			total_children_height += child.height + box_get_margin_y_tot(child^)
 		}
 		remaining_height := root.height - total_children_height
-		// Space between the start edge and first child, between each child and last 
+		// Space between the start edge and first child, between each child and last
 		// child and end edge should all be equal.
 		n_gaps := len(siblings) + 1
-		gap := remaining_height / n_gaps 
+		gap := remaining_height / n_gaps
 		start_y := root.top_left.y + gap
 		place_siblings_vertically(root^, siblings[:], start_y, gap)
 	}
@@ -1319,7 +1331,7 @@ position_boxes :: proc(root: ^Box) {
 	position_vertically_across_start :: proc(root: ^Box) {
 		valid_children := non_floating_children(root)
 		for child in valid_children {
-			child.top_left.y = root.top_left.y + root.config.padding.top
+			child.top_left.y = root.top_left.y + root.config.padding.top + child.config.margin.top
 			child.bottom_right.y = child.top_left.y + child.height
 		}
 	}
@@ -1328,8 +1340,9 @@ position_boxes :: proc(root: ^Box) {
 		valid_children := non_floating_children(root)
 		available_height := root.height - (root.config.padding.top + root.config.padding.bottom)
 		for child in valid_children {
-			half_height_diff := (available_height - child.height) / 2
-			child.top_left.y = root.top_left.y + root.config.padding.top + half_height_diff
+			child_total_height := child.height + box_get_margin_y_tot(child^)
+			half_height_diff := (available_height - child_total_height) / 2
+			child.top_left.y = root.top_left.y + root.config.padding.top + half_height_diff + child.config.margin.top
 			child.bottom_right.y = child.top_left.y + child.height
 		}
 	}
@@ -1337,7 +1350,7 @@ position_boxes :: proc(root: ^Box) {
 	position_vertically_across_end :: proc(root: ^Box) {
 		valid_children := non_floating_children(root)
 		for child in valid_children {
-			child.bottom_right.y = root.bottom_right.y - root.config.padding.bottom
+			child.bottom_right.y = root.bottom_right.y - root.config.padding.bottom - child.config.margin.bottom
 			child.top_left.y = child.bottom_right.y - child.height
 		}
 	}
