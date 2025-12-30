@@ -18,22 +18,6 @@ aprintf	  :: fmt.aprintf
 tprintf	  :: fmt.tprintf
 tprintfln :: fmt.aprintfln
 
-Browser_File :: struct { 
-	// Pseudo GID for sorting and ID shit.
-	id:   int, 
-	name: string,
-	parent: ^Browser_Directory,
-}
-
-Browser_Directory :: struct {
-	name:            string,
-	parent: 		 ^Browser_Directory,
-	sub_directories: [dynamic]Browser_Directory,
-	files:           [dynamic]Browser_File,
-	selected_files:  [2]int, // [start ..= end]
-	collapsed: 		 bool,
-}
-
 App :: struct {
 	char_queue:        		  [128]sdl.Keycode,
 	keys_held:         		  [sdl.NUM_SCANCODES]bool,
@@ -88,18 +72,6 @@ app_update :: proc() -> (all_good: bool) {
 	else {
 		ui_state.context_menu.active = false
 	}
-
-	// We do this here instead of in the 'handle_input()' because handle_input runs at the start of the frame,
-	// but this data needs to exist for the lifetime of the frame.
-
-	// if !app.mouse.left_pressed {
-	// 	ui_state.dragged_box = nil
-	// 	// Might want to shrink it if we're dragging around huge data one time,
-	// 	// and then never again...
-	// 	clear(&ui_state.dropped_data)
-	// }
-
-
 
 	rect_render_data := make([dynamic]Rect_Render_Data, context.temp_allocator)
 	collect_render_data_from_ui_tree(&rect_render_data)

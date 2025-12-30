@@ -1,0 +1,31 @@
+- Spent a bunch of timing fucking around with the file browser only to realise, 
+  I don't really want a drag and drop file manager inside the app. It should only
+  display folders that you choose to import. And you can drag a file into your project
+  that's basically it. More of a file viewer than a file manager.
+
+- So:
+    - Now I need to make sure my file dialogue stuff can handle filtering out only directories
+    from the native file explorer, importing it, getting the path of the chose directory(s) and 
+    their child files.
+    - Then basically just rendering that tree in our view.
+
+My file browser will respect the heiarachy of the system, so if you import one folder, and then 
+later import some upper level folder, it will automatically pull the original folder into the parent folder
+so only folders in the same level of the file heiarchy will be shown.
+
+OR maybe I can spin off an independant sound / sample manager and have a way to easilly drag and drop
+it into the main application window. 
+
+Would be a good test of the UI system.
+
+
+
+Also, I don't want to spend too much time working on the specific UI for the tracker, the goal here is a 
+cutting edge extremely useful UI library / system, the tracker UI is just a sample project to test the UI. 
+
+My blog posts will mostly focus on the UI library, but I do need a reasonable semblance of a working application
+before I can do things like meaningfully profile, etc, and blog about it, even if the focus is on the underlying
+UI library.
+
+I should also start to think about a secondary application that I want to build that will force me to figure out how 
+I will decouble the existing core UI layers.

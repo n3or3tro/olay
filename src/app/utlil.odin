@@ -99,3 +99,17 @@ box_get_margin_x_tot :: proc(box: Box) -> int {
 box_get_margin_y_tot :: proc(box: Box) -> int { 
 	return box.config.margin.top + box.config.margin.bottom
 }
+
+
+panicf :: proc(fmt_string: string, args: ..any, newline := false) -> string {
+	panic(tprintf(fmt_string, args, newline))
+}
+
+index_of :: proc(list: []$T, item: ^T) -> (index: int, found: bool) {
+	for &el, i in list { 
+		if &el == item {
+			return i, true
+		}
+	}
+	return -1, false
+}

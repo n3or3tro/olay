@@ -492,7 +492,10 @@ vertical_slider :: proc(
 		id("{}-grip", get_id_from_id_string(id_string)),
 		{.Clickable, .Draggable, .Draw, .Hot_Animation},
 		{
-			semantic_size   = {{.Percent, 0.9}, {.Percent, 0.1}},
+			semantic_size   = {{.Percent, 0.8}, {.Percent, 0.1}},
+			// min_size = {20, 20},
+			// max_size = {50, 50},
+			// semantic_size   = {{.Fixed, 50}, {.Fixed, 50}},
 			color           = .Tertiary,
 			floating_type   = .Relative_Parent,
 			floating_offset = {0.5, map_range(min_val, max_val, 0, 1, slider_value^)},
@@ -500,6 +503,7 @@ vertical_slider :: proc(
 			edge_softness   = 2,
 		},
 	)
+	// println("created grip :) ")
 	grip_signals := box_signals(grip)
 	if grip_signals.box == ui_state.dragged_box { 
 		mouse_y := f32(app.mouse.pos.y)
@@ -781,6 +785,7 @@ circular_knob :: proc(
             corner_radius = 5,
         },
     )
+
     // Handle input...
 }
 

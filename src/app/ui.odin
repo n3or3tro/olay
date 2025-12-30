@@ -93,7 +93,9 @@ UI_State :: struct {
 // These are all the types of data that can be dropped on items that are drag-and-drop
 // enabled.
 Drop_Data :: union {
-	Browser_File,
+	// Browser_File,
+	// Browser_Directory,
+	Metadata_Browser_Item,
 	string,
 	int,
 	f32,
@@ -294,15 +296,20 @@ create_ui :: proc() -> ^Box {
 
 	ui_state.changed_ui_screen = false
 
-	root := child_container("root@root", {
+	root := child_container(
+		"root@root", 
+		{
 			semantic_size = {{.Fixed, f32(app.wx)}, {.Fixed, f32(app.wy)}},
 			// color = .Inactive,
-		}, {direction = .Vertical}, {.Draw}).box
+		}, 
+		{direction = .Vertical}, 
+		{.Draw}
+	).box
+
 	ui_state.root = root
 
-	topbar()
-
 	if ui_state.tab_num == 0 {
+		topbar()
 		audio_tracks: {
 			child_container(
 				"@all-tracks-container",
@@ -313,17 +320,72 @@ create_ui :: proc() -> ^Box {
 						{.Fixed, f32(app.wy - TOPBAR_HEIGHT)},
 					},
 				},
-				{direction = .Horizontal, gap_horizontal = 3},
+				{
+					direction      = .Horizontal,
+					gap_horizontal = 3,
+				},
 			)
 
 			for track, i in app.audio.tracks {
 				audio_track(i, 160)
 			}
 		}
-		if text_button("+@add-track-button", {floating_type = .Center_Right, padding = {10, 10, 10, 10}, border = 2, semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}}, color = .Warning}).clicked {
+		// {
+		// 	child_container(
+		// 		"@fasdflaksjsomethingsomethingd",
+		// 		{
+		// 			semantic_size = {{.Fixed, 200}, {.Fixed, 90}},
+		// 			color         = .Secondary,
+		// 			floating_type = .Relative_Root,
+		// 			floating_offset = {0.5, 0.5}
+		// 		},
+		// 		{
+		// 			alignment_horizontal = .Center,
+		// 			alignment_vertical   = .Center,
+		// 			direction            = .Horizontal,
+		// 		},
+		// 		{.Draw},
+		// 	)		
+		// 	text_button(
+		// 		"hey@lllll",
+		// 		{
+		// 			color         = .Primary,
+		// 			semantic_size = {{.Fit_Text_And_Grow, 1}, {.Fit_Text_And_Grow, 1}},
+		// 		},
+		// 	)
+
+		// 	text_button(
+		// 		"mate@aaaaa",
+		// 		{
+		// 			color         = .Tertiary,
+		// 			semantic_size = {{.Fit_Text_And_Grow, 1}, {.Fit_Text_And_Grow, 10}},
+		// 		},
+		// 	)
+
+		// 	text_button(
+		// 		"baby@bbbbbbb",
+		// 		{
+		// 			color         = .Warning,
+		// 			semantic_size = {{.Fit_Text_And_Grow, 1}, {.Fit_Text_And_Grow, 10}},
+		// 		},
+		// 	)
+		// }
+		if text_button("+@add-track-button",
+			{
+				floating_type = .Center_Right,
+				padding       = {10, 10, 10, 10},
+				border        = 2,
+				semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}},
+				color         = .Warning,
+			},
+  		).clicked 
+		{
 			track_add_new(app.audio)
 		}
-	} else {
+
+	}
+	else {
+		topbar()
 		multi_button_set(
 			"@test-radio-buttons",
 			{semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}}},
@@ -332,14 +394,43 @@ create_ui :: proc() -> ^Box {
 			[]int{8, 2, 10, 14, 27, 4242, 23423, 123, 4747},
 		)
 		child_container(
-			"@fasdflaksjd",
-			{semantic_size = {{.Fixed, 300}, {.Fixed, 100}}, color = .Inactive},
-			{alignment_horizontal = .Center, alignment_vertical = .Center, direction = .Horizontal},
+			"@fasdflaksjsomethingsomethingd",
+			{
+				semantic_size = {{.Fixed, 200}, {.Fixed, 60}},
+				color         = .Inactive,
+			},
+			{
+				alignment_horizontal = .Center,
+				alignment_vertical   = .Center,
+				direction            = .Horizontal,
+			},
 			{.Draw},
 		)
-		text_button("hey@lllll", {color = .Primary, semantic_size = {{.Grow, 1}, {.Grow, 10}}})
-		text_button("there@aaaaa", {color = .Primary, semantic_size = {{.Grow, 1}, {.Grow, 10}}})
-		text_button("baby@bbbbbbb", {color = .Primary, semantic_size = {{.Grow, 1}, {.Grow, 10}}})
+
+		text_button(
+			"hey@lllll",
+			{
+				color         = .Primary,
+				semantic_size = {{.Fit_Text_And_Grow, 1}, {.Fit_Text_And_Grow, 1}},
+			},
+		)
+
+		text_button(
+			"mate@aaaaa",
+			{
+				color         = .Tertiary,
+				semantic_size = {{.Fit_Text_And_Grow, 1}, {.Fit_Text_And_Grow, 10}},
+				margin = {left = 30},
+			},
+		)
+
+		text_button(
+			"baby@bbbbbbb",
+			{
+				color         = .Primary,
+				semantic_size = {{.Fit_Text_And_Grow, 1}, {.Fit_Text_And_Grow, 10}},
+			},
+		)
 	}
 
 	if ui_state.context_menu.active {
@@ -371,25 +462,45 @@ create_ui :: proc() -> ^Box {
 		child_container(
 			"@helper-text-bottom-right",
 			{
-				semantic_size = Size_Fit_Children,
-				color = .Surface_Variant,
-				floating_type = .Relative_Parent,
+				semantic_size       = Size_Fit_Children,
+				color               = .Surface_Variant,
+				floating_type       = .Relative_Parent,
 				floating_anchor_box = ui_state.root,
-				floating_offset = {1, 1},
+				floating_offset     = {1, 1},
 			},
-			{direction = .Vertical, alignment_horizontal = .Start, gap_vertical = 5},
+			{
+				direction            = .Vertical,
+				alignment_horizontal = .Start,
+				gap_vertical         = 5,
+			},
 		)
+
 		text(
-			"F5 -> Hot reload DLL, keep data@helper-text-1",
-			{color = .Secondary, text_justify = {.Start, .Center}, semantic_size = Size_Fit_Text},
+		"F5 -> Hot reload DLL, keep data@helper-text-1",
+			{
+				color         = .Warning_Container,
+				text_justify  = {.Start, .Center},
+				semantic_size = Size_Fit_Text,
+			},
 		)
+
 		text(
-			"F3 -> Hot reload DLL, clear data@helper-text-1",
-			{color = .Secondary, text_justify = {.Start, .Center}, semantic_size = Size_Fit_Text},
+			"F3 -> Hot reload DLL, clear data@helper-text-2",
+			{
+				color         = .Warning_Container,
+				text_justify  = {.Start, .Center},
+				semantic_size = Size_Fit_Text,
+			},
 		)
+
 		text(
-			"F1 -> Restart, keep DLL, clear data@helper-text-1",
-			{color = .Secondary, text_justify = {.Start, .Center}, semantic_size = Size_Fit_Text},
+		"F1 -> Restart, keep DLL, clear data@helper-text-3",
+			{
+			color         = .Warning_Container,
+			text_justify  = {.Start, .Center},
+			margin = {bottom = 5},
+			semantic_size = Size_Fit_Text,
+			},
 		)
 	}
 	// animation_update_all()

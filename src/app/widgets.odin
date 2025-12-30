@@ -385,212 +385,7 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 	return Track_Signals{step_signals, {}}
 }
 
-file_browser_menu :: proc() {
-	child_container(
-		"@file-browser-container",
-		{
-			semantic_size 	= {{.Fit_Children, 1}, {.Fit_Children, 1}},
-			color 			= .Primary_Container,
-			padding 		= {bottom = 5},
-			z_index 		= 10,
-		},
-		{direction = .Vertical},
-		{.Draw}
-	)
 
-	top_menu: {
-		child_container(
-			"@file-browser-options-container",
-			{
-				semantic_size 	= Size_Fit_Children_And_Grow,
-				padding 		= padding(10),
-				color 			= .Tertiary,
-			},
-			{direction = .Horizontal, alignment_horizontal = .Center, alignment_vertical = .Center},
-		)
-		btn_config := Box_Config {
-			color 			 = .Secondary,
-			border			 = 3,
-			padding          = {10, 10, 10, 10},
-			// semantic_size    = Size_Fit_Text_And_Grow,
-			semantic_size    = {{.Fit_Text, 1}, {.Fit_Text_And_Grow, 1}},
-			corner_radius    = 0,
-		}
-		load := text_button("Add Files@browser-options-folder-button", btn_config)
-		sort_files := text_button("Sort@browser-options-sort-button", btn_config)
-		flip := text_button("Flip@browser-options-flip-button", btn_config)
-		box_from_cache("@filler-hehe-mwahaha", {},  {semantic_size = Size_Grow})
-		add_folder := text_button("Add Folder@browser-options-add-folder", btn_config)
-
-		if load.clicked {
-			res, ok := file_dialog_windows(true, context.temp_allocator)
-			if !ok {
-				// panic(
-				println(
-					"File dialogue failure, either:\n- Failed to open dialogue.\n- Failed to return files from dialogue.",
-				)
-			}
-			for path in res {
-				path_string := str.clone_from_cstring(path)
-				file := Browser_File { 
-					name   = path_string, 
-					parent = app.browser_selected_dir,
-					id 	   = int(rand.int63())
-				}
-				append(&app.browser_selected_dir.files, file)
-			}
-		}
-
-		if add_folder.clicked {
-			name := str.clone(tprintf("new_dir_{}", rand.int31()))
-			new_folder := Browser_Directory {
-				// Not sure why, but if I don't clone this string, shit breaks and it doesn't dispaly properly.
-				name = name
-			}
-			new_folder.parent = app.browser_selected_dir
-			append(&app.browser_selected_dir.sub_directories, new_folder)
-			printfln("added {} to {}", new_folder.name, app.browser_selected_dir.name)
-		}
-
-		if sort_files.clicked {
-			// --- Don't think this sorting actually changes anything.
-			// sort.quick_sort(app.browser_selected_dir.files[:])
-		}
-	}
-
-	files_and_folders: {
-		child_container(
-			"@browser-subdirs-container",
-			{
-				semantic_size = Size_Fit_Children, 
-				color = .Surface,
-				padding = {5,5,5,0}
-			},
-			{
-				direction = .Vertical,
-				gap_vertical = 0,
-			},
-		)
-
-		create_subdirs_files :: proc(dir: ^Browser_Directory, level: int) {
-			// Create folder part.
-			// Will have ID collision if 2 folders are named the same thing.
-			
-			{
-									// Indentation padding.
-				// box_from_cache(
-				// 	tprintf("{}", rand.int63()), 
-				// 	{},
-				// 	{
-				// 		semantic_size = {{.Fixed, f32(3 * level), }, {.Fixed, 5}},
-				// 	}
-				// )
-				child_container(
-					id("@{}-dispaly-container", dir.name),
-					{
-						semantic_size = Size_Fit_Children_And_Grow,
-						padding = {left = 5 * level}
-					},
-					{
-						gap_horizontal = 1
-					}
-				)
-				arrow_name := dir.collapsed ? ">" : "v"
-				arrow_box := text_button(
-					id("{}@{}-arrow_box", arrow_name, dir.name),
-					{ 
-						semantic_size = {{.Fit_Text, 1}, {.Fit_Text_And_Grow, 1}},
-						color = app.browser_selected_dir != dir ? .Secondary_Container : .Warning,
-						text_justify = {.Start, .Center},
-						padding = padding(5),
-					},
-				)
-				if arrow_box.clicked { 
-					dir.collapsed = !dir.collapsed
-				}
-				dir_box := text_button(
-					id("Folder: {}@browser-folder-{}", dir.name, dir.name), 
-					{
-						border = 1,
-						color = app.browser_selected_dir != dir ? .Secondary_Container : .Warning,
-						semantic_size = Size_Fit_Text_And_Grow,
-						text_justify = {.Start, .Center},
-						padding = padding(5),
-					},
-					{.Drag_Drop_Sink}
-				)	
-
-				if dir_box.clicked {
-					dir_box.box.selected = !dir_box.box.selected
-					app.browser_selected_dir = dir
-				}
-
-				handle_drop: if dir_box.dropped_on {
-					if len(ui_state.dropped_data) > 0 { 
-						drop_data := pop(&ui_state.dropped_data)
-						// Linear searching will become inefficient when a folder has ALOT of child files.
-						if dropped_file, ok := drop_data.(Browser_File); ok {
-							if dropped_file.parent == dir do break handle_drop
-							for file, idx in dropped_file.parent.files {
-								if file.id == dropped_file.id {
-									ordered_remove(&dropped_file.parent.files, idx)
-									break
-								}
-							}
-							dropped_file.parent = dir
-							append_elem(&dir.files, dropped_file)	
-						} else {
-							printfln("Tried to drop {} into folder, which can't happen", drop_data)
-						}
-					}
-				}
-			}
-
-			if !dir.collapsed {
-				// Can see having issues with the index being in the id here.
-				for file, i in dir.files {
-					file_entry := text_button(
-						id("{}@browser-file-{}-{}", file.name, i, file.name),
-						{
-							semantic_size = Size_Fit_Text_And_Grow,
-							padding = padding(5),
-							margin = {left = 5 * (level + 1)},
-							corner_radius = 4,
-							text_justify = {.Start, .Center},
-							color = .Surface
-						},
-						{.Hot_Animation, .Clickable, .Drag_Drop_Source}
-					)
-
-					if file_entry.box == ui_state.dragged_box {
-						// Pretty inefficient if you have more a long list
-						if !slice.contains(ui_state.dropped_data[:], file) {
-							append(&ui_state.dropped_data, file)
-						}
-					}
-
-					if file_entry.clicked {
-						file_entry.box.selected = !file_entry.box.selected
-					}
-
-					if file_entry.shift_clicked {
-						siblings := box_get_siblings(file_entry.box^, context.temp_allocator)
-						println(siblings)
-					}
-
-					if file_entry.box.selected {
-						file_entry.box.config.color = .Primary
-					}
-				}
-                for &subdir in dir.sub_directories {
-                    create_subdirs_files(&subdir, level + 1)
-                }
-			}
-		}
-
-		create_subdirs_files(app.browser_root_dir, 0)
-	}
-}
 
 equalizer_8 :: proc(id_string: string, track_num: int) {
 	eq_state := &app.audio.tracks[track_num].eq
@@ -1175,6 +970,38 @@ context_menu :: proc() {
 		}
 	}
 
+	file_browser_context_menu :: proc(box: ^Box) { 
+		config := Box_Config {
+			semantic_size = Size_Fit_Text_And_Grow,
+			text_justify = {.Start, .Center},
+			padding = padding(5),
+		}
+		config.color = .Secondary_Container
+		edit := text_button(
+			"Edit name@ctx-menu-file-edit-name",
+			config,
+		)
+		
+		config.color = .Error_Container
+		delete := text_button(
+			"Delete@ctx-menu-file-delete",
+			config,
+		)
+		if delete.clicked {
+			metadata := box.metadata.(Metadata_Browser_Item)
+			if metadata.is_dir {
+				// file_browser_delete_dir(metadata.dir_data)
+			} else {
+				// file_browser_delete_file(metadata.file_data)
+			}
+		}
+	}
+
+	if ui_state.right_clicked_on.disabled { 
+		println("right clicked on a disabled box")
+		return
+	}
+
 	context_menu_container := child_container(
 		"@context-menu",
 		{
@@ -1191,10 +1018,7 @@ context_menu :: proc() {
 		{.Draw}
 	)
 
-	if ui_state.right_clicked_on.disabled { 
-		println("right clicked on a disabled box")
-		return
-	}
+
 	switch metadata in ui_state.right_clicked_on.metadata {
 	case Metadata_Track_Step:
 		track_steps_context_menu(ui_state.right_clicked_on)
@@ -1203,6 +1027,8 @@ context_menu :: proc() {
 			"Context menu not implemented for this box type @ alskdjfalskdjfladf",
 			{semantic_size = Size_Fit_Text},
 		)
+	case Metadata_Browser_Item:
+		file_browser_context_menu(ui_state.right_clicked_on)
 	case Metadata_Sampler:
 		text(
 			"Context menu not implemented for this box type @ alskdaajfalskdjfladf",
@@ -1242,7 +1068,7 @@ set_nth_child_select :: proc(track_num, nth: int, selected: bool) {
 		case Metadata_Track_Step:
 			if metadata.track != track_num do continue
 			if metadata.step % nth == 0 do box.selected = selected
-		case Metadata_Track, Metadata_Sampler:
+		case Metadata_Track, Metadata_Sampler, Metadata_Browser_Item:
 			panic("set_nth_child() should only be called on box with Metadata_Track_Step")
 		}
 	}

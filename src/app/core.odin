@@ -153,10 +153,17 @@ Metadata_Sampler :: struct {
 	track_num : int,
 }
 
+Metadata_Browser_Item :: struct { 
+	is_dir:  bool,
+	dir_id:  int,
+	file_id: int,
+}
+
 Box_Metadata :: union {
 	Metadata_Track_Step,
 	Metadata_Track,
 	Metadata_Sampler,
+	Metadata_Browser_Item
 }
 
 Box_Flag :: enum {
@@ -326,15 +333,16 @@ box_make :: proc(id_string: string, flags: Box_Flags, config: Box_Config, alloca
 	box.keep = true
 	box.z_index = config.z_index
 	box.fresh = true
-	if box.parent != nil { 
-		if !(.Ignore_Parent_Disabled in box.flags) { 
+	if box.parent != nil {
+		if !(.Ignore_Parent_Disabled in box.flags) {
 			box.disabled = box.parent.disabled
 		}
 	}
+	box_clamp_to_constraints(box)
 	return box
 }
 
-box_from_cache :: proc(id_string: string, flags: Box_Flags, config: Box_Config) -> ^Box {
+box_from_cache :: proc(id_string: string, flags: Box_Flags, config: Box_Config, metadata := Box_Metadata{}) -> ^Box {
 	box: ^Box
 	is_new: bool
 	key := get_id_from_id_string(id_string)
@@ -386,6 +394,7 @@ box_from_cache :: proc(id_string: string, flags: Box_Flags, config: Box_Config) 
 			}
 		}
 		clear(&box.children)
+		box_clamp_to_constraints(box)
 	} else {
 		is_new = true
 		new_box := box_make(id_string, flags, config)
@@ -410,6 +419,7 @@ box_from_cache :: proc(id_string: string, flags: Box_Flags, config: Box_Config) 
 			box.disabled = box.parent.disabled
 		}
 	}
+	box.metadata = metadata
 	return box
 }
 
@@ -444,6 +454,8 @@ box_regular_close_children :: proc(signals: Box_Signals) {
 	if size.y.type == .Fit_Children || size.y.type == .Fit_Children_And_Grow {
 		box.height = sizing_calc_fit_children_height(box^)
 	}
+
+	box_clamp_to_constraints(box)
 
 	pop(&ui_state.parents_stack)
 	curr_len := len(ui_state.parents_stack)
@@ -840,15 +852,17 @@ recalc_fit_children_sizing :: proc(box: ^Box) {
         recalc_fit_children_sizing(child)
     }
 
-	x_size_type := box.config.semantic_size.x.type 
+	x_size_type := box.config.semantic_size.x.type
     if x_size_type == .Fit_Children || x_size_type == .Fit_Children_And_Grow {
         box.width = sizing_calc_fit_children_width(box^)
     }
 
-	y_size_type := box.config.semantic_size.y.type 
+	y_size_type := box.config.semantic_size.y.type
     if y_size_type == .Fit_Children || y_size_type == .Fit_Children_And_Grow {
         box.height = sizing_calc_fit_children_height(box^)
     }
+
+	box_clamp_to_constraints(box)
 }
 
 @(private = "file")
@@ -860,6 +874,25 @@ num_of_non_floating_children :: proc(box: Box) -> int {
 		}
 	}
 	return tot
+}
+
+// Clamps box dimensions to respect min_size and max_size constraints
+box_clamp_to_constraints :: proc(box: ^Box) {
+	// Clamp width
+	if box.config.min_size.x > 0 {
+		box.width = max(box.width, box.config.min_size.x)
+	}
+	if box.config.max_size.x > 0 {
+		box.width = min(box.width, box.config.max_size.x)
+	}
+
+	// Clamp height
+	if box.config.min_size.y > 0 {
+		box.height = max(box.height, box.config.min_size.y)
+	}
+	if box.config.max_size.y > 0 {
+		box.height = min(box.height, box.config.max_size.y)
+	}
 }
 
 // Assumes boxes size is already calculated and we expand it's children to fill the space.
@@ -905,6 +938,7 @@ sizing_grow_growable_width :: proc(box: ^Box) {
 				child_tot_width := child.width + box_get_margin_x_tot(child^)
 				if  child_tot_width == smallest {
 					child.width += width_increase
+					box_clamp_to_constraints(child)
 					remaining_width -= width_increase
 					sizing_calc_percent_width(child)
 				}
@@ -916,9 +950,10 @@ sizing_grow_growable_width :: proc(box: ^Box) {
 			if child.config.floating_type != .Not_Floating {
 				continue
 			}
-			size_type := child.config.semantic_size.x.type 
+			size_type := child.config.semantic_size.x.type
 			if size_type == .Grow || size_type == .Fit_Text_And_Grow  || size_type == .Fit_Children_And_Grow {
 				child.width += growable_amount - (child.width + box_get_margin_x_tot(child^))
+				box_clamp_to_constraints(child)
 				sizing_calc_percent_width(child)
 			}
 		}
@@ -962,16 +997,23 @@ sizing_grow_growable_height :: proc(box: ^Box) {
 			}
 			// Have to check the logic here is correct.
 			if len(growable_children) == 0 {
+				// return <--- this was causing the recursion at the bottom of this function to not run
+							// that recursion HAS to run. 
 				return
+				// break
 			}
 			height_increase = min(height_increase, remaining_height / len(growable_children))
 			if height_increase == 0 {
+				// return <--- this was causing the recursion at the bottom of this function to not run
+							// that recursion HAS to run. 
 				return
+				// break
 			}
 			for child in growable_children {
 				child_tot_height := child.height + box_get_margin_y_tot(child^)
 				if child_tot_height == smallest {
 					child.height += height_increase
+					box_clamp_to_constraints(child)
 					remaining_height -= height_increase
 					// Since sizing_calc_percent_height in ui.odin runs before
 					// we calculate grow sizing, any box with size .grow and whose child is
@@ -989,6 +1031,7 @@ sizing_grow_growable_height :: proc(box: ^Box) {
 			size_type := child.config.semantic_size.y.type
 			if size_type == .Grow || size_type == .Fit_Text_And_Grow || size_type == .Fit_Children_And_Grow {
 				child.height += growable_amount - (child.height + box_get_margin_y_tot(child^))
+				box_clamp_to_constraints(child)
 				sizing_calc_percent_height(child)
 			}
 		}
@@ -1017,8 +1060,10 @@ sizing_calc_percent_width :: proc(box: ^Box) {
 	available_width := box.width - (box.config.padding.left + box.config.padding.right)
 
 	for child in box.children {
-		if child.config.floating_type == .Not_Floating && child.config.semantic_size.x.type == .Percent && no_layout_conflict(child) {
+		// if child.config.floating_type == .Not_Floating && child.config.semantic_size.x.type == .Percent && no_layout_conflict(child) {
+		if child.config.semantic_size.x.type == .Percent && no_layout_conflict(child) {
 			child.width = int(child.config.semantic_size.x.amount * f32(available_width))
+			box_clamp_to_constraints(child)
 		}
 	}
 	for child in box.children {
@@ -1042,8 +1087,10 @@ sizing_calc_percent_height :: proc(box: ^Box) {
 	// Need to account for child gap too.
 	available_height := box.height - (box.config.padding.top + box.config.padding.bottom)
 	for child in box.children {
-		if child.config.floating_type == .Not_Floating && child.config.semantic_size.y.type == .Percent && no_layout_conflict(child) {
+		// if child.config.floating_type == .Not_Floating && child.config.semantic_size.y.type == .Percent && no_layout_conflict(child) {
+		if child.config.semantic_size.y.type == .Percent && no_layout_conflict(child) {
 			child.height = int(child.config.semantic_size.y.amount * f32(available_height))
+			box_clamp_to_constraints(child)
 		}
 	}
 	for child in box.children {
