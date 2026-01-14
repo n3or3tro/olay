@@ -16,6 +16,15 @@ file_dialog :: proc(multiselect: bool) -> ([dynamic]cstring, bool) {
 	}
 }
 
+// folder_dialog :: proc(multiselect: bool) -> ([dynamic]cstring, bool) {
+// 	when ODIN_OS == .Windows {
+// 		return folder_dialog_windows(multiselect)
+// 	} else {
+// 		return folder_dialog_linux(multiselect)
+// 	}
+// }
+
+
 when ODIN_OS == .Linux {
 	file_dialog_linux :: proc(multiselect: bool = false) -> ([dynamic]cstring, bool) {
 		paths := make([dynamic]cstring)
@@ -52,6 +61,65 @@ when ODIN_OS == .Linux {
 }
 
 when ODIN_OS == .Windows {
+	folder_dialog_windows :: proc(allocator := context.allocator) -> (path: [dynamic]string, ok: bool) {
+		dialog: ^windows.IFileOpenDialog
+		hr := windows.CoCreateInstance(
+			windows.CLSID_FileOpenDialog,
+			nil,
+			windows.CLSCTX_INPROC_SERVER,
+			windows.IID_IFileOpenDialog,
+			cast(^rawptr)&dialog,
+		)
+		if windows.FAILED(hr) {
+			panic("failed 2")
+			// return "", false
+		}
+		defer dialog.Release(dialog)
+
+		options: u32
+		dialog.GetOptions(dialog, &options)
+		dialog.SetOptions(
+			dialog,
+			options | windows.FOS_PICKFOLDERS | windows.FOS_FORCEFILESYSTEM | windows.FOS_ALLOWMULTISELECT,
+		)
+
+		res: [dynamic]string
+		hr = dialog.Show(dialog, nil)
+		if windows.FAILED(hr) {
+			// Most likely you're in this conditional because the user closed the dialog
+			// without selecting any file.
+			return res, false
+		}
+
+		items: ^windows.IShellItemArray
+		hr = dialog.GetResults(dialog, &items)
+		if windows.FAILED(hr) {
+			panic("GetResults failed")
+		}
+		defer items.Release(items)
+
+		count: u32
+		items.GetCount(items, &count)
+		for i in 0 ..< count {
+			item: ^windows.IShellItem
+			hr = items.GetItemAt(items, i, &item)
+			if windows.FAILED(hr) {
+				continue
+			}
+			defer item.Release(item)
+
+			wpath: windows.LPWSTR
+			hr = item.GetDisplayName(item, windows.SIGDN.FILESYSPATH, &wpath)
+			if windows.SUCCEEDED(hr) {
+				res_as_cstring16 := transmute(cstring16)wpath
+				s := fmt.tprintf("%s", res_as_cstring16)
+				append(&res, s)
+				windows.CoTaskMemFree(wpath)
+			}
+		}
+		return res, true
+	}
+
 	file_dialog_windows :: proc(
 		multiselect: bool = false,
 		allocator := context.allocator,

@@ -354,6 +354,7 @@ box_from_cache :: proc(id_string: string, flags: Box_Flags, config: Box_Config, 
 		box.flags = flags
 		box.config = config
 		box.z_index = config.z_index
+		// Label is recreated each frame, so it's temp allocated.
 		box.label = get_label_from_id_string(id_string)
 
 		// Boxes with fixed sizing have their size set upon creation, so if we're retrieving a box from the cache

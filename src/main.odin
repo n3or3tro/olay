@@ -30,7 +30,7 @@ COLOR_FILE_PATH :: "util/dark-theme.json"
 
 App_API :: struct {
 	create:            		 proc() -> ^app.App,
-	init:              		 proc(),
+	init:              		 proc(first_run: bool = true),
 	init_window:       		 proc(),
 	create_gl_context: 		 proc(),
 	load_gl_procs:     		 proc(),
@@ -40,8 +40,8 @@ App_API :: struct {
 	memory_size:       		 proc() -> int,
 	should_run:        		 proc() -> bool,
 	wants_reload:      		 proc() -> bool,
-	wants_clean_reload:      proc() -> bool,
 	wants_restart:     		 proc() -> bool,
+	reset_state:			 proc(),
 	hot_reload:        		 proc(mem: rawptr) -> bool,
 	shutdown:          		 proc(),
 	reload_colors:     		 proc(mem: rawptr, color_file_path: string),
@@ -50,7 +50,6 @@ App_API :: struct {
 	version:           		 int,
 	lib:               		 dynlib.Library,
 }
-
 
 when PROFILING {
 	spall_ctx: spall.Context
@@ -87,6 +86,7 @@ main :: proc() {
 		run_release_mode()
 	}
 }
+niggas thought kdot real life is the same life they see on tb huh
 
 run_release_mode :: proc() {
 	when ODIN_DEBUG {
@@ -154,21 +154,19 @@ run_hot_reload_mode :: proc() {
 	api.init()
 	for {
 		if api.wants_restart() {
-			println("Restating app...")
+			println("restarting app...")
 			api.unload_miniaudio()
-			api.shutdown()
-			new_app_state := api.create()
-			api.init()
+			api.reset_state()
+			api.init(first_run=false)
 			api.load_gl_procs()
 		}
 		if should_reload() || api.wants_reload() {
-			println("unloading miniaudio")
 			api.unload_miniaudio()
-			println("done unloading miniaudio")
 			old_mem := api.memory()
 			load_dll()
 			api.hot_reload(old_mem)
 			api.load_gl_procs()
+			println("hot reloaded, kept state")
 		}
 		if should_reload_colors() { 
 			time.sleep(time.Millisecond * 100)
@@ -185,15 +183,9 @@ run_hot_reload_mode :: proc() {
 		}
 		if api.wants_reload() {
 		}
-		if api.wants_restart() {
-			app_mem := api.create()
-			api.init()
-			api.hot_reload(app_mem)
-		}
 	}
 	println("running shutdown code")
 	api.shutdown()
-	println("shutdown code run")
 }
 
 // Calling dynlib.initiazlize_symbols, unloads the old dll, so you don't have to manually unload.
@@ -203,10 +195,8 @@ load_dll :: proc() {
 	for i in 0 ..< 20 {
 		copy_err := os.copy_file(new_dll_path, DLL_PATH)
 		if copy_err != io.Error.None {
-			printfln("Failed copying {} to {}.", DLL_PATH, new_dll_path)
 			time.sleep(time.Millisecond * 200)
 		} else {
-			printfln("Success! In copying {} to {}.", DLL_PATH, new_dll_path)
 			break
 		}
 		if i == 19 {
@@ -217,10 +207,8 @@ load_dll :: proc() {
 	for i in 0 ..< 20 {
 		count, ok := dynlib.initialize_symbols(&api, new_dll_path, "app_", "lib")
 		if !ok {
-			printfln("Failed copying fetchng symbols {}\n{}", new_dll_path, dynlib.last_error())
 			time.sleep(time.Millisecond * 200)
 		} else {
-			printfln("Success fetching symbols")
 			break
 		}
 		if i == 19 {

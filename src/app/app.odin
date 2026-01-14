@@ -7,6 +7,7 @@ import "core:time"
 import gl "vendor:OpenGL"
 import sdl "vendor:sdl2"
 import str "core:strings"
+import "core:sys/windows"
 
 PROFILING :: #config(profile, false)
 
@@ -32,6 +33,7 @@ App :: struct {
 	browser_root_dir:  		  ^Browser_Directory,
 	browser_selected_dir:     ^Browser_Directory,
 	running:           		  bool,
+	windows_com_handle:		  windows.HRESULT
 }
 
 Window :: sdl.Window
@@ -119,7 +121,7 @@ app_update :: proc() -> (all_good: bool) {
 }
 
 @(export)
-app_init :: proc() -> ^App {
+app_init :: proc(first_run := true) -> ^App {
 	app.ui_state = new(UI_State)
 	ui_state = app.ui_state
 	ui_state.parents_stack = make([dynamic]^Box)
@@ -133,6 +135,16 @@ app_init :: proc() -> ^App {
 	app_hot_reload(app)
 
 	t := thread.create_and_start(audio_thread_timing_proc, priority = .High)
+	// This a per thread thing that will persist across hot reloads, so we set it up once only
+	when ODIN_OS == .Windows {
+		if first_run {
+			hr := windows.CoInitializeEx(nil, windows.COINIT.APARTMENTTHREADED)
+			if !windows.SUCCEEDED(hr) {
+				panic("failed 1")
+			}
+			app.windows_com_handle = hr
+		}
+	}
 	return app
 }
 
@@ -217,10 +229,6 @@ app_wants_restart :: proc() -> bool {
 	return app.keys_held[sdl.SCANCODE_F1]
 }
 
-@(export)
-app_wants_clean_reload :: proc() -> bool {
-	return app.keys_held[sdl.SCANCODE_F7]
-}
 
 @(export)
 app_hot_reload :: proc(mem: rawptr) {
@@ -255,10 +263,15 @@ app_delete :: proc() {
 }
 
 @(export)
-app_shutdown :: proc() {
+app_reset_state :: proc() {
+	app.char_queue 		  = {}
+	app.curr_chars_stored = 0
+	app.keys_held  		  = {}
+	app.mouse 	   		  = {}
+	app.mouse_last_frame  = {}
+
 	free(app.ui_state.quad_vbuffer)
 	free(app.ui_state.quad_vabuffer)
-	// delete_dynamic_array(app.ui_state.rect_stack)
 	delete_dynamic_array(app.ui_state.color_stack)
 	for key, val in app.ui_state.box_cache {
 		delete(key)
@@ -269,7 +282,40 @@ app_shutdown :: proc() {
 		free(val)
 	}
 	delete_map(app.ui_state.box_cache)
-	// sdl.DestroyWindow(app.window)
+
+	delete(app.ui_state.font_state.rendered_glyph_cache)
+	delete(app.ui_state.font_state.shaped_string_cache)
+	delete(app.ui_state.font_state.atlas.bitmap_buffer)
+	kb_text_shape.FreeFont(&app.ui_state.font_state.kb.font, context.allocator)
+	for parent in app.ui_state.parents_stack {
+		free(parent)
+	}
+	delete(app.ui_state.parents_stack)
+	delete(app.ui_state.dark_theme)
+	free(app.ui_state)
+
+	// Audio state maybe needs to be cleared..
+	app.browser_root_dir = nil
+	app.browser_selected_dir = nil
+}
+
+@(export)
+app_shutdown :: proc() {
+	when ODIN_OS == .Windows {
+		windows.CoUninitialize()
+	}
+	free(app.ui_state.quad_vbuffer)
+	free(app.ui_state.quad_vabuffer)
+	delete_dynamic_array(app.ui_state.color_stack)
+	for key, val in app.ui_state.box_cache {
+		delete(key)
+		if str, ok := val.data.(string); ok { 
+			delete(str)
+		}
+		delete(val.children)
+		free(val)
+	}
+	delete_map(app.ui_state.box_cache)
 
 	delete(ui_state.font_state.rendered_glyph_cache)
 	delete(ui_state.font_state.shaped_string_cache)
@@ -282,6 +328,6 @@ app_shutdown :: proc() {
 	delete(ui_state.dark_theme)
 	free(app.ui_state)
 	free(app)
-	free_all(context.allocator)
+	// free_all(context.allocator)
 	free_all(context.temp_allocator)
 }
