@@ -8,18 +8,18 @@ map_range :: proc(in_min, in_max, out_min, out_max, value: $T) -> T where intrin
 	return ((value - in_min) * (out_max - out_min) / (in_max - in_min)) + out_min
 }
 
-get_label_from_id_string :: proc(id_string: string) -> string {
-	to := str.index(id_string, "@")
-	if to == -1 {
-		return ""
-	}
-	return id_string[:to]
-}
+// get_label_from_id_string :: proc(id_string: string) -> string {
+// 	to := str.index(id_string, "@")
+// 	if to == -1 {
+// 		return ""
+// 	}
+// 	return id_string[:to]
+// }
 
-get_id_from_id_string :: proc(id_string: string) -> string {
-	from := str.index(id_string, "@")
-	return id_string[from + 1:]
-}
+// get_id_from_id_string :: proc(id_string: string) -> string {
+// 	from := str.index(id_string, "@")
+// 	return id_string[from + 1:]
+// }
 
 get_drag_delta :: proc() -> [2]int {
 	return {

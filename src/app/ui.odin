@@ -297,13 +297,13 @@ create_ui :: proc() -> ^Box {
 	ui_state.changed_ui_screen = false
 
 	root := child_container(
-		"root@root", 
 		{
 			semantic_size = {{.Fixed, f32(app.wx)}, {.Fixed, f32(app.wy)}},
 			// color = .Inactive,
-		}, 
-		{direction = .Vertical}, 
-		{.Draw}
+		},
+		{direction = .Vertical},
+		"root",
+		{.Draw},
 	).box
 
 	ui_state.root = root
@@ -312,7 +312,6 @@ create_ui :: proc() -> ^Box {
 		topbar()
 		audio_tracks: {
 			child_container(
-				"@all-tracks-container",
 				{
 					semantic_size = {
 						{.Fit_Children, 1},
@@ -330,47 +329,8 @@ create_ui :: proc() -> ^Box {
 				audio_track(i, 160)
 			}
 		}
-		// {
-		// 	child_container(
-		// 		"@fasdflaksjsomethingsomethingd",
-		// 		{
-		// 			semantic_size = {{.Fixed, 200}, {.Fixed, 90}},
-		// 			color         = .Secondary,
-		// 			floating_type = .Relative_Root,
-		// 			floating_offset = {0.5, 0.5}
-		// 		},
-		// 		{
-		// 			alignment_horizontal = .Center,
-		// 			alignment_vertical   = .Center,
-		// 			direction            = .Horizontal,
-		// 		},
-		// 		{.Draw},
-		// 	)		
-		// 	text_button(
-		// 		"hey@lllll",
-		// 		{
-		// 			color         = .Primary,
-		// 			semantic_size = {{.Fit_Text_And_Grow, 1}, {.Fit_Text_And_Grow, 1}},
-		// 		},
-		// 	)
-
-		// 	text_button(
-		// 		"mate@aaaaa",
-		// 		{
-		// 			color         = .Tertiary,
-		// 			semantic_size = {{.Fit_Text_And_Grow, 1}, {.Fit_Text_And_Grow, 10}},
-		// 		},
-		// 	)
-
-		// 	text_button(
-		// 		"baby@bbbbbbb",
-		// 		{
-		// 			color         = .Warning,
-		// 			semantic_size = {{.Fit_Text_And_Grow, 1}, {.Fit_Text_And_Grow, 10}},
-		// 		},
-		// 	)
-		// }
-		if text_button("+@add-track-button",
+		if text_button(
+			"+",
 			{
 				floating_type = .Center_Right,
 				padding       = {10, 10, 10, 10},
@@ -378,7 +338,7 @@ create_ui :: proc() -> ^Box {
 				semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}},
 				color         = .Warning,
 			},
-  		).clicked 
+  		).clicked
 		{
 			track_add_new(app.audio)
 		}
@@ -387,14 +347,15 @@ create_ui :: proc() -> ^Box {
 	else {
 		topbar()
 		multi_button_set(
-			"@test-radio-buttons",
 			{semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}}},
 			{direction = .Vertical, gap_horizontal = 20, gap_vertical = 10},
 			false,
 			[]int{8, 2, 10, 14, 27, 4242, 23423, 123, 4747},
+			"test-radio-buttons",
+			{},
+			context.allocator,
 		)
 		child_container(
-			"@fasdflaksjsomethingsomethingd",
 			{
 				semantic_size = {{.Fixed, 200}, {.Fixed, 60}},
 				color         = .Inactive,
@@ -404,11 +365,12 @@ create_ui :: proc() -> ^Box {
 				alignment_vertical   = .Center,
 				direction            = .Horizontal,
 			},
+			"fasdflaksjsomethingsomethingd",
 			{.Draw},
 		)
 
 		text_button(
-			"hey@lllll",
+			"Some button",
 			{
 				color         = .Primary,
 				semantic_size = {{.Fit_Text_And_Grow, 1}, {.Fit_Text_And_Grow, 1}},
@@ -416,7 +378,7 @@ create_ui :: proc() -> ^Box {
 		)
 
 		text_button(
-			"mate@aaaaa",
+			"whattheheck",
 			{
 				color         = .Tertiary,
 				semantic_size = {{.Fit_Text_And_Grow, 1}, {.Fit_Text_And_Grow, 10}},
@@ -425,11 +387,12 @@ create_ui :: proc() -> ^Box {
 		)
 
 		text_button(
-			"baby@bbbbbbb",
+			"baby",
 			{
 				color         = .Primary,
 				semantic_size = {{.Fit_Text_And_Grow, 1}, {.Fit_Text_And_Grow, 10}},
 			},
+			"bbbbbbb",
 		)
 	}
 
@@ -438,7 +401,7 @@ create_ui :: proc() -> ^Box {
 	}
 
 	if ui_state.sidebar_shown {
-		_, closed := draggable_window("File browser@file-browser-dragging-container", {direction = .Vertical})
+		_, closed := draggable_window("File browser", {direction = .Vertical}, "file-browser-dragging-container")
 		if closed do ui_state.sidebar_shown = false
 		file_browser_menu()
 	}
@@ -453,14 +416,13 @@ create_ui :: proc() -> ^Box {
 			cfg.floating_type = .Absolute_Pixel
 			cfg.floating_offset = {f32(app.mouse.pos.x), f32(app.mouse.pos.y)}
 			cfg.z_index = 100
-			drag_ghost := box_from_cache(id("the ghost@{}-drag-ghost", dragged_box.id), {.Draw}, cfg)
+			drag_ghost := box_from_cache({.Draw}, cfg, "the ghost", tprintf("{}-drag-ghost", dragged_box.id))
 		}
 	}
 
 	// Draw helper text in the bottom right corner
 	{
 		child_container(
-			"@helper-text-bottom-right",
 			{
 				semantic_size       = Size_Fit_Children,
 				color               = .Surface_Variant,
@@ -473,10 +435,21 @@ create_ui :: proc() -> ^Box {
 				alignment_horizontal = .Start,
 				gap_vertical         = 5,
 			},
+			"helper-text-bottom-right",
 		)
 
 		text(
-		"F5 -> Hot reload DLL, keep data@helper-text-1",
+			"F5 -> Hot reload DLL, keep data",
+			{
+				color         = .Warning_Container,
+				text_justify  = {.Start, .Center},
+				semantic_size = Size_Fit_Text,
+			},
+			"helper-text-1",
+		)
+
+		text(
+			"F3 -> Hot reload DLL, clear data",
 			{
 				color         = .Warning_Container,
 				text_justify  = {.Start, .Center},
@@ -485,22 +458,14 @@ create_ui :: proc() -> ^Box {
 		)
 
 		text(
-			"F3 -> Hot reload DLL, clear data@helper-text-2",
+			"F1 -> Restart, keep DLL, clear data",
 			{
 				color         = .Warning_Container,
 				text_justify  = {.Start, .Center},
+				margin = {bottom = 5},
 				semantic_size = Size_Fit_Text,
 			},
-		)
-
-		text(
-		"F1 -> Restart, keep DLL, clear data@helper-text-3",
-			{
-			color         = .Warning_Container,
-			text_justify  = {.Start, .Center},
-			margin = {bottom = 5},
-			semantic_size = Size_Fit_Text,
-			},
+			"helper-text-3",
 		)
 	}
 	// animation_update_all()
@@ -548,7 +513,7 @@ reset_ui_state :: proc() {
 	}
 	ui_state.clicked_on_context_menu = false
 
-	// --- Sweep phase of mark and sweep box memory management.
+	// --- Sweep phase of mark and sweep box memory management ---
 
 	// Collect keys to delete, can't iterate the map and delete in one loop I think....
 	keys_to_delete := make([dynamic]string, context.temp_allocator)

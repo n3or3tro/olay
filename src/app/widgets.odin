@@ -9,6 +9,7 @@ so they'll need some re-thinking when I ship the UI stuff as a lib.
 
 package app
 import "core:sort"
+import "core:flags"
 import "core:math/rand"
 import str "core:strings"
 import "core:slice"
@@ -16,18 +17,18 @@ import "core:slice"
 
 topbar :: proc() {
 	child_container(
-		"@topbar",
 		{
 			semantic_size    = {{.Fixed, f32(app.wx)}, {.Fixed, TOPBAR_HEIGHT}},
 			color = .Secondary,
 			padding = {top = 3, bottom = 3}
 		},
 		{
-			direction = .Horizontal, 
-			alignment_horizontal = .Space_Between, 
-			alignment_vertical = .Center, 
+			direction = .Horizontal,
+			alignment_horizontal = .Space_Between,
+			alignment_vertical = .Center,
 			gap_horizontal = 5,
 		},
+		"topbar",
 	)
 
 	btn_config := Box_Config {
@@ -39,48 +40,47 @@ topbar :: proc() {
 
 	left_container: {
 		child_container(
-			"@top-bar-left-container", 
-			{semantic_size = {{.Fit_Children, 1}, {.Fit_Children_And_Grow, 1}}}, 
-			{gap_horizontal = 3}
+			{semantic_size = {{.Fit_Children, 1}, {.Fit_Children_And_Grow, 1}}},
+			{gap_horizontal = 3},
+			"top-bar-left-container",
 		)
-		if text_button("undo@top-bar-undo", btn_config).clicked {
+		if text_button("undo", btn_config, "top-bar-undo").clicked {
 			undo()
 		}
-		if text_button("redo@top-bar-redo", btn_config).clicked {
+		if text_button("redo", btn_config, "top-bar-redo").clicked {
 			redo()
 		}
 	}
 
 	middle_container: {
 		child_container(
-			"@top-bar-middle-container", 
-			{semantic_size = {{.Fit_Children, 1}, {.Fit_Children_And_Grow, 1}}}, 
-			// {},
-			{gap_horizontal = 3}
+			{semantic_size = {{.Fit_Children, 1}, {.Fit_Children_And_Grow, 1}}},
+			{gap_horizontal = 3},
+			"top-bar-middle-container",
 		)
 		label := app.audio.playing ? "Stop" : "Play"
-		if text_button(id("{}@top-bar-toggle-playing", label), btn_config).clicked {
+		if text_button(label, btn_config, "top-bar-toggle-playing").clicked {
 			app.audio.playing = !app.audio.playing
 		}
 	}
 
 	right_container: {
 		child_container(
-			"@top-bar-right-container", 
-			{semantic_size = {{.Fit_Children, 1}, {.Fit_Children_And_Grow, 1}}}, 
-			{gap_horizontal = 3}
+			{semantic_size = {{.Fit_Children, 1}, {.Fit_Children_And_Grow, 1}}},
+			{gap_horizontal = 3},
+			"top-bar-right-container",
 		)
-		if text_button("Default layout@top-bar-default", btn_config).clicked {
+		if text_button("Default layout", btn_config, "top-bar-default").clicked {
 			ui_state.tab_num = 0
 			ui_state.changed_ui_screen = true
 		}
-		if text_button("Test layout@top-bar-test", btn_config).clicked {
+		if text_button("Test layout", btn_config, "top-bar-test").clicked {
 			ui_state.tab_num = 1
 			ui_state.changed_ui_screen = true
 		}
-		side_bar_btn_id :=
-			ui_state.sidebar_shown ? "Close sidebar@top-bar-sidebar-close" : "Open sidebar@top-bar-sidebar-open"
-		if text_button(side_bar_btn_id, btn_config).clicked {
+		sidebar_label := ui_state.sidebar_shown ? "Close sidebar" : "Open sidebar"
+		sidebar_id := ui_state.sidebar_shown ? "top-bar-sidebar-close" : "top-bar-sidebar-open"
+		if text_button(sidebar_label, btn_config, sidebar_id).clicked {
 			ui_state.sidebar_shown = !ui_state.sidebar_shown
 		}
 	}
@@ -91,12 +91,11 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 	n_steps := 32 // This will ultimately be a dynamic size for each track.
 
 	track_container := child_container(
-		id("@track-{}-container", track_num),
 		{semantic_size = {{.Fixed, track_width}, {.Percent, 1}}},
 		{direction = .Vertical, gap_vertical = 3},
 		metadata = Metadata_Track {
 			track_num = track_num
-		}
+		},
 	)
 	track_container.box.disabled = !track.armed
 	track_container.box.metadata = Metadata_Track{
@@ -104,29 +103,28 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 	}
 	track_label: {
 		child_container(
-			id("@track-{}-label-container", track_num),
 			{
-				semantic_size = {{.Fixed, track_width}, {.Fit_Children, 1}}, 
-				padding = {left = 4, right = 0}
+				semantic_size = {{.Fixed, track_width}, {.Fit_Children, 1}},
+				padding = {left = 2, right = 0}
 			},
 			{
 				direction = .Horizontal,
-				alignment_horizontal = .Center, 
+				alignment_horizontal = .Center,
 				alignment_vertical = .Center
 			},
 		)
 		text(
-			id("{} - @track-{}-num", track_num, track_num), 
+			tprintf("{}.", track_num),
 			{
 				semantic_size = Size_Fit_Text,
 				color = .Primary_Container,
-				text_justify = {.Start, .Center}
-			}
+				text_justify = {.Start, .Center},
+				margin = {right = 2}
+			},
 		)
 		edit_text_box(
-			id("@track-{}-name", track_num),
 			{
-				semantic_size = {{.Grow, 1}, {.Fixed, 30}}, 
+				semantic_size = {{.Grow, 1}, {.Fixed, 30}},
 				color = .Secondary
 			},
 			.Generic_One_Line,
@@ -137,14 +135,12 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 	track_dropped_on: bool
 	steps: {
 		steps_container := child_container(
-			id("@track-steps-container-{}", track_num),
 			{
-				// semantic_size = {{.Fixed, track_width}, {.Percent, 0.7}}, 
-				semantic_size = {{.Fixed, track_width}, {.Grow, 0.7}}, 
-				color = .Tertiary 
+				semantic_size = {{.Fixed, track_width}, {.Grow, 0.7}},
+				color = .Tertiary
 			},
 			{direction = .Vertical, gap_vertical = 0},
-			{.Drag_Drop_Source}
+			box_flags = {.Drag_Drop_Source},
 		)
 
 		substep_config: Box_Config = {
@@ -156,61 +152,56 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 
 		for i in 0 ..< N_TRACK_STEPS {
 			step_row_container := child_container(
-				id("@track-{}-row-{}-steps-container", track_num, i),
 				{semantic_size = {{.Fixed, track_width}, {.Percent, f32(1) / N_TRACK_STEPS}}},
 				{direction = .Horizontal, gap_horizontal = 0},
-				{.Drag_Drop_Sink}
+				box_flags = {.Drag_Drop_Sink},
 			)
 
 			pitch_box := edit_text_box(
-				id("@track-{}-pitch-step-{}", track_num, i),
 				substep_config,
 				.Pitch,
-				substep_extra_flags,
 				metadata = Metadata_Track_Step {
 					track = track_num,
 					step  = i,
 					type  = .Pitch,
-				}
+				},
+				extra_flags = substep_extra_flags,
 			)
 
 			volume_box := edit_number_box(
-				id("@track-{}-volume-step-{}", track_num, i),
 				substep_config,
 				0,
 				100,
-				Metadata_Track_Step {
+				metadata = Metadata_Track_Step {
 					track = track_num,
 					step  = i,
 					type  = .Volume,
 				},
-				substep_extra_flags,
+				extra_flags =substep_extra_flags,
 			)
 
 			send1_box := edit_number_box(
-				id("@track-{}-send1-step-{}", track_num, i),
 				substep_config,
 				0,
 				100,
-				Metadata_Track_Step {
+				metadata = Metadata_Track_Step {
 					track = track_num,
 					step  = i,
 					type  = .Send1,
 				},
-				substep_extra_flags,
+				extra_flags = substep_extra_flags,
 			)
 
 			send2_box := edit_number_box(
-				id("@track-{}-send2-step-{}", track_num, i),
 				substep_config,
 				0,
 				100,
-				Metadata_Track_Step {
+				metadata = Metadata_Track_Step {
 					track = track_num,
 					step  = i,
 					type  = .Send2,
 				},
-				substep_extra_flags,
+				extra_flags = substep_extra_flags,
 			)
 
 			if pitch_box.double_clicked  ||
@@ -249,10 +240,7 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 			// If this is the current step, indicate so.
 			if app.audio.tracks[track_num].curr_step == u32(i) {
 			 	box_from_cache(
-					id("@track-{}-curr-step-indicator", track_num),
-					{
-						.Draw, .Draw_Border
-					},
+					{.Draw, .Draw_Border},
 					{
 						floating_anchor_box = pitch_box.box,
 						floating_type = .Relative_Other,
@@ -260,7 +248,9 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 						semantic_size = {{.Fixed, f32(pitch_box.box.last_width * 4)}, {.Fixed, f32(pitch_box.box.last_height)}},
 						color = .Warning_Container,
 						border = 2,
-					}
+					},
+					// "",
+					// id("track-{}-curr-step-indicator", track_num),
 				)
 				// printfln("created curr_step indicator: {}", curr_step_inidcator)
 			}
@@ -295,56 +285,59 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 			label = "No sound loaded"
 		}
 		text(
-			id("{}@{}-file-info", label, track_num),
+			label,
 			{
 				semantic_size = {{.Fit_Text_And_Grow, 1}, {.Fit_Text, 1}},
 				color = .Primary_Container,
 				text_justify = {.Center, .Center},
 			},
-			{.Drag_Drop_Source}
+			id("{}{}-file-info", label, track_num),
+			{.Drag_Drop_Source},
 			// {.Draw}
 		)
 	}
 
 	controls: {
 		controls_container := child_container(
-			id("@track-{}-controls-container", track_num),
 			{
-				semantic_size = {{.Fixed, track_width}, {.Percent, 0.3}}, 
+				semantic_size = {{.Fixed, track_width}, {.Percent, 0.3}},
 				color = .Surface_Bright,
 			},
 			{
-				direction = .Horizontal, 
-				alignment_horizontal = .Start, 
+				direction = .Horizontal,
+				alignment_horizontal = .Start,
 				alignment_vertical = .End
 			},
-			{.Draw, .Drag_Drop_Source}
+			id("track-{}-controls-container", track_num),
+			{.Draw, .Drag_Drop_Source},
 		)
 		arm_label := app.audio.tracks[track_num].armed ? "unarm" : "arm"
 		arm_button := text_button(
-			id("{}@track-{}-arm-button", arm_label, track_num),
+			arm_label,
 			{
-				semantic_size = {{.Percent, 0.333}, {.Fixed, 30}}, 
+				semantic_size = {{.Percent, 0.333}, {.Fixed, 30}},
 				color = .Secondary,
 				corner_radius = 3,
 
 			},
-			{.Ignore_Parent_Disabled}
+			id("{}track-{}-arm-button", arm_label, track_num),
+			{.Ignore_Parent_Disabled},
 		)
 		volume_slider := vertical_slider(
-			id("hey@track-{}-volume-slider", track_num),
 			{semantic_size = {{.Percent, 0.333}, {.Grow, 30}}},
 			&track.volume,
 			0,
 			100,
+			id("heytrack-{}-volume-slider", track_num),
 		)
 		load_sound_button := text_button(
-			id("load@track-{}-load-sound-button", track_num),
+			"load",
 			{
-				semantic_size = {{.Percent, 0.333}, {.Fixed, 30}}, 
+				semantic_size = {{.Percent, 0.333}, {.Fixed, 30}},
 				color = .Secondary,
 				corner_radius = 3,
 			},
+			id("loadtrack-{}-load-sound-button", track_num),
 		)
 		if arm_button.clicked { 
 			app.audio.tracks[track_num].armed = !app.audio.tracks[track_num].armed 
@@ -360,40 +353,41 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 		}
 	}
 
-	show_eq: if track.eq.show { 
-		eq_id := id("Track {} EQ@eq-{}-dragging-container", track_num, track_num)
-		_, closed := draggable_window(eq_id, {
-			direction = .Vertical,
-		})
+	show_eq: if track.eq.show {
+		_, closed := draggable_window(
+			id("Track {} EQ", track_num),
+			{direction = .Vertical},
+			id("eq-{}-dragging-container", track_num),
+		)
 		if closed {
 			track.eq.show = false
 			break show_eq
 		}
-		equalizer_8(id("@track-{}-eq", track_num), track_num)
+		equalizer_8(id("track-{}-eq", track_num), track_num)
 	}
 
-	show_sampler: if track.sampler.show { 
-		_, closed := draggable_window(id("Track {} Sampler@sampler-{}-dragging-container", track_num, track_num), {
-			direction = .Vertical,
-		})
+	show_sampler: if track.sampler.show {
+		_, closed := draggable_window(
+			id("Track {} Sampler", track_num),
+			{direction = .Vertical},
+			id("sampler-{}-dragging-container", track_num),
+		)
 		if closed {
 			track.sampler.show = false
 			break show_sampler
 		}
-		sampler(id("@track-{}-sampler", track_num), track_num)
+		sampler(track_num, id("track-{}-sampler", track_num))
 	}
 	return Track_Signals{step_signals, {}}
 }
 
 
 
-equalizer_8 :: proc(id_string: string, track_num: int) {
+equalizer_8 :: proc(eq_id: string, track_num: int) {
 	eq_state := &app.audio.tracks[track_num].eq
-	// Fixed size for now, for ease of implementation, but in the future we want this to be inside a 
+	// Fixed size for now, for ease of implementation, but in the future we want this to be inside a
 	// resizable floating container.
-	actual_id := get_id_from_id_string(id_string)
 	eq_container := child_container(
-		id("@{}-container", actual_id), 
 		{
 			semantic_size = {{.Fixed, 800}, {.Fixed, 400}},
 			color = .Secondary_Container,
@@ -403,7 +397,8 @@ equalizer_8 :: proc(id_string: string, track_num: int) {
 		{
 			alignment_horizontal = .Space_Between
 		},
-		{.Draw}
+		id("{}-container", eq_id),
+		{.Draw},
 	)
 	
 	// For now, we auto create 4 bands for each eq (1 eq per track by default).
@@ -411,7 +406,6 @@ equalizer_8 :: proc(id_string: string, track_num: int) {
 
 	eq: {
 		child_container(
-			id("@{}-main-content", actual_id),
 			{
 				// semantic_size = {{.Percent, 0.3}, {.Percent, 0.5}},
 				semantic_size = Size_Fit_Children_And_Grow,
@@ -421,56 +415,61 @@ equalizer_8 :: proc(id_string: string, track_num: int) {
 			{
 				gap_horizontal = 4,
 			},
+			id("{}-main-content", eq_id),
 			{.Draw},
 		)
 		main_controls: {
 			eq_main_controls := child_container(
-				id("@{}-main-controls", actual_id),
 				{
 					semantic_size = {{.Percent, 0.11}, {.Percent, 1}},
 					// padding = {left=4, right=4, top=10, bottom=10},
 				},
 				{
-					direction = .Vertical, 
+					direction = .Vertical,
 					alignment_vertical = .Space_Around,
 					alignment_horizontal = .Center,
 				},
-				{.Draw}
+				id("{}-main-controls", eq_id),
+				{.Draw},
 			)
 			text(
-				id("Band {}@heya", eq_state.active_band),
+				id("Band {}", eq_state.active_band),
 				{semantic_size=Size_Fit_Text, color = .Secondary},
+				"heya",
 			)
 			circular_knob(
-				id("Freq@{}-freq-cntrl", actual_id),
+				"Freq",
 				{color = .Warning_Container},
 				&active_band.pos,
-				0, 
-				1
+				0,
+				1,
+				id("{}-freq-cntrl", eq_id),
 			)
 			circular_knob(
-				id("Q@{}-q-cntrl", actual_id),
+				"Q",
 				{color = .Warning_Container},
 				&active_band.q,
-				0, 
-				1
+				0,
+				1,
+				id("{}-q-cntrl", eq_id),
 			)
 			circular_knob(
-				id("Gain@{}-gain-cntrl", actual_id),
+				"Gain",
 				{color = .Warning_Container},
 				&active_band.gain,
-				-1 * EQ_MAX_GAIN, 
-				EQ_MAX_GAIN	
+				-1 * EQ_MAX_GAIN,
+				EQ_MAX_GAIN,
+				id("{}-gain-cntrl", eq_id),
 			)
 		}
 		freq_display: {
 			frequency_display_container := child_container(
-				id("@{}-frequency-display-container", actual_id),
 				{
 					semantic_size = Size_Grow,
 					color = .Inverse_On_Surface,
 				},
 				{alignment_horizontal = .Space_Between},
+				id("{}-frequency-display-container", eq_id),
 				{.Draw, .Clickable},
 			)
 			if frequency_display_container.double_clicked {
@@ -498,8 +497,8 @@ equalizer_8 :: proc(id_string: string, track_num: int) {
 			db_0_config.line_start = db_0_line_start
 			db_0_config.line_end   = db_0_line_end
 			line(
-				id("@{}-graph-hori-0", actual_id),
-				db_0_config
+				db_0_config,
+				id("{}-graph-hori-0", eq_id),
 			)
 
 			// Probably need to account for padding.
@@ -516,8 +515,8 @@ equalizer_8 :: proc(id_string: string, track_num: int) {
 				new_config.line_start = line_start
 				new_config.line_end   = line_end
 				line(
-					id("@{}-graph-hori-{}", actual_id, i),
 					new_config,
+					id("{}-graph-hori-{}", eq_id, i),
 				)
 			}
 
@@ -525,7 +524,7 @@ equalizer_8 :: proc(id_string: string, track_num: int) {
 			// but we'll hardcode for it now.
 			// freq_graph: {
 			// 	child_container(
-			// 		id("@{}-freq-grid", actual_id),
+			// 		id("@{}-freq-grid", eq_id),
 			// 		{
 			// 			semantic_size = {{.Percent, 1}, {.Percent, 1}} 
 			// 		},
@@ -536,22 +535,23 @@ equalizer_8 :: proc(id_string: string, track_num: int) {
 			// }
 
 			handles := make([dynamic]^Box, context.temp_allocator)
-			for &band, i in eq_state.bands { 
+			for &band, i in eq_state.bands {
 				handle := box_from_cache(
-					id("@{}-band-{}-handle", actual_id, i),
 					{.Draw, .Clickable, .Draggable},
 					{
 						color = eq_state.active_band == i ? .Error_Container : .Warning_Container,
 						floating_type = .Relative_Other,
 						floating_anchor_box = frequency_display_container.box,
 						floating_offset = {
-							band.pos, 
+							band.pos,
 							map_range(-1*EQ_MAX_GAIN, EQ_MAX_GAIN, 0, 1, band.gain)
 						},
 						semantic_size = {{.Fixed, 30}, {.Fixed, 30}},
 						corner_radius = 15,
 						z_index  = 40,
-					}
+					},
+					"",
+					id("{}-band-{}-handle", eq_id, i),
 				)
 				append(&handles, handle)
 				handle_signals := box_signals(handle)
@@ -588,9 +588,9 @@ equalizer_8 :: proc(id_string: string, track_num: int) {
 					edge_softness = 1,
 				}
 				l := line(
-					id("@{}-line-from-{}-to-{}", actual_id, i, i+1),
 					config,
-					{.Clickable}
+					id("{}-line-from-{}-to-{}", eq_id, i, i+1),
+					{.Clickable},
 				)
 				if l.double_clicked {
 					println("double clicked on line")
@@ -598,23 +598,23 @@ equalizer_8 :: proc(id_string: string, track_num: int) {
 			}
 		}
 		level_meter := box_from_cache(
-			id("@{}-level-meter", actual_id),
 			{.Draw},
 			{
 				semantic_size = {{.Fixed, 30}, {.Percent, 1}},
 				z_index = 30,
-			}
+			},
+			"",
+			id("{}-level-meter", eq_id),
 		)
 	}
 	
 }
 
-sampler :: proc(id_string: string, track_num: int) {
+sampler :: proc(track_num: int, id_string: string) {
 	track   := &app.audio.tracks[track_num]
 	sampler := &track.sampler
 
 	sampler_container := child_container(
-		id_string,
 		{
 			semantic_size = {{.Fixed, 850}, {.Fixed, 400}},
 			color = .Surface_Container_High
@@ -622,12 +622,12 @@ sampler :: proc(id_string: string, track_num: int) {
 		{
 			direction = .Horizontal
 		},
-		{.Draw}
+		id_string,
+		{.Draw},
 	)
 
 	left_controls: {
 		control_container := child_container(
-			id("@sampler-{}-left-controls"),
 			{
 				// semantic_size = {{.Percent, 0.1}, {.Percent, 1}},
 				semantic_size = Size_Grow,
@@ -638,48 +638,53 @@ sampler :: proc(id_string: string, track_num: int) {
 				alignment_vertical = .Space_Around,
 				alignment_horizontal = .Center
 			},
-			{.Draw}
+			id("sampler-{}-left-controls", track_num),
+			{.Draw},
 		)
 		text_button(
-			id("Control 1@sampler-{}-controls-button-1"),
+			"Control 1",
 			{
 				semantic_size = Size_Fit_Text_And_Grow
-			}
+			},
+			id("sampler-{}-controls-button-1", track_num),
 		)
 		text_button(
-			id("Control 2@sampler-{}-controls-button-2"),
+			"Control 2",
 			{
 				semantic_size = Size_Fit_Text_And_Grow
-			}
+			},
+			id("sampler-{}-controls-button-2", track_num),
 		)
 		text_button(
-			id("Control 3@sampler-{}-controls-button-3"),
+			"Control 3",
 			{
 				semantic_size = Size_Fit_Text_And_Grow
-			}
+			},
+			id("sampler-{}-controls-button-3", track_num),
 		)
 		text_button(
-			id("Control 4@sampler-{}-controls-button-4"),
+			"Control 4",
 			{
 				semantic_size = Size_Fit_Text_And_Grow
-			}
+			},
+			id("sampler-{}-controls-button-4", track_num),
 		)
 	}
 
 	main_content: {
 		// Inside here we'll render the waveform and the slice markers.
 		waveform_parent := child_container(
-			id("@{}-waveform-display", sampler_container.box.id),
 			{
 				semantic_size = {{.Percent, 0.90}, {.Percent, 0.85}},
 				color = .Secondary,
 			},
 			{
 			},
+			id("{}-waveform-display", sampler_container.box.id),
 			{.Draw, .Clickable},
-			metadata = Metadata_Sampler{
+			Metadata_Sampler{
 				track_num
-			}
+			},
 		)
 		if waveform_parent.double_clicked {
 			slice_x_pos := 
@@ -748,11 +753,12 @@ sampler :: proc(id_string: string, track_num: int) {
 		}
 
 		text(
-			id("Here is where the waveform goes@sampler-{}-waveform-placeholder", track_num),
+			"Here is where the waveform goes",
 			{
 				semantic_size = Size_Fit_Text,
 				color = .Secondary,
-			}
+			},
+			id("sampler-{}-waveform-placeholder", track_num),
 		)
 
 		slice_config := Box_Config { 
@@ -762,23 +768,23 @@ sampler :: proc(id_string: string, track_num: int) {
 		// Render slices:
 		for i in 0..< sampler.n_slices {
 			config := slice_config
-			slice_x_pos := sampler.slices[i].how_far * f32(waveform_parent.box.last_width) + f32(waveform_parent.box.top_left.x) 
+			slice_x_pos := sampler.slices[i].how_far * f32(waveform_parent.box.last_width) + f32(waveform_parent.box.top_left.x)
 			config.line_start = {slice_x_pos, f32(waveform_parent.box.top_left.y)}
 			config.line_end = {slice_x_pos, f32(waveform_parent.box.bottom_right.y)}
 			line(
-				id("@sampler-{}-slice-{}", track_num, i),
 				config,
+				id("sampler-{}-slice-{}", track_num, i),
 			)
 			// Draw drag handle for slice
 			drag_handle := button(
-				id("@sampler-{}-slice-{}-handle", track_num, i),
 				{
 					floating_type = .Absolute_Pixel,
 					floating_offset = {config.line_start.x - 10, config.line_start.y},
 					semantic_size = {{.Fixed, 20}, {.Fixed, 20}},
 					color = .Error_Container,
 					z_index = 50,
-				}
+				},
+				id("sampler-{}-slice-{}-handle", track_num, i),
 			)
 			if drag_handle.box == ui_state.dragged_box {
 				drag_delta := get_drag_delta()
@@ -789,7 +795,6 @@ sampler :: proc(id_string: string, track_num: int) {
 
 		bottom_controls: {
 			child_container(
-				id("@sampler-{}-bottom-controls"),
 				{
 					color = .Secondary,
 					semantic_size = Size_Grow,
@@ -797,7 +802,8 @@ sampler :: proc(id_string: string, track_num: int) {
 				{
 					alignment_vertical = .Center,
 					alignment_horizontal = .Space_Between,
-				}
+				},
+				id("sampler-{}-bottom-controls", track_num),
 			)
 		}
 	}
@@ -817,57 +823,62 @@ context_menu :: proc() {
 
 		top_level_btn_config.color = .Tertiary
 		add_button := text_button(
-			"Add steps@context-menu-1",
+			"Add steps",
 			top_level_btn_config,
+			"context-menu-1",
 		)
 
 		top_level_btn_config.color = .Primary_Container
 		remove_button := text_button(
-			"Remove steps@conext-menu-2",
+			"Remove steps",
 			top_level_btn_config,
+			"conext-menu-2",
 		)
 
 		disarm_labl := track.armed ? "Disarm" : "Arm"
 		top_level_btn_config.color = .Warning
 		disarm_button := text_button(
-			id("{} track@conext-menu-3", disarm_labl),
-			top_level_btn_config
+			id("{} track", disarm_labl),
+			top_level_btn_config,
+			"conext-menu-3",
 		)
 
 		label := track.eq.show ? "Hide EQ" : "Show EQ"
 		activate_eq_button := text_button(
-			id("{}@conext-menu-track-{}-EQ", label, track_num),
-			top_level_btn_config
+			label,
+			top_level_btn_config,
+			id("conext-menu-track-{}-EQ", track_num),
 		)
 
-		if activate_eq_button.clicked { 
+		if activate_eq_button.clicked {
 			track.eq.show = !track.eq.show
 		}
 
 		label = track.sampler.show ? "Hide Sampler" : "Show Sampler"
 		activate_sampler_button := text_button(
-			id("{}@conext-menu-track-{}-sampler", label, track_num),
-			top_level_btn_config
+			label,
+			top_level_btn_config,
+			id("conext-menu-track-{}-sampler", track_num),
 		)
 
-		if activate_sampler_button.clicked { 
+		if activate_sampler_button.clicked {
 			track.sampler.show = !track.sampler.show
 		}
 
 		top_level_btn_config.color = .Error_Container
 		delete_track_button := text_button(
-			"Delete Track@conext-menu-4",
+			"Delete Track",
 			top_level_btn_config,
+			"conext-menu-4",
 		)
 
 		add_submenu_id := "@add-step-hover-container"
 		add_submenu_hovered := false
-		if submenu_box, ok := ui_state.box_cache[add_submenu_id[1:]]; ok {
+		if submenu_box, ok := ui_state.box_cache[add_submenu_id]; ok {
 			add_submenu_hovered = mouse_inside_box(submenu_box, app.mouse.pos)
 		}
 		if add_button.hovering || add_submenu_hovered {
 			hover_container := child_container(
-				add_submenu_id,
 				{
 					floating_type = .Absolute_Pixel,
 					floating_offset = {f32(add_button.box.bottom_right.x), f32(add_button.box.top_left.y)},
@@ -875,6 +886,7 @@ context_menu :: proc() {
 					z_index = 20,
 				},
 				{direction = .Vertical, gap_vertical = 2},
+				add_submenu_id,
 				{.Clickable},
 			)
 			btn_config := Box_Config {
@@ -884,27 +896,27 @@ context_menu :: proc() {
 				padding          = {10, 10, 10, 10},
 				border = 1
 			}
-			if text_button("All steps@context-add-all", btn_config).clicked {
+			if text_button("All steps", btn_config, "context-add-all").clicked {
 				track_turn_on_steps(track_num, 0, 1)
 				ui_state.clicked_on_context_menu = true
 			}
-			if text_button("Every 2nd@context-add-2nd", btn_config).clicked {
+			if text_button("Every 2nd", btn_config, "context-add-2nd").clicked {
 				track_turn_on_steps(track_num, 0, 2)
 				ui_state.clicked_on_context_menu = true
 			}
-			if text_button("Every 3rd@context-add-3rd", btn_config).clicked {
+			if text_button("Every 3rd", btn_config, "context-add-3rd").clicked {
 				track_turn_on_steps(track_num, 0, 3)
 				ui_state.clicked_on_context_menu = true
 			}
-			if text_button("Every 4th@context-add-4th", btn_config).clicked {
+			if text_button("Every 4th", btn_config, "context-add-4th").clicked {
 				track_turn_on_steps(track_num, 0, 4)
 				ui_state.clicked_on_context_menu = true
 			}
-			if text_button("Every 6th@context-add-6th", btn_config).clicked {
+			if text_button("Every 6th", btn_config, "context-add-6th").clicked {
 				track_turn_on_steps(track_num, 0, 6)
 				ui_state.clicked_on_context_menu = true
 			}
-			if text_button("Every 8th@context-add-8th", btn_config).clicked {
+			if text_button("Every 8th", btn_config, "context-add-8th").clicked {
 				track_turn_on_steps(track_num, 0, 8)
 				ui_state.clicked_on_context_menu = true
 			}
@@ -912,12 +924,11 @@ context_menu :: proc() {
 
 		remove_submenu_id := "@remove-step-hover-container"
 		remove_submenu_hovered := false
-		if submenu_box, ok := ui_state.box_cache[remove_submenu_id[1:]]; ok {
+		if submenu_box, ok := ui_state.box_cache[remove_submenu_id]; ok {
 			remove_submenu_hovered = mouse_inside_box(submenu_box, app.mouse.pos)
 		}
 		if remove_button.hovering || remove_submenu_hovered {
 			hover_container := child_container(
-				remove_submenu_id,
 				{
 					floating_type = .Absolute_Pixel,
 					floating_offset = {
@@ -928,6 +939,7 @@ context_menu :: proc() {
 					z_index = 20,
 				},
 				{direction = .Vertical, gap_vertical = 2},
+				remove_submenu_id,
 				{.Clickable},
 			)
 			btn_config := Box_Config {
@@ -935,27 +947,27 @@ context_menu :: proc() {
 				color 			 = .Secondary,
 				padding          = {10, 10, 10, 10},
 			}
-			if text_button("All steps@context-remove-all", btn_config).clicked {
+			if text_button("All steps", btn_config, "context-remove-all").clicked {
 				track_turn_off_steps(track_num, 0, 1)
 				ui_state.clicked_on_context_menu = true
 			}
-			if text_button("Every 2nd@context-remove-2nd", btn_config).clicked {
+			if text_button("Every 2nd", btn_config, "context-remove-2nd").clicked {
 				track_turn_off_steps(track_num, 0, 2)
 				ui_state.clicked_on_context_menu = true
 			}
-			if text_button("Every 3rd@context-remove-3rd", btn_config).clicked {
+			if text_button("Every 3rd", btn_config, "context-remove-3rd").clicked {
 				track_turn_off_steps(track_num, 0, 3)
 				ui_state.clicked_on_context_menu = true
 			}
-			if text_button("Every 4th@context-remove-4th", btn_config).clicked {
+			if text_button("Every 4th", btn_config, "context-remove-4th").clicked {
 				track_turn_off_steps(track_num, 0, 4)
 				ui_state.clicked_on_context_menu = true
 			}
-			if text_button("Every 6th@context-remove-6th", btn_config).clicked {
+			if text_button("Every 6th", btn_config, "context-remove-6th").clicked {
 				track_turn_off_steps(track_num, 0, 6)
 				ui_state.clicked_on_context_menu = true
 			}
-			if text_button("Every 8th@context-remove-8th", btn_config).clicked {
+			if text_button("Every 8th", btn_config, "context-remove-8th").clicked {
 				track_turn_off_steps(track_num, 0, 8)
 				ui_state.clicked_on_context_menu = true
 			}
@@ -970,7 +982,7 @@ context_menu :: proc() {
 		}
 	}
 
-	file_browser_context_menu :: proc(box: ^Box) { 
+	file_browser_context_menu :: proc(box: ^Box) {
 		config := Box_Config {
 			semantic_size = Size_Fit_Text_And_Grow,
 			text_justify = {.Start, .Center},
@@ -978,14 +990,16 @@ context_menu :: proc() {
 		}
 		config.color = .Secondary_Container
 		edit := text_button(
-			"Edit name@ctx-menu-file-edit-name",
+			"Edit name",
 			config,
+			"ctx-menu-file-edit-name",
 		)
-		
+
 		config.color = .Error_Container
 		delete := text_button(
-			"Delete@ctx-menu-file-delete",
+			"Delete",
 			config,
+			"ctx-menu-file-delete",
 		)
 		if delete.clicked {
 			metadata := box.metadata.(Metadata_Browser_Item)
@@ -1003,7 +1017,6 @@ context_menu :: proc() {
 	}
 
 	context_menu_container := child_container(
-		"@context-menu",
 		{
 			semantic_size 		= Size_Fit_Children,
 			z_index 			= 100,
@@ -1011,11 +1024,12 @@ context_menu :: proc() {
 			floating_offset 	= {f32(ui_state.context_menu.pos.x), f32(ui_state.context_menu.pos.y)},
 		},
 		{
-			direction 			 = .Vertical, 
-			alignment_horizontal = .Center, 
-			alignment_vertical   = .Center, 
+			direction 			 = .Vertical,
+			alignment_horizontal = .Center,
+			alignment_vertical   = .Center,
 		},
-		{.Draw}
+		"context-menu",
+		{.Draw},
 	)
 
 

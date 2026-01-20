@@ -86,7 +86,6 @@ main :: proc() {
 		run_release_mode()
 	}
 }
-niggas thought kdot real life is the same life they see on tb huh
 
 run_release_mode :: proc() {
 	when ODIN_DEBUG {

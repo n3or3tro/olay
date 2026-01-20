@@ -1,5 +1,6 @@
 package app
 import "core:flags"
+import "core:math/rand"
 import "core:fmt"
 import str "core:strings"
 import "core:time"
@@ -207,7 +208,7 @@ Box_Data :: union {
 Box :: struct {
 	fresh:  bool,
 	id:           string,
-	label:        string,
+	label: 		  string,
 	// Current thing being hovered over this frame, only 1 can exist at the end of each frame.
 	hot:          bool,
 	// Current thing being clicked on this frame, only 1 can exist at the end of each frame.
@@ -239,15 +240,11 @@ Box :: struct {
 	last_width:   int,
 	top_left:     Vec2_int,
 	bottom_right: Vec2_int,
-	// Store where tl and br were last frame. Sometimes we need to know these co-ords for the box during UI creation and they don't 
-	// exist until the end of the frame. In most of these cases we can use the position from the last frame, this might be fucky with animations
-	// and such, but using prev_width / height has been okay so far.
-	// last_top_left:     Vec2_int,
-	// last_bottom_right: Vec2_int,
 	z_index:      int,
 	// next:         ^Box, // Sibling, aka, on the same level of the UI tree. Have the same parent.
 	keep:         bool, // Indicates whether we keep this box across frame boundaries.
 	metadata: 	  Box_Metadata,
+	n_anon_children: int,
 }
 
 Box_Signals :: struct {
@@ -287,18 +284,18 @@ ui_pixel_shader_data :: #load("shaders/box_pixel_shader.glsl")
 /* ======================= Start Core Box Code ========================= */
 
 @(private="file")
-box_make :: proc(id_string: string, flags: Box_Flags, config: Box_Config, allocator := context.allocator) -> ^Box {
+box_make :: proc(flags: Box_Flags, config: Box_Config, label := "", id := "", allocator := context.allocator) -> ^Box {
 	box := new(Box, context.allocator)
 
-	persistant_id, err := str.clone(get_id_from_id_string(id_string))
-	label := get_label_from_id_string(id_string)
+	persistant_id, err := str.clone(id)
+	assert(err == .None)
 	box.id = persistant_id
 	box.label = label
 
 	box.flags = flags
 	box.config = config
 
-	if id_string != "root@root" {
+	if id != "root" {
 		box.parent = ui_state.parents_top
 		append(&ui_state.parents_top.children, box)
 		box.z_index = box.parent.z_index + 1
@@ -342,10 +339,25 @@ box_make :: proc(id_string: string, flags: Box_Flags, config: Box_Config, alloca
 	return box
 }
 
-box_from_cache :: proc(id_string: string, flags: Box_Flags, config: Box_Config, metadata := Box_Metadata{}) -> ^Box {
+box_from_cache :: proc(flags: Box_Flags, config: Box_Config, label := "", id := "", metadata := Box_Metadata{}) -> ^Box {
 	box: ^Box
 	is_new: bool
-	key := get_id_from_id_string(id_string)
+	is_anon: bool
+	key: string
+	if id == "" {
+		if ui_state.parents_top != nil {
+			parent := ui_state.parents_top
+			key = tprintf("{}-ac-{}", parent.id, parent.n_anon_children)
+			parent.n_anon_children += 1
+		} else {
+			// If you provide a name but no ID, a global random ID will be generated.
+			// On the rare case, we could get ID collision with this...
+			key = tprintf("ac-{}", rand.int63())
+		}
+		is_anon = true
+	} else {
+		key = id
+	}
 
 	if key in ui_state.box_cache {
 		box = ui_state.box_cache[key]
@@ -355,7 +367,7 @@ box_from_cache :: proc(id_string: string, flags: Box_Flags, config: Box_Config, 
 		box.config = config
 		box.z_index = config.z_index
 		// Label is recreated each frame, so it's temp allocated.
-		box.label = get_label_from_id_string(id_string)
+		box.label = label
 
 		// Boxes with fixed sizing have their size set upon creation, so if we're retrieving a box from the cache
 		// we need to manually re-set it's sizing info for later layout calculations.
@@ -395,10 +407,11 @@ box_from_cache :: proc(id_string: string, flags: Box_Flags, config: Box_Config, 
 			}
 		}
 		clear(&box.children)
+		box.n_anon_children = 0
 		box_clamp_to_constraints(box)
 	} else {
 		is_new = true
-		new_box := box_make(id_string, flags, config)
+		new_box := box_make(flags, config, label, key)
 		ui_state.box_cache[new_box.id] = new_box
 		box = new_box
 	}

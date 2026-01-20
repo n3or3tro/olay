@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(odin test:*)"
+      "Bash(odin test:*)",
+      "Bash(grep:*)",
+      "Bash(./build/reload.bat)",
+      "Bash(./build/hot-reload.bat)"
     ]
   }
 }

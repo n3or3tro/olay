@@ -5,6 +5,7 @@ import "core:prof/spall"
 import "core:slice"
 import str "core:strings"
 import "core:os"
+import "core:c"
 
 Browser_File :: struct {
 	// Pseudo GID for sorting and ID shit.
@@ -24,9 +25,11 @@ Browser_Directory :: struct {
 	collapsed:       bool,
 }
 
+Trie :: struct { 
+}
+
 file_browser_menu :: proc() {
 	child_container(
-		"@file-browser-container",
 		{
 			semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}},
 			color = .Primary_Container,
@@ -36,25 +39,26 @@ file_browser_menu :: proc() {
 			max_size = {800, app.wy - 100},
 		},
 		{direction = .Vertical},
+		"file-browser-container",
 		{.Draw},
 	)
 
 	top_menu: {
 		child_container(
-			"@file-browser-options-container",
 			{semantic_size = Size_Fit_Children_And_Grow, padding = padding(10), color = .Tertiary},
 			{direction = .Vertical, alignment_horizontal = .Center, alignment_vertical = .Center},
+			"file-browser-options-container",
 		)
 		edit_text_box(
-			"@browser-search-bar",
 			{semantic_size = {{.Grow, 1}, {.Fixed, 30}}, border = 1, padding = {left = 4, right = 4}},
 			.Generic_One_Line,
+			"browser-search-bar",
 		)
 		hori: {
 			child_container(
-				"@fuckmeneedanonboxeslolol",
 				{semantic_size = Size_Fit_Children},
 				{direction = .Horizontal},
+				"fuckmeneedanonboxeslolol",
 			)
 			btn_config := Box_Config {
 				color         = .Secondary,
@@ -63,9 +67,9 @@ file_browser_menu :: proc() {
 				semantic_size = {{.Fit_Text, 1}, {.Fit_Text_And_Grow, 1}},
 				corner_radius = 0,
 			}
-			add_folder := text_button("Add Folder@browser-options-add-folder", btn_config)
-			sort_files := text_button("Sort@browser-options-sort-button", btn_config)
-			flip := text_button("Flip@browser-options-flip-button", btn_config)
+			add_folder := text_button("Add Folder", btn_config, "browser-options-add-folder")
+			sort_files := text_button("Sort", btn_config, "browser-options-sort-button")
+			flip := text_button("Flip", btn_config, "browser-options-flip-button")
 
 			if add_folder.clicked {
 				multiselect := true
@@ -113,9 +117,9 @@ file_browser_menu :: proc() {
 
 	files_and_folders: {
 		child_container(
-			"@browser-subdirs-container",
 			{semantic_size = Size_Fit_Children, color = .Surface, padding = {5, 5, 5, 0}},
 			{direction = .Vertical, gap_vertical = 0},
+			"browser-subdirs-container",
 		)
 
 		create_subdirs_files :: proc(dir: ^Browser_Directory, level: int) {
@@ -123,28 +127,29 @@ file_browser_menu :: proc() {
 			// Will have ID collision if 2 folders are named the same thing.
 			{
 				child_container(
-					id("@{}-dispaly-container", dir.name),
 					{semantic_size = Size_Fit_Children_And_Grow, padding = {left = 5 * level}},
 					{gap_horizontal = 1},
-					metadata = Metadata_Browser_Item{is_dir = true, dir_id = dir.id},
+					id("{}-dispaly-container", dir.name),
+					{},
+					Metadata_Browser_Item{is_dir = true, dir_id = dir.id},
 				)
 				arrow_name := dir.collapsed ? ">" : "v"
 				arrow_box := text_button(
-					id("{}@{}-arrow_box", arrow_name, dir.name),
+					arrow_name,
 					{
 						semantic_size = {{.Fit_Text, 1}, {.Fit_Text_And_Grow, 1}},
 						color = app.browser_selected_dir != dir ? .Secondary_Container : .Warning,
 						text_justify = {.Start, .Center},
 						padding = padding(5),
 					},
+					id("{}-arrow_box", dir.name),
 				)
 				if arrow_box.clicked {
 					dir.collapsed = !dir.collapsed
 				}
 				dir_box := box_from_cache(
-					id("{}@browser-folder-{}", dir.name, dir.name),
 					{
-						.Clickable, .Drag_Drop_Sink, .Drag_Drop_Source, .Draw, 
+						.Clickable, .Drag_Drop_Sink, .Drag_Drop_Source, .Draw,
 						.Active_Animation, .Hot_Animation, .Draw_Text,
 					},
 					{
@@ -154,7 +159,9 @@ file_browser_menu :: proc() {
 						text_justify = {.Start, .Center},
 						padding = padding(5),
 					},
-					metadata = Metadata_Browser_Item{is_dir = true, dir_id = dir.id},
+					dir.name,
+					id("browser-folder-{}", dir.name),
+					Metadata_Browser_Item{is_dir = true, dir_id = dir.id},
 				)
 				dir_box_signals := box_signals(dir_box)
 
@@ -209,7 +216,6 @@ file_browser_menu :: proc() {
 						file_id = file.id,
 					}
 					f := box_from_cache(
-						id("{}@browser-file-{}-{}", file.name, i, file.name),
 						{.Clickable, .Draw, .Hot_Animation, .Drag_Drop_Source, .Draw_Text},
 						{
 							semantic_size = Size_Fit_Text_And_Grow,
@@ -219,12 +225,14 @@ file_browser_menu :: proc() {
 							text_justify = {.Start, .Center},
 							color = .Surface,
 						},
-						metadata = file_metadata,
+						file.name,
+						id("browser-file-{}-{}", i, file.name),
+						file_metadata,
 					)
 					file_signals := box_signals(f)
 
 					if file_signals.box == ui_state.dragged_box {
-						// Pretty inefficient if you have more a long list
+						// Pretty inefficient if you have a long list
 						if !slice.contains(ui_state.dropped_data[:], file_metadata) {
 							append(&ui_state.dropped_data, file_metadata)
 						}

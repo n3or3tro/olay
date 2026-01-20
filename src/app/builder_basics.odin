@@ -27,32 +27,31 @@ TOPBAR_HEIGHT :: 37
 // 	return box_signals(b)
 // }
 
-text :: proc(id_string: string, config: Box_Config, extra_flags := Box_Flags{}) -> Box_Signals {
-	b := box_from_cache(id_string, {.Draw_Text, .Text_Center} + extra_flags, config)
+text :: proc(label: string, config: Box_Config, id := "", extra_flags := Box_Flags{}) -> Box_Signals {
+	b := box_from_cache({.Draw_Text, .Text_Center} + extra_flags, config, label, id)
 	return box_signals(b)
 }
 
-text_button :: proc(id_string: string, config: Box_Config, extra_flags := Box_Flags{}) -> Box_Signals {
-	box := box_from_cache(id_string, {.Clickable, .Hot_Animation, .Active_Animation, .Draw, .Text_Center, .Draw_Text} + extra_flags, config)
+text_button :: proc(label: string, config: Box_Config, id := "", extra_flags := Box_Flags{}) -> Box_Signals {
+	box := box_from_cache({.Clickable, .Hot_Animation, .Active_Animation, .Draw, .Text_Center, .Draw_Text} + extra_flags, config, label, id)
 	return box_signals(box)
 }
 
-button :: proc(id_string: string, config: Box_Config, extra_flags := Box_Flags{}) -> Box_Signals {
-	box := box_from_cache(id_string, {.Clickable, .Hot_Animation, .Active_Animation, .Draw}, config)
+button :: proc(config: Box_Config, id := "", extra_flags := Box_Flags{}) -> Box_Signals {
+	box := box_from_cache({.Clickable, .Hot_Animation, .Active_Animation, .Draw}, config, "", id)
 	return box_signals(box)
 }
 
 // A container that automatically opens for children and closes at the end of the scope it's called in.
 @(deferred_out = box_regular_close_children)
 child_container :: proc(
-	id_string: string,
 	config: Box_Config,
 	child_layout: Box_Child_Layout,
+	id := "",
 	box_flags := Box_Flags{},
-	metadata := Box_Metadata{}
+	metadata := Box_Metadata{},
 ) -> Box_Signals {
-	box := box_from_cache(id_string, box_flags, config)
-	box.metadata = metadata
+	box := box_from_cache(box_flags, config, "", id, metadata)
 	box_open_children(box, child_layout)
 	return box_signals(box)
 }
@@ -83,9 +82,9 @@ Text_Box_Type :: enum {
 }
 
 edit_number_box :: proc(
-	id_string: string,
 	config: Box_Config,
 	min_val, max_val: int,
+	id := "",
 	metadata := Box_Metadata{},
 	extra_flags := Box_Flags{},
 ) -> Box_Signals {
@@ -156,10 +155,11 @@ edit_number_box :: proc(
 	}
 
 	box_signals := child_container(
-		id_string,
 		config,
 		{direction = .Horizontal},
+		id,
 		{.Clickable, .Draw, .Draw_Text, .Edit_Text, .Hot_Animation, .Active_Animation} + extra_flags + flags,
+		metadata,
 	)
 	box := box_signals.box
 	box.metadata = metadata
@@ -276,9 +276,9 @@ edit_number_box :: proc(
 }
 
 edit_text_box :: proc(
-	id_string: string,
 	config: Box_Config,
 	text_box_type: Text_Box_Type,
+	id := "",
 	extra_flags := Box_Flags{},
 	metadata := Box_Metadata{},
 ) -> Box_Signals {
@@ -363,10 +363,11 @@ edit_text_box :: proc(
 	}
 
 	text_container_signals := child_container(
-		id_string,
 		config,
 		{direction = .Horizontal},
+		id,
 		{.Clickable, .Draw, .Draw_Text, .Edit_Text, .Hot_Animation, .Active_Animation} + extra_flags,
+		metadata,
 	)
 	text_container := text_container_signals.box
 
@@ -461,25 +462,29 @@ Slider_Signals :: struct {
 }
 
 vertical_slider :: proc(
-	id_string: string,
 	config: Box_Config,
 	slider_value: ^f32,
 	min_val: f32,
 	max_val: f32,
- 	extra_flags := Box_Flags{}
+	id := "",
+ 	extra_flags := Box_Flags{},
 ) -> Slider_Signals {
+	container_id := id != "" ? tprintf("{}-container", id) : ""
+	track_id := id != "" ? tprintf("{}-track", id) : ""
+
 	child_container(
-		id("{}-container", get_id_from_id_string(id_string)),
 		config,
 		{direction = .Vertical, alignment_horizontal = .Center},
+		container_id,
 	)
 	track := box_from_cache(
-		id("{}-track", get_id_from_id_string(id_string)),
 		{.Clickable, .Draw, .Scrollable},
 		{
-			semantic_size = {{.Percent, 0.5}, {.Percent, 1}}, 
+			semantic_size = {{.Percent, 0.5}, {.Percent, 1}},
 			color = .Secondary
 		},
+		"",
+		track_id,
 	)
 	track_signals := box_signals(track)
 	if track_signals.pressed { 
@@ -488,8 +493,8 @@ vertical_slider :: proc(
 		slider_value^  =  ratio_of_click * max_val
 	}
 
+	grip_id := id != "" ? tprintf("{}-grip", id) : ""
 	grip := box_from_cache(
-		id("{}-grip", get_id_from_id_string(id_string)),
 		{.Clickable, .Draggable, .Draw, .Hot_Animation},
 		{
 			semantic_size   = {{.Percent, 0.8}, {.Percent, 0.1}},
@@ -502,6 +507,8 @@ vertical_slider :: proc(
 			corner_radius   = 2,
 			edge_softness   = 2,
 		},
+		"",
+		grip_id,
 	)
 	// println("created grip :) ")
 	grip_signals := box_signals(grip)
@@ -530,17 +537,17 @@ vertical_slider :: proc(
 
 // Used for radio buttons and checkbox groups only allows for strings or number arguments for now.
 multi_button_set :: proc(
-	id_string: string,
 	config: Box_Config,
 	child_layout: Box_Child_Layout,
 	exclusive: bool = true,
 	values: []$T,
+	id := "",
 	extra_flags := Box_Flags{},
 	allocator := context.allocator,
-) -> [dynamic]T where intrinsics.type_is_string(T) || intrinsics.type_is_numeric(T) 
+) -> [dynamic]T where intrinsics.type_is_string(T) || intrinsics.type_is_numeric(T)
 {
-	set_id := get_id_from_id_string(id_string)
-	child_container(id("@{}-container", set_id), config, child_layout)
+	container_id := id != "" ? tprintf("{}-container", id) : ""
+	child_container(config, child_layout, container_id)
 
 	Res_Type :: struct {
 		signals: Box_Signals,
@@ -550,23 +557,25 @@ multi_button_set :: proc(
 
 	// --- Draw buttons and store them in a buffer so we can query their signals.
 	for value, i in values {
+		item_id := id != "" ? tprintf("{}-item-{}", id, i) : ""
 		child_container(
-			id("@{}-item-{}", set_id, i), 
 			{
 				semantic_size = Size_Fit_Children,
-			}, 
+			},
 			{
-				direction = .Horizontal, 
+				direction = .Horizontal,
 				gap_horizontal = 7,
-			}
+			},
+			item_id,
 		)
+		button_id := id != "" ? tprintf("{}-button-{}", id, i) : ""
 		b := button(
-			tprintf("@{}-button-{}", value, set_id, i),
 			{
 				semantic_size = Size_Fit_Text,
 				padding = {10, 10, 10, 10},
 				color = .Secondary,
 			},
+			button_id,
 		)
 		val_str_buf := make([]u8, 50, context.temp_allocator)
 		val_as_str: string
@@ -579,14 +588,15 @@ multi_button_set :: proc(
 			}
 		}
 
+		text_id := id != "" ? tprintf("{}-text-{}", id, i) : ""
 		text(
-			id("{} heya@{}-text-{}", val_as_str, set_id, i),
+			tprintf("{} heya", val_as_str),
 			{
 				color 		  =  .Background,
 				semantic_size = Size_Fit_Text_And_Grow,
 				text_justify  = {.End, .Center}
 			},
-			// {.Draw}
+			text_id,
 		)
 		buttons[i] = {b, value}
 	}
@@ -628,13 +638,9 @@ multi_button_set :: proc(
 // we could most likely restrict this to have nested floating windows. i.e. you can't drag some floating
 // window outside of it's parent's bounds.
 @(deferred_out = box_floating_close_children)
-draggable_window :: proc(id_string: string, child_layout: Box_Child_Layout, extra_flags := Box_Flags{}) -> 
+draggable_window :: proc(title: string, child_layout: Box_Child_Layout, id := "", extra_flags := Box_Flags{}) ->
 (signals: Box_Signals, closed:bool) {
-	// This would probably break if we introduce an 'anonymous' box mechanism.
-	// container_id := get_id_from_id_string(id_string)
-	
 	container := box_from_cache(
-		id_string,
 		{},
 		{
 			floating_type   = .Absolute_Pixel,
@@ -642,6 +648,8 @@ draggable_window :: proc(id_string: string, child_layout: Box_Child_Layout, extr
 			semantic_size   = Size_Fit_Children,
 			z_index         = 20,
 		},
+		"",
+		id,
 	)
 	container_signals := box_signals(container)
 	box_open_children(container, child_layout)
@@ -649,26 +657,23 @@ draggable_window :: proc(id_string: string, child_layout: Box_Child_Layout, extr
 	offset_from_root: ^Vec2_f32
 	if container.id not_in ui_state.draggable_window_offsets {
 		// Put floating container in the center of the screen the first time it's created.
-		// ui_state.draggable_window_offsets[container.id] = {f32(app.wx) / 2 - f32(container.last_width), f32(app.wy) / 2 - f32(container.last_height)}
 		ui_state.draggable_window_offsets[container.id] = {f32(app.wx) / 2 , f32(app.wy) / 2}
 	}
 	offset_from_root = &ui_state.draggable_window_offsets[container.id]
 	container.config.floating_offset = offset_from_root^
 
-	
-	actual_id := get_id_from_id_string(id_string)
+	topbar_id := id != "" ? tprintf("{}-topbar", id) : ""
 	child_container(
-		id("@{}-topbar", get_id_from_id_string(id_string)), 
 		{
-			semantic_size = {{.Grow, 100}, {.Fit_Children, 1}}		
-		}, 
+			semantic_size = {{.Grow, 100}, {.Fit_Children, 1}}
+		},
 		{
 			direction = .Horizontal,
-		}
+		},
+		topbar_id,
 	)
-	label := get_label_from_id_string(id_string)
+	title_bar_id := id != "" ? tprintf("{}-title-bar", id) : ""
 	title_bar := box_from_cache(
-		id("{}@{}-title-bar", label, container.id),
 		{.Clickable, .Draw_Text, .Draw, .Hot_Animation, .Active_Animation},
 		{
 			semantic_size = {{.Percent, .95}, {.Fit_Text, 1}},
@@ -676,14 +681,17 @@ draggable_window :: proc(id_string: string, child_layout: Box_Child_Layout, extr
 			color = .Tertiary,
 			z_index = container.z_index,
 		},
+		title,
+		title_bar_id,
 	)
-	close_button :=  text_button(
-		id("x@{}-topbar-close-button",actual_id), 
+	close_button_id := id != "" ? tprintf("{}-close-button", id) : ""
+	close_button := text_button(
+		"x",
 		{
 			color = .Error_Container,
-			// semantic_size =  {{.Fixed, 10}, {.Fit_Text_And_Grow, 1}}
-			semantic_size =  Size_Fit_Text_And_Grow,
+			semantic_size = Size_Fit_Text_And_Grow,
 		},
+		close_button_id,
 	)
 
 	title_bar_signals := box_signals(title_bar)
@@ -692,43 +700,47 @@ draggable_window :: proc(id_string: string, child_layout: Box_Child_Layout, extr
 		delta_y := f32(app.mouse.pos.y - app.mouse_last_frame.pos.y)
 		offset_from_root.x = clamp(offset_from_root.x + delta_x, 0, f32(app.wx - container.last_width))
 		offset_from_root.y = clamp(offset_from_root.y + delta_y, 0, f32(app.wy - container.last_height))
-	}	
+	}
 	return box_signals(container), close_button.clicked
 }
 
 circular_knob :: proc(
-    id_string: string,
+    label: string,
     config: Box_Config,
     value: ^f32,
     min_val: f32,
     max_val: f32,
+    id := "",
     knob_size: f32 = 60,  // diameter in pixels
-    extra_flags := Box_Flags{}
+    extra_flags := Box_Flags{},
 ) {
-	actual_id := get_id_from_id_string(id_string)
-	label := get_label_from_id_string(id_string)
     // Container
+	container_id := id != "" ? tprintf("{}-container", id) : ""
     child_container(
-        id_string,
         config,
         {direction = .Vertical, alignment_horizontal = .Center, gap_vertical = 5},
+		container_id,
     )
-    
+
     // Track (circular background)
+	track_id := id != "" ? tprintf("{}-track", id) : ""
     track := box_from_cache(
-        id("{}-track", actual_id),
         {.Clickable, .Draw, .Scrollable},
         {
             semantic_size = {{.Fixed, knob_size}, {.Fixed, knob_size}},
             color = config.color,
             corner_radius = int(knob_size / 2),  // Makes it circular
         },
+		"",
+		track_id,
     )
 	track_signals := box_signals(track)
 
+	label_id := id != "" ? tprintf("{}-label", id) : ""
  	text(
-		id("{}@{}-label", label, actual_id),
+		label,
 		{color = .Secondary, semantic_size = Size_Fit_Text},
+		label_id,
 	)
 
 
@@ -773,8 +785,8 @@ circular_knob :: proc(
     grip_offset_y := 0.5 + math.sin(angle) * 0.7
     
     // Grip
+	grip_id := id != "" ? tprintf("{}-grip", id) : ""
     grip := box_from_cache(
-        id("{}-grip", actual_id),
         {.Clickable, .Draggable, .Draw, .Hot_Animation},
         {
             semantic_size = {{.Fixed, 10}, {.Fixed, 10}},
@@ -784,22 +796,25 @@ circular_knob :: proc(
 			floating_anchor_box = track,
             corner_radius = 5,
         },
+		"",
+		grip_id,
     )
 
     // Handle input...
 }
 
-// Most of the existing layout code and sizing stuff won't really apply to lines. 
+// Most of the existing layout code and sizing stuff won't really apply to lines.
 // We just pass in the start, end and thickness and the renderer works out the rest.
 line :: proc(
-    id_string: string,
 	config: Box_Config,
-	extra_flags := Box_Flags{}
+	id := "",
+	extra_flags := Box_Flags{},
 ) -> Box_Signals {
 	l := box_from_cache(
-		id_string,
 		{.Draw, .Line} + extra_flags,
 		config,
+		"",
+		id,
 	)
 	return box_signals(l)
 }
