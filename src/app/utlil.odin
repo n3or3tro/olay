@@ -2,24 +2,15 @@ package app
 import "base:intrinsics"
 import "core:strconv"
 import str "core:strings"
+import "core:path/filepath"
+import vmem "core:mem/virtual"
+import "core:mem"
+
 
 // Could definitely break due to numeric type conversions and integer division and shit.
 map_range :: proc(in_min, in_max, out_min, out_max, value: $T) -> T where intrinsics.type_is_numeric(T) {
 	return ((value - in_min) * (out_max - out_min) / (in_max - in_min)) + out_min
 }
-
-// get_label_from_id_string :: proc(id_string: string) -> string {
-// 	to := str.index(id_string, "@")
-// 	if to == -1 {
-// 		return ""
-// 	}
-// 	return id_string[:to]
-// }
-
-// get_id_from_id_string :: proc(id_string: string) -> string {
-// 	from := str.index(id_string, "@")
-// 	return id_string[from + 1:]
-// }
 
 get_drag_delta :: proc() -> [2]int {
 	return {
@@ -112,4 +103,30 @@ index_of :: proc(list: []$T, item: ^T) -> (index: int, found: bool) {
 		}
 	}
 	return -1, false
+}
+
+// Used in our tracker when we import a directory, we only want to actually register
+// those files in the dir, that are one of the audio formats we support.
+// This only checks the path, to actually be certain, we need an actual robust
+// parsing based solution.
+is_audio_file_via_path :: proc(path: string) -> bool {
+	file_extension := filepath.ext(path)
+	switch file_extension {
+		case ".wav", ".mp3", ".flac":
+			return true
+		case:
+			return false
+	}
+}
+
+arena_allocator_new :: proc() -> (^vmem.Arena, mem.Allocator) { 
+	arena := new(vmem.Arena)
+	err := vmem.arena_init_growing(arena)
+	if err != nil do panicf("{}", err)
+	return arena, vmem.arena_allocator(arena)
+}
+
+arena_allocator_destroy :: proc(arena: ^vmem.Arena, allocator: mem.Allocator) {
+	free_all(allocator)
+	free(arena)
 }

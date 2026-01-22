@@ -131,7 +131,7 @@ font_segment_and_shape_text :: proc(font: ^kb.font, text: []rune, allocator := c
 		kb_break: kb.break_type
 		for kb.Break(&break_state, &kb_break) {
 			flags := kb_break.Flags
-			if (kb_break.Position > run_start) && (flags & {.DIRECTION, .LINE_HARD, .SCRIPT} != nil) {
+			if (kb_break.Position > run_start) && (flags & {.DIRECTION, .LINE_HARD} != nil) {
 				run_length := kb_break.Position - run_start
 				font_add_shaped_run(
 					font,
@@ -177,7 +177,8 @@ font_segment_and_shape_text :: proc(font: ^kb.font, text: []rune, allocator := c
 /*
 	This is called during the segment_text proc, it takes a buffer, shapes the text and places the shaped text,
 	inside the buffer which will ultimately be handled by the font renderer.
-	The returned buffer is temporary allocated, so you need to permanently store it's contents if you want them to persist.
+	The returned buffer is temporary allocated, so you need to permanently store it's contents 
+	if you want them to persist.
 */
 @(private = "file")
 font_add_shaped_run :: proc(
@@ -209,10 +210,13 @@ font_add_shaped_run :: proc(
 		    &glyph_count,
 		    glyph_capacity,
 	    ) {
-		// panic("resized temp glyph buffer")
-		err := resize_dynamic_array(&temp_glyph_buffer, state.RequiredGlyphCapacity)
-		assert(err == .None, "resizing dynamic array of temp_glyph_buffer failed.")
+		err := resize(&temp_glyph_buffer, state.RequiredGlyphCapacity)
 		glyph_capacity = state.RequiredGlyphCapacity
+		// Pretty shonky, supposed to break when kb.Shape returns false, but oh well.
+		if glyph_capacity == 0 {
+			printfln("string: {} wont be rendered properly, contains character that kb.Shape cannot parse", text)
+			break
+		}
 	}
 
 	/* Font have this idea of 26.6 sizing, where the greater 26 bits are the pixel position
@@ -374,6 +378,7 @@ font_get_strings_rendered_height :: proc(text: string) -> int {
 	rendered_glyphs := font_get_render_info(shaped_runes, context.temp_allocator)
 	return font_get_glyphs_tallest_glyph(rendered_glyphs[:])
 }
+
 font_get_glyphs_tallest_glyph :: proc(glyph_buffer: []Glyph_Render_Info) -> int {
 	highest_ascender := 0
 	deepest_descender := 0

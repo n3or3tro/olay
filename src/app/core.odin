@@ -154,10 +154,9 @@ Metadata_Sampler :: struct {
 	track_num : int,
 }
 
-Metadata_Browser_Item :: struct { 
-	is_dir:  bool,
-	dir_id:  int,
-	file_id: int,
+Metadata_Browser_Item :: union { 
+	Browser_Directory,
+	Browser_File
 }
 
 Box_Metadata :: union {

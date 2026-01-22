@@ -9,6 +9,7 @@ so they'll need some re-thinking when I ship the UI stuff as a lib.
 
 package app
 import "core:sort"
+import "core:path/filepath"
 import "core:flags"
 import "core:math/rand"
 import str "core:strings"
@@ -259,21 +260,25 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 
 	// Because we check this here, only the steps part will 'absorb' a file if dropped,
 	// can be refactored to support the whole track, but it'll be uglier.
-	if track_dropped_on {
-		println("helooooooooooooooooooooo")
+	handle_drop: if track_dropped_on {
 		// Right now we'll panic if the drop data len > 1, but IRL this probably isn't an error behaviour,
 		// should probably just only accept the first file in the selection.
+		if len(ui_state.dropped_data) < 1 do break handle_drop
 		drop_data := pop(&ui_state.dropped_data)
 		cpath: cstring
 		#partial switch val in drop_data {
-			case string:
-				cpath = str.clone_to_cstring(val)
-				defer delete(cpath)
+			case Browser_File:
+				// full_path := tprintf("/{}/{}", val.parent.path, val.name)
+				full_path := filepath.join({val.parent.path, val.name}, context.temp_allocator)
+				cpath = str.clone_to_cstring(full_path)
+				printfln("dropped {} onto track", full_path)
+				// printfln("dropped {} onto track", val.name)
+				// printfln("it's parent is: {}", val.parent)
 			case:
-				printfln("Error: Dropped {} onto track. Tracks only accept file paths as drop data.", val)
+				println("Cant drop this onto a track")
 		}
 		track_set_sound(u32(track_num), cpath)
-		printfln("set track {} to have sound {}", track_num, cpath)
+		// printfln("set track {} to have sound {}", track_num, cpath)
 	}
 
 	sample_label: {
@@ -811,6 +816,9 @@ sampler :: proc(track_num: int, id_string: string) {
 
 context_menu :: proc() {
 	track_steps_context_menu :: proc(box: ^Box) {
+		// Draw parent rect
+		
+
 		track_num := box.metadata.(Metadata_Track_Step).track
 		track := &app.audio.tracks[track_num]
 
@@ -821,14 +829,14 @@ context_menu :: proc() {
 			border = 1,
 		}
 
-		top_level_btn_config.color = .Tertiary
+		top_level_btn_config.color = .Primary_Container
 		add_button := text_button(
 			"Add steps",
 			top_level_btn_config,
 			"context-menu-1",
 		)
 
-		top_level_btn_config.color = .Primary_Container
+		top_level_btn_config.color = .Warning_Container
 		remove_button := text_button(
 			"Remove steps",
 			top_level_btn_config,
@@ -836,7 +844,7 @@ context_menu :: proc() {
 		)
 
 		disarm_labl := track.armed ? "Disarm" : "Arm"
-		top_level_btn_config.color = .Warning
+		top_level_btn_config.color = .Surface
 		disarm_button := text_button(
 			id("{} track", disarm_labl),
 			top_level_btn_config,
@@ -892,7 +900,7 @@ context_menu :: proc() {
 			btn_config := Box_Config {
 				semantic_size    = Size_Fit_Text_And_Grow,
 				text_justify 	 = {.Start, .Center},
-				color 			 = .Secondary,
+				color 			 = .Primary_Container,
 				padding          = {10, 10, 10, 10},
 				border = 1
 			}
@@ -944,7 +952,7 @@ context_menu :: proc() {
 			)
 			btn_config := Box_Config {
 				semantic_size    = Size_Fit_Text_And_Grow,
-				color 			 = .Secondary,
+				color 			 = .Warning_Container,
 				padding          = {10, 10, 10, 10},
 			}
 			if text_button("All steps", btn_config, "context-remove-all").clicked {
@@ -1001,14 +1009,14 @@ context_menu :: proc() {
 			config,
 			"ctx-menu-file-delete",
 		)
-		if delete.clicked {
-			metadata := box.metadata.(Metadata_Browser_Item)
-			if metadata.is_dir {
-				// file_browser_delete_dir(metadata.dir_data)
-			} else {
-				// file_browser_delete_file(metadata.file_data)
-			}
-		}
+		// if delete.clicked {
+		// 	metadata := box.metadata.(Metadata_Browser_Item)
+		// 	if metadata.is_dir {
+		// 		// file_browser_delete_dir(metadata.dir_data)
+		// 	} else {
+		// 		// file_browser_delete_file(metadata.file_data)
+		// 	}
+		// }
 	}
 
 	if ui_state.right_clicked_on.disabled { 
@@ -1022,14 +1030,17 @@ context_menu :: proc() {
 			z_index 			= 100,
 			floating_type		= .Absolute_Pixel,
 			floating_offset 	= {f32(ui_state.context_menu.pos.x), f32(ui_state.context_menu.pos.y)},
+			color 				= .Secondary_Container,
+			corner_radius 		= 3, 	
+			padding 			= padding(10),
+			edge_softness 		= 2,
 		},
 		{
 			direction 			 = .Vertical,
 			alignment_horizontal = .Center,
 			alignment_vertical   = .Center,
 		},
-		"context-menu",
-		{.Draw},
+		box_flags = {.Draw},
 	)
 
 

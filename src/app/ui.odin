@@ -93,9 +93,7 @@ UI_State :: struct {
 // These are all the types of data that can be dropped on items that are drag-and-drop
 // enabled.
 Drop_Data :: union {
-	// Browser_File,
-	// Browser_Directory,
-	Metadata_Browser_Item,
+	Browser_File,
 	string,
 	int,
 	f32,
@@ -410,8 +408,8 @@ create_ui :: proc() -> ^Box {
 	if ui_state.dragged_box != nil {
 		dragged_box := ui_state.dragged_box.(^Box)
 		if .Drag_Drop_Source in dragged_box.flags {
-			printfln("dragging: {}", dragged_box.id)
-			printfln("droppable data is: {}", ui_state.dropped_data[:])
+			// printfln("dragging: {}", dragged_box.id)
+			// printfln("droppable data is: {}", ui_state.dropped_data[:])
 			cfg := dragged_box.config
 			cfg.floating_type = .Absolute_Pixel
 			cfg.floating_offset = {f32(app.mouse.pos.x), f32(app.mouse.pos.y)}
