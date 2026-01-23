@@ -87,8 +87,9 @@ UI_State :: struct {
 	redo_stack:               [dynamic]State_Change,
 	// Whether or not a track's eq is showing.
 	eqs:                      [dynamic]bool,
+	// Maps scrollable containers id to the amount of offset to apply to their scrolled children in px.
+	scroll_offsets: map[string]int
 }
-
 
 // These are all the types of data that can be dropped on items that are drag-and-drop
 // enabled.
@@ -300,14 +301,14 @@ create_ui :: proc() -> ^Box {
 			// color = .Inactive,
 		},
 		{direction = .Vertical},
-		"root",
-		{.Draw},
+		id = "root",
+		box_flags = {.Draw},
 	).box
 
 	ui_state.root = root
 
+	topbar()
 	if ui_state.tab_num == 0 {
-		topbar()
 		audio_tracks: {
 			child_container(
 				{
@@ -343,7 +344,6 @@ create_ui :: proc() -> ^Box {
 
 	}
 	else {
-		topbar()
 		multi_button_set(
 			{semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}}},
 			{direction = .Vertical, gap_horizontal = 20, gap_vertical = 10},
@@ -353,45 +353,22 @@ create_ui :: proc() -> ^Box {
 			{},
 			context.allocator,
 		)
+
 		child_container(
 			{
-				semantic_size = {{.Fixed, 200}, {.Fixed, 60}},
-				color         = .Inactive,
+				semantic_size = {{.Fixed, 500}, {.Fixed, 200}},
+				overflow_x = .Scroll,
+				overflow_y = .Scroll
 			},
 			{
-				alignment_horizontal = .Center,
-				alignment_vertical   = .Center,
-				direction            = .Horizontal,
+				gap_horizontal = 10,
+				direction = .Vertical,
 			},
-			"fasdflaksjsomethingsomethingd",
-			{.Draw},
+			box_flags = {.Draw, .Scrollable}
 		)
-
-		text_button(
-			"Some button",
-			{
-				color         = .Primary,
-				semantic_size = {{.Fit_Text_And_Grow, 1}, {.Fit_Text_And_Grow, 1}},
-			},
-		)
-
-		text_button(
-			"whattheheck",
-			{
-				color         = .Tertiary,
-				semantic_size = {{.Fit_Text_And_Grow, 1}, {.Fit_Text_And_Grow, 10}},
-				margin = {left = 30},
-			},
-		)
-
-		text_button(
-			"baby",
-			{
-				color         = .Primary,
-				semantic_size = {{.Fit_Text_And_Grow, 1}, {.Fit_Text_And_Grow, 10}},
-			},
-			"bbbbbbb",
-		)
+		text_button("heya",  {semantic_size = {{.Fixed, 300}, {.Fixed, 250}}})
+		text_button("there", {semantic_size = {{.Fixed, 300}, {.Fixed, 250}}})
+		text_button("mate",  {semantic_size = {{.Fixed, 300}, {.Fixed, 250}}})
 	}
 
 	if ui_state.context_menu.active {
@@ -466,6 +443,7 @@ create_ui :: proc() -> ^Box {
 			"helper-text-3",
 		)
 	}
+
 	// animation_update_all()
 	start := time.now()._nsec
 	sizing_calc_percent_width(root)

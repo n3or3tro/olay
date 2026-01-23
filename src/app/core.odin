@@ -59,6 +59,13 @@ Box_Border :: struct {
 	left, top, right, bottom: int
 }
 
+Overflow_Mode :: enum { 
+	Visible,  // Content extends beyond bounds.
+    Auto,     // Clip + scrollbar only when content overflows.
+    Scroll,   // Clip + always show scrollbar.
+    Hidden,   // Clip at bounds, no scrolling.
+}
+
 // Style and layout info that has to be known upon Box creation.
 Box_Config :: struct {
 	// All other color info can be determined from the main color token, so this is all you
@@ -89,6 +96,8 @@ Box_Config :: struct {
 	line_start: 		Vec2_f32,
 	line_end: 			Vec2_f32,
 	line_thickness: 	int,
+	overflow_x: 		Overflow_Mode,
+	overflow_y: 		Overflow_Mode,
 }
 
 // This is a seperate enum so we can have a different default alignment for text. 
@@ -163,7 +172,7 @@ Box_Metadata :: union {
 	Metadata_Track_Step,
 	Metadata_Track,
 	Metadata_Sampler,
-	Metadata_Browser_Item
+	Metadata_Browser_Item,
 }
 
 Box_Flag :: enum {
@@ -205,7 +214,7 @@ Box_Data :: union {
 }
 
 Box :: struct {
-	fresh:  bool,
+	fresh:  	  bool,
 	id:           string,
 	label: 		  string,
 	// Current thing being hovered over this frame, only 1 can exist at the end of each frame.
@@ -241,8 +250,10 @@ Box :: struct {
 	bottom_right: Vec2_int,
 	z_index:      int,
 	// next:         ^Box, // Sibling, aka, on the same level of the UI tree. Have the same parent.
-	keep:         bool, // Indicates whether we keep this box across frame boundaries.
+	keep:         bool, // Indicates whether we keep this box around for th next frame.
 	metadata: 	  Box_Metadata,
+	clip_tl: 	  Vec2_int,
+	clip_br: 	  Vec2_int,
 	n_anon_children: int,
 }
 
@@ -284,7 +295,8 @@ ui_pixel_shader_data :: #load("shaders/box_pixel_shader.glsl")
 
 @(private="file")
 box_make :: proc(flags: Box_Flags, config: Box_Config, label := "", id := "", allocator := context.allocator) -> ^Box {
-	box := new(Box, context.allocator)
+	// box := new(Box, context.allocator)
+	box := new(Box, allocator)
 
 	persistant_id, err := str.clone(id)
 	assert(err == .None)
@@ -296,8 +308,17 @@ box_make :: proc(flags: Box_Flags, config: Box_Config, label := "", id := "", al
 
 	if id != "root" {
 		box.parent = ui_state.parents_top
-		append(&ui_state.parents_top.children, box)
-		box.z_index = box.parent.z_index + 1
+		/*
+		Had to add this conditional because scroll bars are created after the rest of the UI, when
+		the parent stack is empty, and we would crash, scroll bars don't need to be logically parented,
+		we just hardcode their position to be relative to their corresponding box.
+		*/
+		if box.parent == nil {
+			assert(len(ui_state.parents_stack) == 0, "box.parent is nil, but the parent stack is not empty!")
+		} else {
+			append(&ui_state.parents_top.children, box)
+			box.z_index = box.parent.z_index + 1
+		}
 	}
 
 	x_size_type := box.config.semantic_size.x.type 
@@ -724,30 +745,30 @@ collect_frame_signals :: proc(root: ^Box) {
 				next_signals.right_clicked = true
 				ui_state.right_clicked_on = box
 			}
+		}
 
 
-			// These are events that can just trigger regardless of z-index.
-			if mouse_inside_box(box, app.mouse.pos) {
-				next_signals.hovering = true
-				// Only set a new dragged box if we've previously let go of the mouse, which is indicated
-				// by ui_state.dragged_box, since this is only set to nil, when the mouse button goes up.
-				if next_signals.pressed && prev_siganls.pressed {
-					// This check avoids changing the dragged box when the mouse escapes
-					// the previous drag target.
-					if ui_state.dragged_box == nil {
-						ui_state.dragged_box = box
-					}
-				} 
-				next_signals.dragged_over = next_signals.pressed
-				// Scrolling
-				if app.mouse.wheel.y != 0 {
-					next_signals.scrolled = true
-					printfln("scrolling on {}", box.id)
-					if app.mouse.wheel.y > 0 {
-						next_signals.scrolled_up = true
-					} else if app.mouse.wheel.y < 0 {
-						next_signals.scrolled_down = true
-					}
+		// These are events that can just trigger regardless of z-index.
+		if mouse_inside_box(box, app.mouse.pos) {
+			next_signals.hovering = true
+			// Only set a new dragged box if we've previously let go of the mouse, which is indicated
+			// by ui_state.dragged_box, since this is only set to nil, when the mouse button goes up.
+			if next_signals.pressed && prev_siganls.pressed {
+				// This check avoids changing the dragged box when the mouse escapes
+				// the previous drag target.
+				if ui_state.dragged_box == nil {
+					ui_state.dragged_box = box
+				}
+			} 
+			next_signals.dragged_over = next_signals.pressed
+			// Scrolling
+			if app.mouse.wheel.y != 0 && .Scrollable in box.flags {
+				next_signals.scrolled = true
+				printfln("scrolling on {}", box.id)
+				if app.mouse.wheel.y > 0 {
+					next_signals.scrolled_up = true
+				} else if app.mouse.wheel.y < 0 {
+					next_signals.scrolled_down = true
 				}
 			}
 		}
@@ -761,20 +782,165 @@ collect_frame_signals :: proc(root: ^Box) {
 
 }
 
-// Automatically handles dragging for floating positioned boxes that are draggable. i.e floating windows.
-handle_automatic_dragging :: proc() {
-}
-
-// Parses UI tree of boxes and gives you back a flat list.
 box_tree_to_list :: proc(root: ^Box, allocator := context.allocator) -> [dynamic]^Box {
 	recurse_and_add :: proc(box: ^Box, list: ^[dynamic]^Box) {
-		append_elem(list, box)
-		for child in box.children {
+		append(list, box)
+		for child in box.children { 
 			recurse_and_add(child, list)
 		}
 	}
 	list := make([dynamic]^Box, allocator)
 	recurse_and_add(root, &list)
+	return list
+}
+
+// Parses UI tree of boxes and gives you back a flat list. Also calculates if we need to add scrollbars to 
+// boxes whose children overflow it + calculates clipping rects.
+box_tree_to_list_complex :: proc(root: ^Box, allocator := context.allocator) -> [dynamic]^Box {
+	/*
+	We add scroll bars and calculate clipping here as it's the first point in the frame where all other boxes know their size, 
+	and therefore we can calculate which boxes overflow and need scroll bars, how long the scroll bars should be, 
+	how tall the handles should be, etc, etc. 
+	It's a little weird having it so far outside the UI layout flow, but it's okay for now.
+	*/
+	recurse_and_add :: proc(box: ^Box, list: ^[dynamic]^Box, parents_clip_tl: Vec2_int, parents_clip_br: Vec2_int) {
+		box.clip_tl = parents_clip_tl
+		box.clip_br = parents_clip_br
+
+		if box.config.overflow_x != .Visible {
+			box.clip_tl.x = box.top_left.x
+			box.clip_br.x = box.bottom_right.x
+		}	
+
+		if box.config.overflow_y != .Visible {
+			box.clip_tl.y = box.top_left.y
+			box.clip_br.y = box.bottom_right.y
+		} 
+
+		append(list, box)
+
+		overflowed_x := false
+		overflowed_y := false
+
+		children_tot_height := boxes_children_tot_height(box^)
+		children_tot_width  := boxes_children_tot_width(box^)
+		if box.config.overflow_x != .Visible && box.config.overflow_x != .Hidden {
+			overflowed_x = children_tot_width > box.width 
+		}
+		if box.config.overflow_y != .Visible && box.config.overflow_y != .Hidden {
+			overflowed_y =  children_tot_height > box.height 
+		}
+
+
+		if overflowed_x { 
+			hori_scroll_track := box_from_cache(
+				{.Draw, .Clickable, .Draggable, .Scrollable},
+				{
+					color = .Warning_Container,
+				},
+				id = tprintf("{}-hori-scroll-track", box.id)
+			)
+			hori_scroll_track.top_left     = {box.top_left.x, box.bottom_right.y + 30}
+			hori_scroll_track.bottom_right = box.bottom_right
+			hori_scroll_track.width = box.width
+			hori_scroll_track.height = 30
+		}
+
+		if overflowed_y { 
+			scroll_offset:  = 0
+			if box.id in ui_state.scroll_offsets {
+				scroll_offset = ui_state.scroll_offsets[box.id]
+			} else { 
+				ui_state.scroll_offsets[box.id] = 0
+			}
+
+			track := box_from_cache(
+				{.Draw, .Clickable, .Draggable, .Scrollable},
+				{
+					color = .Warning_Container,
+					z_index = 30,
+					corner_radius = 8, 
+				},
+				id = tprintf("{}-vert-scroll-track", box.id)
+			)
+			track.top_left     = {box.bottom_right.x - 10, box.top_left.y}
+			track.bottom_right = box.bottom_right
+			track.width 	   = 10 
+			track.height 	   = box.height
+			track_signals 	  := box_signals(track)
+
+			CHANGE_PER_TICK :: 40
+			max_scroll := children_tot_height - box.height
+			if track_signals.scrolled_up || box.signals.scrolled_up { 
+				scroll_offset = clamp(scroll_offset - CHANGE_PER_TICK, 0, max_scroll)
+			} else if track_signals.scrolled_down || box.signals.scrolled_down {
+				scroll_offset = clamp(scroll_offset + CHANGE_PER_TICK, 0, max_scroll)
+			}
+			append(list, track)
+
+
+			handle := box_from_cache(
+				{.Draw, .Clickable, .Draggable, .Scrollable, .Hot_Animation, .Active_Animation},
+				{
+					color = .Warning,
+					z_index = 30,
+					corner_radius = 2, 
+				},
+				id = tprintf("{}-vert-scroll-handle", box.id)
+			)
+
+			handle_width  := 10
+			handle_height :=  int(f32(box.height) * (f32(box.height) / f32(children_tot_height)))
+			handle_height = clamp(handle_height, 20, handle_height)
+
+			// handle.top_left     = {track.top_left.x, clamp(int(f32(track.bottom_right.y) * scroll_offset), box.top_left.y, box.bottom_right.y - handle_height)}
+			track_scrollable_range := track.height - handle_height
+			scroll_ratio: f32 = 0
+			if max_scroll > 0 {
+				scroll_ratio = f32(scroll_offset) / f32(max_scroll)
+			}
+			handle_y := track.top_left.y + int(scroll_ratio * f32(track_scrollable_range))
+			handle.top_left = {track.top_left.x, handle_y}
+			handle.bottom_right = handle.top_left + {handle_width, handle_height} 
+
+			handle.width 	    = handle_width
+			handle.height 	    = handle_height
+			handle_signals     := box_signals(handle)
+
+			if handle_signals.hovering { 
+				handle.top_left 	-= {1, 1}
+				handle.bottom_right += {1, 1}
+			}
+			append(list, handle)
+
+			ui_state.scroll_offsets[box.id] = scroll_offset
+
+			// Visually shift children up, so they're cut out by the clipping rect of the parent
+			clipped_amount := children_tot_height - box.height
+			// shift_amount := int(scroll_offset * f32(clipped_amount))
+			shift_children :: proc(box: Box, shift_amount: int) {
+				for child in box.children {
+					child.top_left 	   -= {0, shift_amount}
+					child.bottom_right -= {0, shift_amount}
+					shift_children(child^, shift_amount)
+				}
+			}
+			shift_children(box^, scroll_offset)
+			
+		}
+
+		if overflowed_x && overflowed_y { 
+			// Need to account for when both scroll bars are in place, as they will collide
+			// in the bottom right corner, so we need to shrink each one accordingly.
+		}
+
+		for child in box.children {
+			recurse_and_add(child, list, box.clip_tl, box.clip_br)
+		}
+	}
+
+	list := make([dynamic]^Box, allocator)
+	recurse_and_add(root, &list, {0, 0}, {app.wx, app.wy})
 	return list
 }
 

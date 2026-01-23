@@ -159,12 +159,10 @@ file_browser_menu :: proc() {
 	}
 	files_and_folders: {
 		create_subdirs_files :: proc(dir: ^Browser_Directory, level: int, search_term: string) {
-			// Create folder part.
 			{
 				child_container(
 					{semantic_size = Size_Fit_Children_And_Grow, padding = {left = 15 * level}},
 					{gap_horizontal = 1},
-					// metadata = Metadata_Browser_Item{is_dir = true, dir_id = dir.id},
 				)
 				arrow_box := text_button(
 					dir.collapsed ? ">" : "v",
@@ -239,6 +237,20 @@ file_browser_menu :: proc() {
 			}
 		}
 
+		child_container(
+			{
+				overflow_y = .Scroll,
+				overflow_x = .Scroll,
+				// semantic_size = {{.Percent, 1}, {.Percent, 1}},
+				max_size = {800, app.wy - 250},
+				color = .Warning,
+			},
+			{
+				direction = .Vertical
+			},
+			"browser-main-container",
+			{.Scrollable, .Draw}
+		)
 		// Create each child of the root at the top level, this is because we don't actually
 		// want to render / interact with the root.
 		for &subdir in app.browser_root_dir.sub_directories{

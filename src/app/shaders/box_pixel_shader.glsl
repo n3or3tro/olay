@@ -88,6 +88,20 @@ void main() {
 	// 	|| screen_space_y > clip_br.y) {
 	// 	discard;
 	// }
+	if (clip_br.x > 0.0 || clip_br.y > 0.0) {
+        // Convert UI coords to GL coords (bottom-left origin)
+        float clip_left   = clip_tl.x;
+        float clip_right  = clip_br.x;
+        float clip_bottom = screen_res.y - clip_br.y;  // UI bottom -> GL y
+        float clip_top    = screen_res.y - clip_tl.y;  // UI top -> GL y
+        
+        vec2 frag = gl_FragCoord.xy;
+        
+        if (frag.x < clip_left || frag.x > clip_right ||
+            frag.y < clip_bottom || frag.y > clip_top) {
+            discard;
+        }
+    }
 
 	// we need to shrink the rectangle's half-size that is used for distance calculations with
 	// the edge softness - otherwise the underlying primitive will cut off the falloff too early.

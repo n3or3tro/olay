@@ -294,7 +294,8 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 			{
 				semantic_size = {{.Fit_Text_And_Grow, 1}, {.Fit_Text, 1}},
 				color = .Primary_Container,
-				text_justify = {.Center, .Center},
+				text_justify = {.Start, .Center},
+				overflow_x = .Hidden
 			},
 			id("{}{}-file-info", label, track_num),
 			{.Drag_Drop_Source},

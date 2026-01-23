@@ -130,3 +130,51 @@ arena_allocator_destroy :: proc(arena: ^vmem.Arena, allocator: mem.Allocator) {
 	free_all(allocator)
 	free(arena)
 }
+
+boxes_children_tot_height :: proc(box: Box) -> int {
+	tot := 0
+	switch box.child_layout.direction { 
+	case .Vertical:
+		for child in box.children {
+			tot += child.height
+		}
+	case .Horizontal:
+		for child in box.children {
+			tot = max(tot, child.height)
+		}
+	}
+	return tot
+}
+
+boxes_children_tot_width :: proc(box: Box) -> int {
+	tot := 0
+	switch box.child_layout.direction { 
+	case .Horizontal:
+		for child in box.children {
+			tot += child.width
+		}
+	case .Vertical:
+		for child in box.children {
+			tot = max(tot, child.width)
+		}
+	}
+	return tot
+}
+
+vec2_f32 :: proc(d: [2]$T) -> [2]f32 
+where intrinsics.type_is_numeric(T) 
+{
+	return {f32(d[0]), f32(d[1])}
+}
+
+vec3_f32 :: proc(d: [3]$T) -> [3]f32 
+where intrinsics.type_is_numeric(T) 
+{
+	return {f32(d[0]), f32(d[1]), f32(d[2])}
+}
+
+vec4_f32 :: proc(d: [4]$T) -> [4]f32 
+where intrinsics.type_is_numeric(T) 
+{
+	return {f32(d[0]), f32(d[1]), f32(d[2]), f32(d[3])}
+}

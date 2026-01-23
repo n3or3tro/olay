@@ -82,18 +82,19 @@ Boxes_Rendering_Data :: struct {
 	text_cursor:     Maybe(Rect_Render_Data),
 }
 
-// sets circumstantial (hovering, clicked, etc) rendering data like radius, borders, etc
-/* Returns:
-1st: The render data for the passed in box.
-2nd: A list of related things like borders, shadows, etc.
-3rd: An overlay (for example to grey out a disabled track)
-*/
+
 @(private = "file")
 distance :: proc(a, b: [2]$T) -> f32 where intrinsics.type_is_numeric(T) {
 	// distance = sqrt((x2 - x1)² + (y2 - y1)²)
 	return math.sqrt((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y))
 }
 
+// sets circumstantial (hovering, clicked, etc) rendering data like radius, borders, etc
+/* Returns:
+1st: The render data for the passed in box.
+2nd: A list of related things like borders, shadows, etc.
+3rd: An overlay (for example to grey out a disabled track)
+*/
 get_boxes_rendering_data :: proc(box: Box, allocator := context.allocator) -> Boxes_Rendering_Data {
 	additional_render_data := make([dynamic]Rect_Render_Data, context.temp_allocator)
 	result := Boxes_Rendering_Data {
@@ -150,16 +151,21 @@ get_boxes_rendering_data :: proc(box: Box, allocator := context.allocator) -> Bo
 		corner_radius    = f32(box.config.corner_radius),
 		edge_softness    = f32(box.config.edge_softness),
 		border_thickness = 100000,
-		// clip_tl          = box.clipping_container.top_left,
-		// clip_br          = box.clipping_container.bottom_right,
+		clip_tl 		 = vec2_f32(box.clip_tl),
+		clip_br			 = vec2_f32(box.clip_br)
 	}
-	// Cheap and dirty way to anti alias non squared off edges.
+
+	if box.parent != nil && box.parent.config.overflow_y != .Visible {
+		box_render_data.clip_tl = vec2_f32(box.parent.top_left)
+		box_render_data.clip_br = vec2_f32(box.parent.bottom_right)
+	}
+
+	// Cheap and dirty way to anti alias non squared off edges. Not as good as real anti-aliasing of course.
 	if box_render_data.corner_radius > 0 && box_render_data.edge_softness == 0 {
 		box_render_data.edge_softness = 0.7
 	}
 
 	if box.disabled {
-		// printfln("rendering grey overlay for track {}", metadata.track_num)
 		// Color selection here is iffy, we can't always use some complement of the base color,
 		// because different siblings can have different colors, but you want the 'disabled' look to
 		// be uniform. For now we'll just pick a random color.
@@ -169,8 +175,8 @@ get_boxes_rendering_data :: proc(box: Box, allocator := context.allocator) -> Bo
 			tr_color     = color,
 			bl_color     = color,
 			br_color     = color,
-			top_left     = box_coord_to_vec2f32(box.top_left),
-			bottom_right = box_coord_to_vec2f32(box.bottom_right),
+			top_left     = vec2_f32(box.top_left),
+			bottom_right = vec2_f32(box.bottom_right),
 		}
 		result.overlay = data
 	}
@@ -348,84 +354,13 @@ get_boxes_rendering_data :: proc(box: Box, allocator := context.allocator) -> Bo
 	if .Draw in box.flags {
 		result.box = box_render_data
 	}
+
+
+	if boxes_children_tot_width(box) > box.width { 
+	}
+
 	return result
 }
-
-// get_background_rendering_data :: proc() -> Rect_Render_Data {
-// 	background_box := Box {
-// 		rect = Rect{top_left = {0.0, 0.0}, bottom_right = {f32(app.wx^), f32(app.wy^)}},
-// 		id_string = "background@background",
-// 		visible = true,
-// 	}
-// 	rendering_data := Rect_Render_Data {
-// 		// ui_element_type      = 15.0,
-// 		// texture_top_left     = {0, 0},
-// 		// texture_bottom_right = {1, 1},
-// 		top_left     = {0, 0},
-// 		bottom_right = {f32(app.wx^), f32(app.wy^)},
-// 		bl_color     = {0, 0, 0, 1},
-// 		br_color     = {0, 0, 0, 1},
-// 		tl_color     = {0.3, 0.3, 0.3, 1},
-// 		tr_color     = {0.3, 0.3, 0.3, 1},
-// 	}
-// 	return rendering_data
-// }
-
-// get_all_rendering_data :: proc() -> ^[dynamic]Rect_Render_Data {
-// 	// Deffs not efficient to keep realloc'ing and deleting this list, will fix in future.
-// 	rendering_data := new([dynamic]Rect_Render_Data, allocator = context.temp_allocator)
-// 	// append(rendering_data, get_background_rendering_data())
-// 	for box in ui_state.temp_boxes {
-// 		if box.id_string == "" || box == nil {
-// 			panic("This box as it has no id_string OR box == nil")
-// 		}
-// 		boxes_to_render := get_boxes_rendering_data(box^)
-// 		defer delete(boxes_to_render^)
-// 		if .Draw in box.flags {
-// 			for data in boxes_to_render {
-// 				append(rendering_data, data)
-// 			}
-// 		}
-// 		// if metadata, is_knob := box.metadata.(Sampler_Metadata); is_knob {
-// 		// 	if metadata.sampler_part == .ADSR_Knob {
-// 		// 		add_knob_rendering_data(box^, rendering_data)
-// 		// 	}
-// 		// } else if metadata, is_grip := box.metadata.(Track_Control_Metadata); is_grip {
-// 		// 	if metadata.control_type == .Volume_Slider {
-// 		// 		add_fader_knob_rendering_data(box^, rendering_data)
-// 		// 	}
-// 		// } else if .Draw in box.flags {
-// 		// 	for data in boxes_to_render {
-// 		// 		append(rendering_data, data)
-// 		// 	}
-// 		// }
-
-// 		// if .Draw_Text in box.flags {
-// 		// 	add_word_rendering_data(box^, boxes_to_render, rendering_data)
-// 		// }
-// 		// if s.contains(get_id_from_id_string(box.id_string), "waveform-container") {
-// 		// 	// Render left_channel and right_channel serperately. Maybe we can gain some efficiency by doing this together ?
-// 		// 	// unclear, but it previously setup to only render one channel, so we can do this without any changes.
-// 		// 	active_track := get_active_track()
-// 		// 	left_channel, right_channel := get_track_pcm_data(active_track)
-// 		// 	rects := cut_rect_into_n_vertically(box.rect, 2)
-// 		// 	top_rect, bottom_rect := rects[0], rects[1]
-// 		// 	add_waveform_rendering_data(
-// 		// 		top_rect,
-// 		// 		app.audio_state.tracks[active_track].sound,
-// 		// 		left_channel,
-// 		// 		rendering_data,
-// 		// 	)
-// 		// 	add_waveform_rendering_data(
-// 		// 		bottom_rect,
-// 		// 		app.audio_state.tracks[active_track].sound,
-// 		// 		right_channel,
-// 		// 		rendering_data,
-// 		// 	)
-// 		// }
-// 	}
-// 	return rendering_data
-// }
 
 // add_knob_rendering_data :: proc(box: Box, rendering_data: ^[dynamic]Rect_Render_Data) {
 // 	data := get_default_rendering_data(box)
@@ -526,7 +461,7 @@ add_waveform_rendering_data :: proc(
 }
 
 collect_render_data_from_ui_tree :: proc(render_data: ^[dynamic]Rect_Render_Data) {
-	box_list := box_tree_to_list(ui_state.root, context.temp_allocator)
+	box_list := box_tree_to_list_complex(ui_state.root, context.temp_allocator)
 	sort.merge_sort_proc(box_list[:], proc(a, b: ^Box) -> int {
 		if a.z_index < b.z_index {
 			return -1
@@ -536,6 +471,7 @@ collect_render_data_from_ui_tree :: proc(render_data: ^[dynamic]Rect_Render_Data
 			return 0
 		}
 	})
+
 	for box in box_list {
 		boxes_render_data := get_boxes_rendering_data(box^, context.temp_allocator)
 
@@ -590,10 +526,6 @@ collect_render_data_from_ui_tree :: proc(render_data: ^[dynamic]Rect_Render_Data
 			append(render_data, overlay)
 		}
 
-
-		// for child in box.children {
-		// 	collect_render_data_from_ui_tree(child, render_data)
-		// }
 	}
 }
 
@@ -602,6 +534,7 @@ Returns the quads which we will sample the font pixels into.
 This is probably where I'd implement subpixel positioning and stuff, but for now
 we just naively wrap to the nearest int.
 */
+
 // NOTE! character quads aren't positioned correctly, refer to claude chat as to how
 // we can fix it.
 get_text_quads :: proc(
@@ -662,9 +595,20 @@ get_text_quads :: proc(
 			bl_color             = text_color,
 			br_color             = text_color,
 			ui_element_type      = .Text,
+			clip_tl				 = vec2_f32(box.clip_tl),
+			clip_br				 = vec2_f32(box.clip_br),
 		}
+		// Set clipping rect for text.
+		// if box.parent != nil && box.parent.config.overflow_y != .Visible {
+		// 	data.clip_tl = vec2_f32(box.parent.top_left)
+		// 	data.clip_br = vec2_f32(box.parent.bottom_right)
+		// }
 		glyph_rects[i] = data
 	}
+
+	
+
+
 	return glyph_rects
 }
 
