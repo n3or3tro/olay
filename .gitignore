@@ -1,6 +1,6 @@
-build/app.*
+./build/app.*
 trace_test.spall
 src.*
 util/node_modules
-build/src*
-build/app*
+build/src**
+build/app**

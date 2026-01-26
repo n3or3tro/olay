@@ -9,6 +9,7 @@ so they'll need some re-thinking when I ship the UI stuff as a lib.
 
 package app
 import "core:sort"
+import "core:math"
 import "core:path/filepath"
 import "core:flags"
 import "core:math/rand"
@@ -500,61 +501,7 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 				println("added band to track {}", track_num)
 				printfln("tail after adding: {}", tail(eq_state.bands[:]))
 			}
-			/* Draw background frequency ranges. */
-			// Draw DB levels: 
-			line_base_config := Box_Config {
-				color = .Tertiary,
-				line_thickness = 2,
-				edge_softness  = 1,
-				z_index = 30,
-			}
-			// Center 0db line
-			tl := frequency_display_container.box.top_left
-			br := frequency_display_container.box.bottom_right
-			box_height := f32(frequency_display_container.box.last_height)
-			db_0_line_start := [2]f32{f32(tl.x), f32(tl.y) + box_height / 2.0 }
-			db_0_line_end   := [2]f32{f32(br.x), f32(br.y) - box_height / 2.0 }
-			db_0_config := line_base_config
-			db_0_config.line_start = db_0_line_start
-			db_0_config.line_end   = db_0_line_end
-			line(
-				db_0_config,
-				id("{}-graph-hori-0", eq_id),
-			)
-
-			// Probably need to account for padding.
-			gap_to_top := box_height / 2
-			// Since we want 3db, 6db, 9db, 12db,
-			gap := gap_to_top / 4
-			for i in -4 ..= 4 {
-				if i == 0 do continue
-				new_config := line_base_config
-				tl := frequency_display_container.box.top_left
-				br := frequency_display_container.box.bottom_right
-				line_start := db_0_line_start.xy + {0, gap * f32(i)}
-				line_end   :=   db_0_line_end.xy   + {0, gap * f32(i)}
-				new_config.line_start = line_start
-				new_config.line_end   = line_end
-				line(
-					new_config,
-					id("{}-graph-hori-{}", eq_id, i),
-				)
-			}
-
-			// I'm thinking I could maybe leverage the auto layout algos to place the gridlines,
-			// but we'll hardcode for it now.
-			// freq_graph: {
-			// 	child_container(
-			// 		id("@{}-freq-grid", eq_id),
-			// 		{
-			// 			semantic_size = {{.Percent, 1}, {.Percent, 1}} 
-			// 		},
-			// 		{
-			// 			direction = .Vertical,
-			// 		}
-			// 	)
-			// }
-
+			
 			handles := make([dynamic]^Box, context.temp_allocator)
 			for &band, i in eq_state.bands {
 				handle := box_from_cache(
@@ -571,8 +518,6 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 						corner_radius = 15,
 						z_index  = 40,
 					},
-					"",
-					id("{}-band-{}-handle", eq_id, i),
 				)
 				append(&handles, handle)
 				handle_signals := box_signals(handle)
@@ -596,26 +541,38 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 					ordered_remove(&eq_state.bands, i)
 				}
 			}
-			// Draw lines between handles.
-			for handle, i in handles { 
-				// Actually the last band in the list might not be the further to the right
-				// so in prod, this isn't how we'd structure it.
-				if i == len(eq_state.bands) - 1 do continue
-				config := Box_Config {
-					line_start = box_center(handles[i]^),
-					line_end   = box_center(handles[i+1]^),
-					line_thickness = 4,
-					z_index = 35,
-					edge_softness = 1,
+			
+			// Draw filter response curve ;).
+			curve_total : [256]f64
+			for band, i in eq_state.bands {
+				if band.bypass do continue
+				freq_hz := 20.0 * math.pow(20_000.0 / 20.0, f64(band.pos))
+				coeffs := compute_biquad_coefficients(freq_hz, 1, f64(band.gain), 44_100, .Bell)
+				band_points := generate_curve_points(coeffs, 44_100)
+				for i in 0..<len(curve_total) {
+					curve_total[i] += band_points[i]
 				}
-				l := line(
-					config,
-					id("{}-line-from-{}-to-{}", eq_id, i, i+1),
-					{.Clickable},
+			}
+			for point, i in curve_total {
+				x := map_range(0.0, len(curve_total), 0.0, 1.0, f64(i))
+				y := map_range(
+					-24.0, 
+					24.0, 
+					0,
+					1,
+					point
 				)
-				if l.double_clicked {
-					println("double clicked on line")
-				}
+				// printfln("current freq response point is at: {}, {}", x, y)
+				text_button(
+					"a",
+					{
+						semantic_size = {{.Fixed, 2}, {.Fixed, 2}},
+						color = .Primary_Container,
+						floating_type = .Relative_Other,
+						floating_anchor_box = frequency_display_container.box,
+						floating_offset = {f32(x), f32(y)}
+					}
+				)
 			}
 		}
 		level_meter := box_from_cache(

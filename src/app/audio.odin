@@ -11,7 +11,7 @@ import ma "vendor:miniaudio"
 N_TRACK_STEPS :: 128
 MAX_TRACKS :: 256
 MAX_TRACK_STEPS :: 256
-EQ_MAX_GAIN :f32: 20
+EQ_MAX_GAIN :f32: 24
 
 Sampler_Slice :: struct {
 	// How far along into the sound is this.
@@ -46,13 +46,13 @@ Sampler_State :: struct {
 }
 
 EQ_Band_Type :: enum { 
-	High_Pass,
-	Low_Pass,
+	Bell,
+	High_Cut,
+	Low_Cut,
 	High_Shelf,
 	Low_Shelf,
 	Band_Pass, 
 	Notch,
-	Bell,
 }
 
 EQ_Band_State :: struct { 

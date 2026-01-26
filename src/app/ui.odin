@@ -358,21 +358,27 @@ create_ui :: proc() -> ^Box {
 			context.allocator,
 		)
 
-		child_container(
-			{
-				semantic_size = {{.Fixed, 500}, {.Fixed, 200}},
-				overflow_x = .Scroll,
-				overflow_y = .Scroll
-			},
-			{
-				gap_horizontal = 10,
-				direction = .Vertical,
-			},
-			box_flags = {.Draw, .Scrollable}
-		)
-		text_button("heya",  {semantic_size = {{.Fixed, 300}, {.Fixed, 250}}})
-		text_button("there", {semantic_size = {{.Fixed, 300}, {.Fixed, 250}}})
-		text_button("mate",  {semantic_size = {{.Fixed, 300}, {.Fixed, 250}}})
+		{
+			child_container(
+				{
+					semantic_size = {{.Fixed, 500}, {.Fixed, 200}},
+					overflow_x = .Scroll,
+					overflow_y = .Scroll
+				},
+				{
+					gap_horizontal = 10,
+					direction = .Vertical,
+				},
+				box_flags = {.Draw, .Scrollable}
+			)
+			text_button("heya",  {semantic_size = {{.Fixed, 300}, {.Fixed, 250}}})
+			text_button("there", {semantic_size = {{.Fixed, 300}, {.Fixed, 250}}})
+			text_button("mate",  {semantic_size = {{.Fixed, 300}, {.Fixed, 250}}})
+		}
+
+		text_button("what the heck", {semantic_size=Size_Fit_Text_And_Grow, color =.Primary_Container})
+		text_button("this is nice", {semantic_size={{.Fixed, 100}, {.Fixed, 200}}, color = .Secondary_Container})
+		text_button("hmmm", {semantic_size={{.Fixed, 100}, {.Fixed, 200}}, color = .Tertiary_Container})
 	}
 
 	if ui_state.context_menu.active {

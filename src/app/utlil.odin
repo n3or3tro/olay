@@ -92,7 +92,7 @@ box_get_margin_y_tot :: proc(box: Box) -> int {
 }
 
 
-panicf :: proc(fmt_string: string, args: ..any, newline := false) -> string {
+panicf :: proc(fmt_string: string, args: ..any, newline := false) -> ! {
 	panic(tprintf(fmt_string, args, newline))
 }
 
