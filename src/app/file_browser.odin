@@ -249,7 +249,7 @@ file_browser_menu :: proc() {
 				direction = .Vertical
 			},
 			"browser-main-container",
-			{.Scrollable, .Draw}
+			{.Scrollable, .Draw, .Scrollbar}
 		)
 		// Create each child of the root at the top level, this is because we don't actually
 		// want to render / interact with the root.

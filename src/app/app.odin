@@ -108,7 +108,8 @@ app_update :: proc() -> (all_good: bool) {
 		clear(&ui_state.frame_signals)
 	}
 	end := time.now()._nsec
-	total_frame_time := (end - start)
+	total_frame_time_ns := f64(end - start)
+	printfln("app_update() took {} ms", total_frame_time_ns / 1_000_000)
 	// Calculate how long this frame took and sleep until it's time for the next frame.
 	// max_frame_time_ns: f64 = 1_000_000 * 200 
 	// max_frame_time_ns: f64 = 1_000_000 * 8.3333 

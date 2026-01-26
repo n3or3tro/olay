@@ -231,7 +231,7 @@ init_ui_state :: proc() -> ^UI_State {
 	font_init(&ui_state.font_state, 18)
 
 	gl.GenVertexArrays(1, ui_state.quad_vabuffer)
-	create_vbuffer(ui_state.quad_vbuffer, nil, 700_000)
+	create_vbuffer(ui_state.quad_vbuffer, nil, 3_000_000)
 
 	shader_program_id, quad_shader_ok := gl.load_shaders_source(
 		string(ui_vertex_shader_data),
@@ -310,6 +310,10 @@ create_ui :: proc() -> ^Box {
 	topbar()
 	if ui_state.tab_num == 0 {
 		audio_tracks: {
+			num_column: {
+
+			}
+			
 			child_container(
 				{
 					semantic_size = {
@@ -323,9 +327,9 @@ create_ui :: proc() -> ^Box {
 					gap_horizontal = 3,
 				},
 			)
-
+			
 			for track, i in app.audio.tracks {
-				audio_track(i, 160)
+				audio_track(i, 190)
 			}
 		}
 		if text_button(

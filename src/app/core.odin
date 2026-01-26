@@ -178,6 +178,7 @@ Box_Metadata :: union {
 Box_Flag :: enum {
 	Clickable,
 	Scrollable,
+	Scrollbar,
 	View_Scroll,
 	Draw,
 	// Whether this box is a line.
@@ -655,9 +656,9 @@ box_signals :: proc(box: ^Box) -> Box_Signals {
 		this_frame_signals: Box_Signals
 		this_frame_signals.box = box
 		// Can always immediately set hover state.
-		if mouse_inside_box(box, app.mouse.pos) {
-			this_frame_signals.hovering = true
-		}
+		// if mouse_inside_box(box, app.mouse.pos) {
+		// 	this_frame_signals.hovering = true
+		// }
 		box.signals = this_frame_signals
 		return this_frame_signals
 	}
@@ -666,10 +667,14 @@ box_signals :: proc(box: ^Box) -> Box_Signals {
 collect_frame_signals :: proc(root: ^Box) {
 	candidates_at_mouse := make([dynamic]^Box, allocator = context.temp_allocator)
 	box_list := box_tree_to_list(root, context.temp_allocator)
-
 	// Find all boxes under mouse
 	for box in box_list {
-		if mouse_inside_box(box, app.mouse.pos) && .Clickable in box.flags {
+		viewport_box := Box {
+			top_left = box.clip_tl,
+			bottom_right = box.clip_br
+		} 
+		if mouse_inside_box(box, app.mouse.pos) && .Clickable in box.flags &&
+		mouse_inside_box(&viewport_box, app.mouse.pos) {
 			append(&candidates_at_mouse, box)
 		}
 	}
@@ -694,6 +699,11 @@ collect_frame_signals :: proc(root: ^Box) {
 
 	// Process all boxes
 	for box in box_list {
+		viewport_box := Box {
+			top_left = box.clip_tl,
+			bottom_right = box.clip_br
+		}
+		// if box.parent != nil && !mouse_inside_box(box.parent, app.mouse.pos) do continue
 		next_signals: Box_Signals
 		next_signals.box = box
 
@@ -749,7 +759,7 @@ collect_frame_signals :: proc(root: ^Box) {
 
 
 		// These are events that can just trigger regardless of z-index.
-		if mouse_inside_box(box, app.mouse.pos) {
+		if mouse_inside_box(box, app.mouse.pos) && mouse_inside_box(&viewport_box, app.mouse.pos) {
 			next_signals.hovering = true
 			// Only set a new dragged box if we've previously let go of the mouse, which is indicated
 			// by ui_state.dragged_box, since this is only set to nil, when the mouse button goes up.
@@ -876,7 +886,9 @@ box_tree_to_list_complex :: proc(root: ^Box, allocator := context.allocator) -> 
 			} else if track_signals.scrolled_down || box.signals.scrolled_down {
 				scroll_offset = clamp(scroll_offset + CHANGE_PER_TICK, 0, max_scroll)
 			}
-			append(list, track)
+			if .Scrollbar in box.flags {
+				append(list, track)
+			}
 
 
 			handle := box_from_cache(
@@ -911,7 +923,9 @@ box_tree_to_list_complex :: proc(root: ^Box, allocator := context.allocator) -> 
 				handle.top_left 	-= {1, 1}
 				handle.bottom_right += {1, 1}
 			}
-			append(list, handle)
+			if .Scrollbar in box.flags {
+				append(list, handle)
+			}
 
 			ui_state.scroll_offsets[box.id] = scroll_offset
 

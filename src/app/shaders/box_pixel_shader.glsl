@@ -82,12 +82,6 @@ float CircleSDF(vec2 sample_pos, vec2 center, float radius) {
 }
 
 void main() {
-	// Don't draw any pixels that fall outside clipping rect set during UI creation.
-	// float screen_space_y = screen_res.y - gl_FragCoord.y;
-	// if (gl_FragCoord.x < clip_tl.x || gl_FragCoord.x > clip_br.x || screen_space_y < clip_tl.y 
-	// 	|| screen_space_y > clip_br.y) {
-	// 	discard;
-	// }
 	if (clip_br.x > 0.0 || clip_br.y > 0.0) {
         // Convert UI coords to GL coords (bottom-left origin)
         float clip_left   = clip_tl.x;

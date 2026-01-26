@@ -138,14 +138,16 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 		steps_container := child_container(
 			{
 				semantic_size = {{.Fixed, track_width}, {.Grow, 0.7}},
-				color = .Tertiary
+				color = .Tertiary,
+				overflow_y = .Scroll
 			},
 			{direction = .Vertical, gap_vertical = 0},
-			box_flags = {.Drag_Drop_Source},
+			box_flags = {.Drag_Drop_Source, .Scrollable},
 		)
+		// Draw step nums just once.
 
 		substep_config: Box_Config = {
-			semantic_size    = {{.Percent, 0.25}, {.Percent, 1}},
+			semantic_size    = {{.Percent, 0.22}, {.Percent, 1}},
 			color 			 = .Primary,
 			border 			 = 1,
 		}
@@ -153,10 +155,23 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 
 		for i in 0 ..< N_TRACK_STEPS {
 			step_row_container := child_container(
-				{semantic_size = {{.Fixed, track_width}, {.Percent, f32(1) / N_TRACK_STEPS}}},
+				{semantic_size = {{.Fixed, track_width}, {.Percent, f32(1) / 32}}},
 				{direction = .Horizontal, gap_horizontal = 0},
 				box_flags = {.Drag_Drop_Sink},
 			)
+			// text(
+			// 	tprintf("{}", i),
+			// 	{
+			// 		color = .Error_Container,
+			// 		semantic_size = {{.Percent, 0.12}, {.Fit_Text_And_Grow, 1}},
+			// 		text_justify = {.Center, .Center},
+			// 		margin = {top = 6, left = 2, right = 4},
+			// 		// padding = {right = 5,}
+			// 	},
+			// 	{
+
+			// 	}
+			// )
 
 			pitch_box := edit_text_box(
 				substep_config,

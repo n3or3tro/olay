@@ -8,7 +8,7 @@ import str "core:strings"
 import "core:time"
 import ma "vendor:miniaudio"
 
-N_TRACK_STEPS :: 32
+N_TRACK_STEPS :: 128
 MAX_TRACKS :: 256
 MAX_TRACK_STEPS :: 256
 EQ_MAX_GAIN :f32: 20

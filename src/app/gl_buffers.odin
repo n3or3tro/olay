@@ -18,7 +18,6 @@ gl_check_error :: proc() {
 create_vbuffer :: proc(buffer: ^u32, vertex_positions: [^]f32, size: int) {
 	gl.GenBuffers(1, buffer)
 	gl.BindBuffer(gl.ARRAY_BUFFER, buffer^)
-	// for some reason this isn't working unless I provide a literal size
 	gl.BufferData(gl.ARRAY_BUFFER, size, nil, gl.DYNAMIC_DRAW)
 }
 
