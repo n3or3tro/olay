@@ -170,7 +170,8 @@ Metadata_Browser_Item :: union {
 
 Metadata_EQ_Handle :: struct { 
 	which: int,
-	eq: ^EQ_State
+	track_num: int,
+	band: ^EQ_Band_State,
 }
 
 Box_Metadata :: union {

@@ -58,16 +58,6 @@ EQ_Band_Type :: enum {
 	Notch,
 }
 
-Biquad_Node :: union {
-	^ma.lpf_node,
-	^ma.hpf_node,
-	^ma.bpf_node,
-	^ma.peak_node,
-	^ma.notch_node,
-	^ma.hishelf_node,
-	^ma.loshelf_node,
-}
-
 EQ_Band_State :: struct { 
 	// Not sure whether to store their frequency loation or position inside parent.
 	// Either way I imagine we'll have to convert back and forth.
@@ -79,7 +69,8 @@ EQ_Band_State :: struct {
 	coefficients: struct { 
 		b0, b1, b2, a0, a1, a2: f64,
 	},
-	biquad_node: Biquad_Node
+	// biquad_node: Biquad_Node
+	biquad_node: ^ma.biquad_node
 }
 
 EQ_State :: struct { 
@@ -213,54 +204,7 @@ Init just the miniaudio related things, this is seperated since we must re-init 
 hot reload, where as our own audio state for tracks and stuff, can persist.
 */
 audio_init_miniaudio :: proc(audio_state: ^Audio_State) { 
-	eq_init_band :: proc(track: Track, band: ^EQ_Band_State, engine: ^ma.engine) {
-		node_graph := ma.engine_get_node_graph(engine)
-		switch band.type {
-			case .Bell:
-				config := ma.peak_node_config_init(2, u32(SAMPLE_RATE), band.gain_db, band.q, band.freq_hz)
-				node := new(ma.peak_node)
-				res := ma.peak_node_init(node_graph, &config, nil, node)
-				assert(res != .ERROR)
-				band.biquad_node = node
-			case .High_Cut:
-				config := ma.lpf_node_config_init(2, u32(SAMPLE_RATE), band.freq_hz, 1)
-				node := new(ma.lpf_node)
-				res := ma.lpf_node_init(node_graph, &config, nil, node)
-				assert(res != .ERROR)
-				band.biquad_node = node
-			case .Low_Cut:
-				config := ma.hpf_node_config_init(2, u32(SAMPLE_RATE), band.freq_hz, 1)
-				node := new(ma.hpf_node)
-				res := ma.hpf_node_init(node_graph, &config, nil, node)
-				assert(res != .ERROR)
-				band.biquad_node = node
-			case .High_Shelf:
-				config := ma.hishelf_node_config_init(2, u32(SAMPLE_RATE), band.gain_db, band.q, band.freq_hz)
-				node := new(ma.hishelf_node)
-				res := ma.hishelf_node_init(node_graph, &config, nil, node)
-				assert(res != .ERROR)
-				band.biquad_node = node
-			case .Low_Shelf:
-				config := ma.loshelf_node_config_init(2, u32(SAMPLE_RATE), band.gain_db, band.q, band.freq_hz)
-				node := new(ma.loshelf_node)
-				res := ma.loshelf_node_init(node_graph, &config, nil, node)
-				assert(res != .ERROR)
-				band.biquad_node = node
-			case .Band_Pass:
-				// Need to check the last arg here!! not sure what it does
-				config := ma.bpf_node_config_init(2, u32(SAMPLE_RATE), band.freq_hz, 1)
-				node := new(ma.bpf_node)
-				res := ma.bpf_node_init(node_graph, &config, nil, node)
-				assert(res != .ERROR)
-				band.biquad_node = node
-			case .Notch:
-				config := ma.notch_node_config_init(2, u32(SAMPLE_RATE), band.freq_hz, 1)
-				node := new(ma.notch_node)
-				res := ma.notch_node_init(node_graph, &config, nil, node)
-				assert(res != .ERROR)
-				band.biquad_node = node
-		}
-	}
+	
 
 	println("initing mini audio")
 	engine := new(ma.engine)
@@ -280,9 +224,10 @@ audio_init_miniaudio :: proc(audio_state: ^Audio_State) {
 	}
 
 	// Init each tracks EQ state.
+	node_graph := ma.engine_get_node_graph(engine)
 	for track in audio_state.tracks {
 		for &band, i in track.eq.bands { 
-			eq_init_band(track, &band, engine)		
+			eq_init_band(track, &band, node_graph)		
 		}
 	}
 	
@@ -339,6 +284,7 @@ track_add_new :: proc(audio_state: ^Audio_State) {
 
 track_set_sound :: proc(which: u32, path: cstring) {
 	track := &app.audio.tracks[which]
+	had_sound := false
 	if track.sound != nil {
 		ma.sound_uninit(track.sound)
 		delete(track.sound_path)
@@ -347,6 +293,7 @@ track_set_sound :: proc(which: u32, path: cstring) {
 		// But this happens quite infrequently, so should be okay.
 		delete(track.pcm_data.left_channel)
 		delete(track.pcm_data.right_channel)
+		had_sound = true
 	}
 
 	new_sound := new(ma.sound)
@@ -356,15 +303,12 @@ track_set_sound :: proc(which: u32, path: cstring) {
 		app.audio.engine,
 		path,
 		SOUND_FILE_LOAD_FLAGS,
-		// At the moment we only have 1 audio group. This will probs change.
-		// app.audio.audio_groups[0],
 		nil,
 		nil,
 		new_sound,
 	)
 	assert(res == .SUCCESS)
 
-	// ma.node_attach_output_bus(cast(^ma.node)new_sound, 0, cast(^ma.node)&app.audio.delay, 0)
 	track.sound = new_sound
 	track.sound_path = str.clone_from_cstring(path)
 
@@ -372,31 +316,38 @@ track_set_sound :: proc(which: u32, path: cstring) {
 	track.pcm_data.left_channel  = left
 	track.pcm_data.right_channel = right
 
-	// Wire sound -> first eq band
-	if len(track.eq.bands) < 1 do return 
-	res = ma.node_attach_output_bus(cast(^ma.node)(track.sound), 0, ma_node_from_biquad_node(track.eq.bands[0].biquad_node), 0) 
+	/* 
+	When a new sound is loaded, we need to wire it up to the EQ of that track, this function is a natural place to do that.
+	EQ has to be initialized and valid at this point, otherwise we'll crash!!
+	*/
+
+	eq_bands := track.eq.bands
+
+	// Wire sound -> first eq band 
+	if len(eq_bands) < 1 do return 
+	res = ma.node_attach_output_bus(cast(^ma.node)(track.sound), 0, cast(^ma.node)(eq_bands[0].biquad_node), 0) 
 	assert(res != .ERROR)
 
 	// Wire the rest of the bands to each other.
-	for i in 1..<len(track.eq.bands) {
+	for i in 1..<len(eq_bands) {
 		res = ma.node_attach_output_bus(
-			ma_node_from_biquad_node(track.eq.bands[i-1].biquad_node), 
+			cast(^ma.node)(eq_bands[i-1].biquad_node), 
 			0, 
-			ma_node_from_biquad_node(track.eq.bands[i].biquad_node), 
+			cast(^ma.node)(eq_bands[i].biquad_node), 
 			0
 		)
 		assert(res != .ERROR)
 	}
 
 	// Wire last band -> output
-	last_band := &track.eq.bands[len(track.eq.bands)-1]
+	last_band := &eq_bands[len(track.eq.bands)-1]
 	res = ma.node_attach_output_bus(
-		ma_node_from_biquad_node(last_band.biquad_node), 
+		cast(^ma.node)(last_band.biquad_node), 
 		0, 
 		ma.engine_get_endpoint(app.audio.engine), 
 		0
 	)
-	assert(res == .SUCCESS)
+	assert(res == .SUCCESS, tprintf("{}", res))
 }
 
 track_play_step :: proc(which_track: u32) {
@@ -698,23 +649,26 @@ eq_add_band::proc(track_num: int, how_far:f32, band_type: EQ_Band_Type) {
 	}
 	append(&eq.bands, new_band)
 }
+
+eq_init_band :: proc(track: Track, band: ^EQ_Band_State, node_graph: ^ma.node_graph) {
+	coeffs := compute_biquad_coefficients(band.freq_hz, band.q, band.gain_db, SAMPLE_RATE, band.type)
+	using coeffs
+	config := ma.biquad_node_config_init(2, f32(b0), f32(b1), f32(b2), 1, f32(a1), f32(a2))
+	node := new(ma.biquad_node)
+	res := ma.biquad_node_init(node_graph, &config, nil, node)
+	assert(res == .SUCCESS)
+	band.biquad_node = node
+}
+
+eq_reinit_band :: proc(band: EQ_Band_State) {
+	node_graph := ma.engine_get_node_graph(app.audio.engine)
+	using band.coefficients
+	config := ma.biquad_node_config_init(2, f32(b0), f32(b1), f32(b2), f32(a0), f32(a1), f32(a2))
+	res := ma.biquad_node_reinit(&config.biquad, band.biquad_node)
+	assert(res != .ERROR)
+}
+
 // ========================================= END EQ STUFF ==========================================
-
-
-// delay_init :: proc(delay_time: f32, decay_time: f32) {
-// 	channels := ma.engine_get_channels(app.audio.engine)
-// 	sample_rate := ma.engine_get_sample_rate(app.audio.engine)
-// 	config := ma.delay_node_config_init(channels, sample_rate, u32(f32(sample_rate) * delay_time), decay_time)
-// 	println(config)
-// 	res := ma.delay_node_init(ma.engine_get_node_graph(app.audio.engine), &config, nil, &app.audio.delay)
-// 	if res != .SUCCESS {
-// 		println(res)
-// 		panic("")
-// 	}
-
-// 	res = ma.node_attach_output_bus(cast(^ma.node)(&app.audio.delay), 0, ma.engine_get_endpoint(app.audio.engine), 0)
-// 	assert(res == .SUCCESS)
-// }
 
 delay_enable :: proc() {
 }
@@ -764,57 +718,3 @@ audio_thread_timing_proc :: proc() {
 	}
 }
 
-ma_node_from_biquad_node :: proc(node: Biquad_Node)  -> ^ma.node {
-	switch v in node {
-		case ^ma.bpf_node:
-			return cast(^ma.node)v
-		case ^ma.hishelf_node:
-			return cast(^ma.node)v
-		case ^ma.hpf_node:
-			return cast(^ma.node)v
-		case ^ma.loshelf_node:
-			return cast(^ma.node)v
-		case ^ma.lpf_node:
-			return cast(^ma.node)v
-		case ^ma.notch_node:
-			return cast(^ma.node)v
-		case ^ma.peak_node:
-			return cast(^ma.node)v
-	}
-	panicf("didn't pass in valid biquad_node, you passed in {} and we don't know how to convert that to a ^ma.node", node)
-}
-
-eq_reinit_band :: proc(band: EQ_Band_State) {
-		node_graph := ma.engine_get_node_graph(app.audio.engine)
-		switch band.type {
-			case .Bell:
-				config := ma.peak_node_config_init(2, u32(SAMPLE_RATE), band.gain_db, band.q, band.freq_hz)
-				res := ma.peak_node_reinit(&config.peak, band.biquad_node.(^ma.peak_node))
-				assert(res != .ERROR)
-			case .High_Cut:
-				config := ma.lpf_node_config_init(2, u32(SAMPLE_RATE), band.freq_hz, 1)
-				res := ma.lpf_node_reinit(&config.lpf, band.biquad_node.(^ma.lpf_node))
-				assert(res != .ERROR)
-			case .Low_Cut:
-				config := ma.hpf_node_config_init(2, u32(SAMPLE_RATE), band.freq_hz, 1)
-				res := ma.hpf_node_reinit(&config.hpf, band.biquad_node.(^ma.hpf_node))
-				assert(res != .ERROR)
-			case .High_Shelf:
-				config := ma.hishelf_node_config_init(2, u32(SAMPLE_RATE), band.gain_db, band.q, band.freq_hz)
-				res := ma.hishelf_node_reinit(&config.hishelf, band.biquad_node.(^ma.hishelf_node))
-				assert(res != .ERROR)
-			case .Low_Shelf:
-				config := ma.loshelf_node_config_init(2, u32(SAMPLE_RATE), band.gain_db, band.q, band.freq_hz)
-				res := ma.loshelf_node_reinit(&config.loshelf, band.biquad_node.(^ma.loshelf_node))
-				assert(res != .ERROR)
-			case .Band_Pass:
-				// Need to check the last arg here!! not sure what it does
-				config := ma.bpf_node_config_init(2, u32(SAMPLE_RATE), band.freq_hz, 1)
-				res := ma.bpf_node_reinit(&config.bpf, band.biquad_node.(^ma.bpf_node))
-				assert(res != .ERROR)
-			case .Notch:
-				config := ma.notch_node_config_init(2, u32(SAMPLE_RATE), band.freq_hz, 1)
-				res := ma.notch_node_reinit(&config.notch, band.biquad_node.(^ma.notch_node))
-				assert(res != .ERROR)
-			}
-	}

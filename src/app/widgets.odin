@@ -513,7 +513,8 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 					},
 					metadata = Metadata_EQ_Handle {
 						which = i, 
-						eq = eq_state
+						band = &band,
+						track_num = track_num
 					}
 				)
 				append(&handles, handle)
@@ -540,11 +541,10 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 				}
 			}
 			
-			// Draw filter response curve ;).
+			// Draw filter response curve.
 			curve_total : [256]f64
 			for &band, i in eq_state.bands {
 				if band.bypass do continue
-				// freq_hz := 20.0 * math.pow(20_000.0 / 20.0, f64(band.pos))
 				coeffs := compute_biquad_coefficients(f64(band.freq_hz), f64(band.q), f64(band.gain_db), SAMPLE_RATE, band.type)
 				band.coefficients = {
 					a0 = 1,
@@ -558,6 +558,7 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 				for i in 0..<len(curve_total) {
 					curve_total[i] += band_points[i]
 				}
+				// Not efficient to re-do this even when we have no changes.
 				eq_reinit_band(band)
 			}
 
@@ -992,7 +993,8 @@ context_menu :: proc() {
 			"ctx-menu-file-delete",
 		)
 	}
-	eq_handle_context_menu :: proc(which:int, eq: ^EQ_State) { 
+
+	eq_handle_context_menu :: proc(which:int, track_num: int, band: ^EQ_Band_State) { 
 		child_container(
 			{
 				semantic_size = Size_Fit_Children
@@ -1037,39 +1039,41 @@ context_menu :: proc() {
 				},
 				id = id
 			)
-			bell := text_button(
-				"Bell",
-				btn_config
-			)
-			high_cut := text_button(
-				"High Cut",
-				btn_config
-			)
-			low_cut := text_button(
-				"Low Cut",
-				btn_config
-			)
-			high_shelf := text_button(
-				"High Shelf",
-				btn_config
-			)
-			low_shelf := text_button(
-				"Low Shelf",
-				btn_config
-			)
-			notch := text_button(
-				"Notch",
-				btn_config
-			)
-			band_pass := text_button(
-				"Band Pass",
-				btn_config
-			)
-			if bell.clicked do eq.bands[which].type = {
-				eq.bands[which]
-			} 
-			if high_shelf.clicked do eq.bands[which].type = .High_Shelf
-			if low_shelf.clicked do eq.bands[which].type = .Low_Shelf
+
+			if text_button("Bell", btn_config).clicked {
+				band.type = .Bell
+				eq_init_band(app.audio.tracks[track_num], band, ma.engine_get_node_graph(app.audio.engine))
+			}
+
+			if text_button("High Cut", btn_config).clicked {
+				band.type = .High_Cut
+				eq_init_band(app.audio.tracks[track_num], band, ma.engine_get_node_graph(app.audio.engine))
+			}
+
+			if text_button("Low Cut", btn_config).clicked {
+				band.type = .Low_Cut
+				eq_init_band(app.audio.tracks[track_num], band, ma.engine_get_node_graph(app.audio.engine))
+			}
+
+			if text_button("High Shelf", btn_config).clicked {
+				band.type = .High_Shelf
+				eq_init_band(app.audio.tracks[track_num], band, ma.engine_get_node_graph(app.audio.engine))
+			}
+
+			if text_button("Low Shelf", btn_config).clicked {
+				band.type = .Low_Shelf
+				eq_init_band(app.audio.tracks[track_num], band, ma.engine_get_node_graph(app.audio.engine))
+			}
+
+			if text_button("Notch", btn_config).clicked {
+				band.type = .Notch
+				eq_init_band(app.audio.tracks[track_num], band, ma.engine_get_node_graph(app.audio.engine))
+			}
+
+			if text_button("Band Pass", btn_config).clicked {
+				band.type = .Band_Pass
+				eq_init_band(app.audio.tracks[track_num], band, ma.engine_get_node_graph(app.audio.engine))
+			}
 		}
 	}
 
@@ -1114,7 +1118,7 @@ context_menu :: proc() {
 			{semantic_size = Size_Fit_Text},
 		)
 	case Metadata_EQ_Handle:
-		eq_handle_context_menu(metadata.which, metadata.eq)
+		eq_handle_context_menu(metadata.which, metadata.track_num, metadata.band)
 	}
 }
 
