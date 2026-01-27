@@ -8,13 +8,10 @@ so they'll need some re-thinking when I ship the UI stuff as a lib.
 */
 
 package app
-import "core:sort"
 import "core:math"
 import "core:path/filepath"
-import "core:flags"
-import "core:math/rand"
 import str "core:strings"
-import "core:slice"
+import ma"vendor:miniaudio"
 
 
 topbar :: proc() {
@@ -462,27 +459,25 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 			circular_knob(
 				"Freq",
 				{color = .Warning_Container},
-				&active_band.pos,
-				0,
-				1,
-				id("{}-freq-cntrl", eq_id),
+				&active_band.freq_hz,
+				20,
+				20_000,
 			)
 			circular_knob(
 				"Q",
 				{color = .Warning_Container},
 				&active_band.q,
 				0,
-				1,
-				id("{}-q-cntrl", eq_id),
+				10,
 			)
 			circular_knob(
 				"Gain",
 				{color = .Warning_Container},
-				&active_band.gain,
-				-1 * EQ_MAX_GAIN,
+				&active_band.gain_db,
+				-EQ_MAX_GAIN,
 				EQ_MAX_GAIN,
-				id("{}-gain-cntrl", eq_id),
 			)
+			printfln("The active gain for this band is {}", active_band.gain_db)
 		}
 		freq_display: {
 			frequency_display_container := child_container(
@@ -496,10 +491,7 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 			)
 			if frequency_display_container.double_clicked {
 				box := frequency_display_container.box
-				printfln("tail before adding: {}", tail(eq_state.bands[:]))
 				eq_add_band(track_num, f32(map_range(f64(box.top_left.x), f64(box.bottom_right.x), 0.0, 1.0, f64(app.mouse_last_frame.pos.x))), .Bell)
-				println("added band to track {}", track_num)
-				printfln("tail after adding: {}", tail(eq_state.bands[:]))
 			}
 			
 			handles := make([dynamic]^Box, context.temp_allocator)
@@ -511,13 +503,18 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 						floating_type = .Relative_Other,
 						floating_anchor_box = frequency_display_container.box,
 						floating_offset = {
-							band.pos,
-							map_range(-1*EQ_MAX_GAIN, EQ_MAX_GAIN, 0, 1, band.gain)
+							// Convert freq to log-scaled position:
+							f32(math.log10(f64(band.freq_hz) / 20.0) / math.log10(f64(20_000.0 / 20.0))),
+							f32(map_range(EQ_MAX_GAIN, -EQ_MAX_GAIN, 0.0, 1.0, band.gain_db))
 						},
 						semantic_size = {{.Fixed, 30}, {.Fixed, 30}},
 						corner_radius = 15,
 						z_index  = 40,
 					},
+					metadata = Metadata_EQ_Handle {
+						which = i, 
+						eq = eq_state
+					}
 				)
 				append(&handles, handle)
 				handle_signals := box_signals(handle)
@@ -525,17 +522,18 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 					eq_state.active_band = i
 				}
 				if handle_signals.box == ui_state.dragged_box { 
-					mouse_y := f32(app.mouse.pos.y)
-					parent_top := f32(handle.parent.top_left.y)  
-					parent_height := f32(handle.parent.last_height)
-					normalized_pos := clamp((mouse_y - parent_top) / parent_height, 0, 1)
-					band.gain = map_range(f32(0), f32(1), -EQ_MAX_GAIN, EQ_MAX_GAIN, normalized_pos)
+					mouse_y := f64(app.mouse.pos.y)
+					parent_top := f64(handle.parent.top_left.y)  
+					parent_height := f64(handle.parent.last_height)
+					normalized_pos := clamp((mouse_y - parent_top) / parent_height, 0.0, 1.0)
+					band.gain_db = map_range(0.0, 1.0, EQ_MAX_GAIN, -EQ_MAX_GAIN, normalized_pos)
 
-					mouse_x := f32(app.mouse.pos.x)
-					parent_left := f32(handle.parent.top_left.x)
-					parent_width := f32(handle.parent.last_width)  
-					normalized_pos = clamp((mouse_x - parent_left) / parent_width, 0, 1)
-					band.pos = map_range(f32(0), f32(1), 0, 1, normalized_pos)
+					mouse_x := f64(app.mouse.pos.x)
+					parent_left := f64(handle.parent.top_left.x)
+					parent_width := f64(handle.parent.last_width)  
+					normalized_pos = clamp((mouse_x - parent_left) / parent_width, 0.0, 1.0)
+					// Convert position back to freq (exponential):
+					band.freq_hz = 20.0 * math.pow(20_000.0 / 20.0, f64(normalized_pos))
 				}
 				if handle_signals.double_clicked { 
 					ordered_remove(&eq_state.bands, i)
@@ -544,22 +542,32 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 			
 			// Draw filter response curve ;).
 			curve_total : [256]f64
-			for band, i in eq_state.bands {
+			for &band, i in eq_state.bands {
 				if band.bypass do continue
-				freq_hz := 20.0 * math.pow(20_000.0 / 20.0, f64(band.pos))
-				coeffs := compute_biquad_coefficients(freq_hz, 1, f64(band.gain), 44_100, .Bell)
+				// freq_hz := 20.0 * math.pow(20_000.0 / 20.0, f64(band.pos))
+				coeffs := compute_biquad_coefficients(f64(band.freq_hz), f64(band.q), f64(band.gain_db), SAMPLE_RATE, band.type)
+				band.coefficients = {
+					a0 = 1,
+					a1 = coeffs.a1, 
+					a2 = coeffs.a2, 
+					b0 = coeffs.b0, 
+					b1 = coeffs.b1, 
+					b2 = coeffs.b2, 
+				}
 				band_points := generate_curve_points(coeffs, 44_100)
 				for i in 0..<len(curve_total) {
 					curve_total[i] += band_points[i]
 				}
+				eq_reinit_band(band)
 			}
+
 			for point, i in curve_total {
 				x := map_range(0.0, len(curve_total), 0.0, 1.0, f64(i))
 				y := map_range(
-					-24.0, 
-					24.0, 
-					0,
+					-EQ_MAX_GAIN, 
+					EQ_MAX_GAIN, 
 					1,
+					0,
 					point
 				)
 				// printfln("current freq response point is at: {}, {}", x, y)
@@ -575,6 +583,7 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 				)
 			}
 		}
+
 		level_meter := box_from_cache(
 			{.Draw},
 			{
@@ -903,9 +912,9 @@ context_menu :: proc() {
 			}
 		}
 
-		remove_submenu_id := "@remove-step-hover-container"
+		id := "@remove-step-hover-container"
 		remove_submenu_hovered := false
-		if submenu_box, ok := ui_state.box_cache[remove_submenu_id]; ok {
+		if submenu_box, ok := ui_state.box_cache[id]; ok {
 			remove_submenu_hovered = mouse_inside_box(submenu_box, app.mouse.pos)
 		}
 		if remove_button.hovering || remove_submenu_hovered {
@@ -920,7 +929,7 @@ context_menu :: proc() {
 					z_index = 20,
 				},
 				{direction = .Vertical, gap_vertical = 2},
-				remove_submenu_id,
+				id,
 				{.Clickable},
 			)
 			btn_config := Box_Config {
@@ -982,14 +991,86 @@ context_menu :: proc() {
 			config,
 			"ctx-menu-file-delete",
 		)
-		// if delete.clicked {
-		// 	metadata := box.metadata.(Metadata_Browser_Item)
-		// 	if metadata.is_dir {
-		// 		// file_browser_delete_dir(metadata.dir_data)
-		// 	} else {
-		// 		// file_browser_delete_file(metadata.file_data)
-		// 	}
-		// }
+	}
+	eq_handle_context_menu :: proc(which:int, eq: ^EQ_State) { 
+		child_container(
+			{
+				semantic_size = Size_Fit_Children
+			},
+			{
+				direction = .Vertical
+			},
+		)
+		btn_config := Box_Config {
+			semantic_size = Size_Fit_Text_And_Grow,
+			color = .Primary_Container,
+			padding = padding(5),
+		}
+		shape_btn := text_button(
+			"Shape",
+			btn_config
+		)
+		btn_config.margin = {top = 4}
+		btn_config.color = .Error_Container
+		text_button(
+			"Delete",
+			btn_config
+		)
+
+		id := "eq-handle-context-submenu"
+		hovering_submenu := false
+		if id in ui_state.box_cache {
+			hovering_submenu = mouse_inside_box(ui_state.box_cache[id], app.mouse.pos)
+		}
+		if shape_btn.hovering || hovering_submenu {
+			child_container(
+				{
+					semantic_size = Size_Fit_Children,
+					floating_type = .Absolute_Pixel,
+					floating_offset = ({
+						f32(shape_btn.box.bottom_right.x),
+						f32(shape_btn.box.top_left.y),
+					})
+				},
+				{
+					direction = .Vertical
+				},
+				id = id
+			)
+			bell := text_button(
+				"Bell",
+				btn_config
+			)
+			high_cut := text_button(
+				"High Cut",
+				btn_config
+			)
+			low_cut := text_button(
+				"Low Cut",
+				btn_config
+			)
+			high_shelf := text_button(
+				"High Shelf",
+				btn_config
+			)
+			low_shelf := text_button(
+				"Low Shelf",
+				btn_config
+			)
+			notch := text_button(
+				"Notch",
+				btn_config
+			)
+			band_pass := text_button(
+				"Band Pass",
+				btn_config
+			)
+			if bell.clicked do eq.bands[which].type = {
+				eq.bands[which]
+			} 
+			if high_shelf.clicked do eq.bands[which].type = .High_Shelf
+			if low_shelf.clicked do eq.bands[which].type = .Low_Shelf
+		}
 	}
 
 	if ui_state.right_clicked_on.disabled { 
@@ -1032,6 +1113,8 @@ context_menu :: proc() {
 			"Context menu not implemented for this box type @ alskdaajfalskdjfladf",
 			{semantic_size = Size_Fit_Text},
 		)
+	case Metadata_EQ_Handle:
+		eq_handle_context_menu(metadata.which, metadata.eq)
 	}
 }
 
@@ -1066,7 +1149,7 @@ set_nth_child_select :: proc(track_num, nth: int, selected: bool) {
 		case Metadata_Track_Step:
 			if metadata.track != track_num do continue
 			if metadata.step % nth == 0 do box.selected = selected
-		case Metadata_Track, Metadata_Sampler, Metadata_Browser_Item:
+		case Metadata_Track, Metadata_Sampler, Metadata_Browser_Item, Metadata_EQ_Handle:
 			panic("set_nth_child() should only be called on box with Metadata_Track_Step")
 		}
 	}

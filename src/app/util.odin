@@ -178,3 +178,21 @@ where intrinsics.type_is_numeric(T)
 {
 	return {f32(d[0]), f32(d[1]), f32(d[2]), f32(d[3])}
 }
+
+vec2_f64 :: proc(d: [2]$T) -> [2]f64 
+where intrinsics.type_is_numeric(T) 
+{
+	return {f64(d[0]), f64(d[1])}
+}
+
+vec3_f64 :: proc(d: [3]$T) -> [3]f64 
+where intrinsics.type_is_numeric(T) 
+{
+	return {f64(d[0]), f64(d[1]), f64(d[2])}
+}
+
+vec4_f64 :: proc(d: [4]$T) -> [4]f64 
+where intrinsics.type_is_numeric(T) 
+{
+	return {f64(d[0]), f64(d[1]), f64(d[2]), f64(d[3])}
+}

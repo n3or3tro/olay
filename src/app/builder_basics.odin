@@ -707,9 +707,9 @@ draggable_window :: proc(title: string, child_layout: Box_Child_Layout, id := ""
 circular_knob :: proc(
     label: string,
     config: Box_Config,
-    value: ^f32,
-    min_val: f32,
-    max_val: f32,
+    value: ^f64,
+    min_val: f64,
+    max_val: f64,
     id := "",
     knob_size: f32 = 60,  // diameter in pixels
     extra_flags := Box_Flags{},
@@ -759,19 +759,19 @@ circular_knob :: proc(
    
 
     // Calculate grip position
-    center_x := f32(track.top_left.x + track.width / 2)
-    center_y := f32(track.top_left.y + track.height / 2)
+    center_x := f64(track.top_left.x + track.width / 2)
+    center_y := f64(track.top_left.y + track.height / 2)
  	// This code is parameterized to facilitate ease of tweaking deadzone and scrolling animation,
 	// but in the future once I've settled on some values we can hardcode values.
 
-	deadzone_center_deg: f32 = 90.0 
-	deadzone_size_deg:   f32 = 80.0 
+	deadzone_center_deg := 90.0 
+	deadzone_size_deg   := 80.0 
 
 	// deadzone_center_rad: f32 = 90.0 * math.PI / 180
 	// deadzone_size_rad:   f32 = 50.0 
 
-	start_angle_deg: f32 = deadzone_center_deg + (deadzone_size_deg / 2)
-	sweep_range_deg: f32 = 360.0 - deadzone_size_deg
+	start_angle_deg := deadzone_center_deg + (deadzone_size_deg / 2)
+	sweep_range_deg := 360.0 - deadzone_size_deg
 
 	// Convert to radians for use in code.
 	start_angle := start_angle_deg * math.PI / 180.0
@@ -792,7 +792,7 @@ circular_knob :: proc(
             semantic_size = {{.Fixed, 10}, {.Fixed, 10}},
             color = .Error_Container,
             floating_type = .Relative_Other,
-            floating_offset = {grip_offset_x, grip_offset_y},
+            floating_offset = vec2_f32([2]f64{grip_offset_x, grip_offset_y}),
 			floating_anchor_box = track,
             corner_radius = 5,
         },

@@ -168,11 +168,17 @@ Metadata_Browser_Item :: union {
 	Browser_File
 }
 
+Metadata_EQ_Handle :: struct { 
+	which: int,
+	eq: ^EQ_State
+}
+
 Box_Metadata :: union {
 	Metadata_Track_Step,
 	Metadata_Track,
 	Metadata_Sampler,
 	Metadata_Browser_Item,
+	Metadata_EQ_Handle,
 }
 
 Box_Flag :: enum {

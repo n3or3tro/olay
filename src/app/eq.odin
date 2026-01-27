@@ -102,10 +102,42 @@ compute_magnitude_db :: proc(coeffs: Biquad_Coefficients, freq_hz, sample_rate: 
     // |H(e^jw)|^2 = |B(e^jw)|^2 / |A(e^jw)|^2
     num := b0*b0 + b1*b1 + b2*b2 + 2.0*(b0*b1 + b1*b2)*cos_w + 2.0*b0*b2*cos_2w
     den := 1.0 + a1*a1 + a2*a2 + 2.0*(a1 + a1*a2)*cos_w + 2.0*a2*cos_2w
+    // den := 1.0 + a1*a1 + a2*a2 - 2.0*(a1 + a1*a2)*cos_w - 2.0*a2*cos_2w
 
     magnitude := math.sqrt(num / den)
     return 20.0 * math.log10(magnitude)
 }
+
+// compute_magnitude_db :: proc(coeffs: Biquad_Coefficients, freq_hz, sample_rate: f64) -> f64 {
+//     // println("helooooooooooooooooooooooooooooooooooooooooooooo")
+//     w := 2.0 * math.PI * freq_hz / sample_rate
+//     cos_w := math.cos(w)
+//     sin_w := math.sin(w)
+//     cos_2w := math.cos(2.0 * w)
+//     sin_2w := math.sin(2.0 * w)
+
+//     b0, b1, b2 := coeffs.b0, coeffs.b1, coeffs.b2
+//     a1, a2 := coeffs.a1, coeffs.a2
+
+//     // Direct form - numerically stable
+//     num_real := b0 + b1*cos_w + b2*cos_2w
+//     num_imag := b1*sin_w + b2*sin_2w
+//     den_real := 1.0 + a1*cos_w + a2*cos_2w
+//     den_imag := a1*sin_w + a2*sin_2w
+
+//     num := num_real*num_real + num_imag*num_imag
+//     den := den_real*den_real + den_imag*den_imag
+
+//     if den < 1e-20 {
+//         return -60.0
+//     }
+    
+//     magnitude := math.sqrt(num / den)
+//     if magnitude < 1e-10 {
+//         return -60.0
+//     }
+//     return 20.0 * math.log10(magnitude)
+// }
 
 generate_curve_points :: proc(coeffs: Biquad_Coefficients, sample_rate: f64) -> [256]f64 {
     curve: [256]f64
