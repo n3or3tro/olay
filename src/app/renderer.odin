@@ -25,6 +25,7 @@ UI_Element_Type :: enum {
 	Waveform_Data,
 	Circle,
 	Fader_Knob,
+	Audio_Spectrum,
 	Background = 15,
 }
 

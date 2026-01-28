@@ -26,6 +26,7 @@ layout(location = 12) in float rotation_radians;
 #define UI_Type_Waveform_Data 	2
 #define UI_Type_Circle 			3
 #define UI_Type_Fader_Knob 		4
+#define UI_Type_Audio_Spectrum	5
 #define UI_Type_Background  	15
 
 
@@ -40,6 +41,7 @@ out vec4 color;
 // uniform sampler2D font_texture_xl;
 
 uniform sampler2D font_atlas;
+uniform sampler2D audio_frequency_spectrum;
 
 // uniform sampler2D circle_knob_texture;
 // uniform sampler2D fader_knob_texture;

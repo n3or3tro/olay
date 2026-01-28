@@ -4,7 +4,8 @@
       "Bash(odin test:*)",
       "Bash(grep:*)",
       "Bash(./build/reload.bat)",
-      "Bash(./build/hot-reload.bat)"
+      "Bash(./build/hot-reload.bat)",
+      "WebFetch(domain:pkg.odin-lang.org)"
     ]
   }
 }

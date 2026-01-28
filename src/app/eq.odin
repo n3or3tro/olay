@@ -1,5 +1,11 @@
 package app
 import "core:math"
+import "core:sync"
+import ma "vendor:miniaudio"
+import "base:runtime"
+import "core:math/cmplx"
+
+FFT_HANN_WINDOW : [FFT_WINDOW_SIZE]f32
 
 Biquad_Coefficients :: struct { 
     b0, b1, b2, a1, a2: f64
@@ -252,3 +258,116 @@ generate_curve_points :: proc(coeffs: Biquad_Coefficients, sample_rate: f64) -> 
     }
     return curve
 }
+
+/* ======================== FFT STUFF ================================================= */
+FFT_WINDOW_SIZE :: 8192
+
+Spectrum_Analyzer_Node :: struct { 
+    base_node: ma.node_base,
+    ring_buffer: [FFT_WINDOW_SIZE]f32,
+    write_pos: int,
+}
+
+/*
+Callback that's called each time the miniaudio node graph is traversed.
+Specially when it reaches our custom node. The custom node is used to copy
+out pcm frames into our own ring buffer so we can display an EQ spectrum
+of the sound in real time.
+*/
+spectrum_analyzer_node_process :: proc "c" (
+    node: ^ma.node,
+    input: ^[^]f32,
+    input_len: ^u32,
+    output: ^[^]f32,
+    output_len: ^u32
+) {
+    context = runtime.default_context()
+    analyzer := cast(^Spectrum_Analyzer_Node)node
+    n_channels := ma.node_get_input_channels(node, 0)
+
+    // Pass pcm frames to the next node, we only care about copying the 
+    // frames out into our own ring buffer.
+    if input != nil { 
+        ma.copy_pcm_frames(output^, input^, u64(output_len^), .f32, n_channels)
+    } else { 
+        ma.silence_pcm_frames(output^, u64(output_len^), .f32, n_channels)
+        return
+    }
+
+    // Copy 1 channel of the incoming pcm_frames into our ring buffer.
+    spec_analyzer_node := cast(^Spectrum_Analyzer_Node)node
+    write_pos := &spec_analyzer_node.write_pos
+    for i in 0..<input_len^ {
+        // Only need every second sample as the left and right channel samples
+        // are interleaves like: input = [l0, r0, l1, r1, l2, r2, ..., ln, rn]
+        if i % 2 == 0 {
+            spec_analyzer_node.ring_buffer[write_pos^ % FFT_WINDOW_SIZE] = input^[i]
+            sync.atomic_store(write_pos, write_pos^ + 1)
+        }
+    }
+}
+
+bit_reverse :: proc(x: int, n_bits: uint) -> int { 
+    res := 0
+    for i in 0 ..< n_bits { 
+        if (x & (1 << uint(i)) != 0) {
+            res = res | 1 << (n_bits - 1 - uint(i))
+        }
+    } 
+    return res
+}
+
+// Reorders array in-place by bit-reversed indices
+bit_reverse_permute :: proc(data: []complex64) {
+    n := len(data)
+    num_bits : uint = 0
+    temp := n
+    for temp > 1 {
+        num_bits += 1
+        temp >>= 1
+    }
+    
+    for i in 0..<n {
+        j := bit_reverse(i, num_bits)
+        if j > i {
+            data[i], data[j] = data[j], data[i]
+        }
+    }
+}
+
+
+cooley_turkey_fft :: proc(data: []complex64) {
+        n := len(data)
+    
+    // Step 1: bit-reverse permutation
+    bit_reverse_permute(data)
+    
+    // Step 2: butterfly stages
+    size := 2  // Start with pairs
+    for size <= n {
+        half := size / 2
+        
+        // Twiddle factor step: e^(-2πi / size)
+        angle := -2.0 * math.PI / f32(size)
+        w_step := cmplx.rect_complex64(f32(1.0), angle)
+        
+        // Process each group of 'size' elements
+        for start := 0; start < n; start += size {
+            w := complex64(1)  // Twiddle factor, starts at 1
+            
+            for k in 0..<half {
+                i := start + k
+                j := start + k + half
+                
+                // Butterfly operation
+                temp := w * data[j]
+                data[j] = data[i] - temp
+                data[i] = data[i] + temp
+
+                w *= w_step  // Rotate twiddle factor
+            }
+        }
+        size *= 2  // Next stage
+    }
+}
+/* ====================== END FFT STUFF =============================================== */

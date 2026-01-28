@@ -1,5 +1,6 @@
 package app
 import "core:fmt"
+import "core:math"
 import "core:slice"
 import "core:sync"
 import "core:mem"
@@ -8,6 +9,16 @@ import "core:strconv"
 import str "core:strings"
 import "core:time"
 import ma "vendor:miniaudio"
+
+// At file scope
+@(private="file")
+spectrum_analyzer_vtable: ma.node_vtable
+@(private="file")
+spectrum_analyzer_input_channels: [1]u32 = {2}
+@(private="file")
+spectrum_analyzer_output_channels: [1]u32 = {2}
+@(private="file")
+spectrum_analyzer_vtable_initialized := false
 
 SAMPLE_RATE : f64 = 44_100
 
@@ -105,7 +116,8 @@ Track :: struct {
 	send2: 	[MAX_TRACK_STEPS]int,
 	selected_steps: [MAX_TRACK_STEPS]bool,
 	eq:		 EQ_State,
-	sampler: Sampler_State
+	sampler: Sampler_State,
+	spectrum_analyzer: Spectrum_Analyzer_Node,
 }
 
 Audio_State :: struct {
@@ -187,6 +199,12 @@ audio_init :: proc() -> ^Audio_State {
 	}
 	audio_state.bpm = 120
 
+	// Init hann window for FFT used in displaying EQ spectrum.
+	for i in 0 ..< FFT_WINDOW_SIZE {
+		// FFT_HANN_WINDOW[i] = 0.5 * (1 - math.cos(f32(2 * math.PI / (FFT_WINDOW_SIZE - 1))))
+		FFT_HANN_WINDOW[i] = 0.5 * (1 - math.cos(2 * math.PI * f32(i) / f32(FFT_WINDOW_SIZE - 1)))
+
+	}
 	return audio_state
 }
 
@@ -204,8 +222,6 @@ Init just the miniaudio related things, this is seperated since we must re-init 
 hot reload, where as our own audio state for tracks and stuff, can persist.
 */
 audio_init_miniaudio :: proc(audio_state: ^Audio_State) { 
-	
-
 	println("initing mini audio")
 	engine := new(ma.engine)
 
@@ -230,7 +246,6 @@ audio_init_miniaudio :: proc(audio_state: ^Audio_State) {
 			eq_init_band(track, &band, node_graph)		
 		}
 	}
-	
 	app.audio = audio_state
 	audio_state.engine = engine
 }
@@ -326,7 +341,7 @@ track_set_sound :: proc(which: u32, path: cstring) {
 	// Wire sound -> first eq band 
 	if len(eq_bands) < 1 do return 
 	res = ma.node_attach_output_bus(cast(^ma.node)(track.sound), 0, cast(^ma.node)(eq_bands[0].biquad_node), 0) 
-	assert(res != .ERROR)
+	assert(res == .SUCCESS, tprintf("{}", res))
 
 	// Wire the rest of the bands to each other.
 	for i in 1..<len(eq_bands) {
@@ -336,13 +351,48 @@ track_set_sound :: proc(which: u32, path: cstring) {
 			cast(^ma.node)(eq_bands[i].biquad_node), 
 			0
 		)
-		assert(res != .ERROR)
+		assert(res == .SUCCESS, tprintf("{}", res))
 	}
 
-	// Wire last band -> output
-	last_band := &eq_bands[len(track.eq.bands)-1]
+	// Wire up spectrum analyzer to last band of EQ and out to output.
+	if !spectrum_analyzer_vtable_initialized {
+		spectrum_analyzer_vtable.inputBusCount = 1
+		spectrum_analyzer_vtable.outputBusCount = 1
+		spectrum_analyzer_vtable.onProcess = spectrum_analyzer_node_process
+		spectrum_analyzer_vtable_initialized = true
+	}
+
+	config := ma.node_config_init()
+	config.vtable = &spectrum_analyzer_vtable
+	config.inputBusCount = 1
+	config.outputBusCount = 1
+	config.pInputChannels = &spectrum_analyzer_input_channels[0]
+	config.pOutputChannels = &spectrum_analyzer_output_channels[0]
+
+	// config := ma.node_config_init()
+	// config.vtable = new(ma.node_vtable)
+	// config.vtable.inputBusCount = 1
+	// config.vtable.outputBusCount = 1
+	// config.vtable.onProcess = spectrum_analyzer_node_process
+	// config.inputBusCount = 1
+	// config.outputBusCount = 1
+
+	// input_channels: [1]u32 = {2}
+	// output_channels: [1]u32 = {2}
+	// config.pInputChannels = &input_channels[0]
+	// config.pOutputChannels = &output_channels[0]
+
+	res = ma.node_init(ma.engine_get_node_graph(app.audio.engine), &config, nil, cast(^ma.node)&track.spectrum_analyzer)
+	assert(res == .SUCCESS, tprintf("{}", res))
+
+	last_eq_band := &eq_bands[len(track.eq.bands)-1]
+
+	res = ma.node_attach_output_bus(cast(^ma.node)last_eq_band.biquad_node, 0, cast(^ma.node)&track.spectrum_analyzer, 0)
+	assert(res == .SUCCESS, tprintf("{}", res))
+
+	// Wire spectrum analyzer node to -> output
 	res = ma.node_attach_output_bus(
-		cast(^ma.node)(last_band.biquad_node), 
+		cast(^ma.node)&track.spectrum_analyzer, 
 		0, 
 		ma.engine_get_endpoint(app.audio.engine), 
 		0

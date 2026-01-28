@@ -9,6 +9,9 @@ so they'll need some re-thinking when I ship the UI stuff as a lib.
 
 package app
 import "core:math"
+import "core:math/cmplx"
+import "core:mem"
+import "core:sync"
 import "core:path/filepath"
 import str "core:strings"
 import ma"vendor:miniaudio"
@@ -477,18 +480,19 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 				-EQ_MAX_GAIN,
 				EQ_MAX_GAIN,
 			)
-			printfln("The active gain for this band is {}", active_band.gain_db)
 		}
 		freq_display: {
 			frequency_display_container := child_container(
 				{
 					semantic_size = Size_Grow,
+					// semantic_size = {{.Fixed, 800}, {.Fixed, 500}},
 					color = .Inverse_On_Surface,
 				},
 				{alignment_horizontal = .Space_Between},
 				id("{}-frequency-display-container", eq_id),
 				{.Draw, .Clickable},
 			)
+
 			if frequency_display_container.double_clicked {
 				box := frequency_display_container.box
 				eq_add_band(track_num, f32(map_range(f64(box.top_left.x), f64(box.bottom_right.x), 0.0, 1.0, f64(app.mouse_last_frame.pos.x))), .Bell)
@@ -497,7 +501,7 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 			handles := make([dynamic]^Box, context.temp_allocator)
 			for &band, i in eq_state.bands {
 				handle := box_from_cache(
-					{.Draw, .Clickable, .Draggable},
+					{.Draw, .Clickable, .Draggable, .Scrollable},
 					{
 						color = eq_state.active_band == i ? .Error_Container : .Warning_Container,
 						floating_type = .Relative_Other,
@@ -519,6 +523,19 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 				)
 				append(&handles, handle)
 				handle_signals := box_signals(handle)
+
+				if handle_signals.hovering {
+					println("hovering over band")
+					if handle_signals.scrolled_up {
+						println("scrolled up")
+						band.q += 0.07
+					}
+					if handle_signals.scrolled_down {
+						println("scrolled down")
+						band.q -= 0.07
+					}
+				}
+
 				if handle_signals.clicked || handle_signals.box == ui_state.dragged_box { 
 					eq_state.active_band = i
 				}
@@ -541,7 +558,6 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 				}
 			}
 			
-			// Draw filter response curve.
 			curve_total : [256]f64
 			for &band, i in eq_state.bands {
 				if band.bypass do continue
@@ -558,10 +574,61 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 				for i in 0..<len(curve_total) {
 					curve_total[i] += band_points[i]
 				}
-				// Not efficient to re-do this even when we have no changes.
+				// Not efficient to re-do this even when we have no changes. Must change later.
 				eq_reinit_band(band)
 			}
 
+			// Draw frequency spectrum of the playing sound.
+			spectrum_analyzer 	:= &app.audio.tracks[track_num].spectrum_analyzer
+			ring_buffer 		:= &spectrum_analyzer.ring_buffer
+			// write_pos 			:= sync.atomic_load(&spectrum_analyzer.write_pos)
+
+			// Probably don't need to continously copy the entire buffer, since we only store like 
+			// a couple hundred floats each audio upate.
+			ring_buffer_copy : [FFT_WINDOW_SIZE]f32
+			mem.copy(&ring_buffer_copy, ring_buffer, FFT_WINDOW_SIZE * size_of(f32))
+			
+			// FFT expects complex numbers that have been passed through a windowing function.
+			fft_input: [FFT_WINDOW_SIZE]complex64
+			for &sample, i in ring_buffer_copy { 
+				fft_input[i] = complex(sample * FFT_HANN_WINDOW[i], 0)
+			}
+
+			cooley_turkey_fft(fft_input[:])
+			useful_data := fft_input[0:len(fft_input)/2]
+			for sample, i in useful_data {
+				// !! TODO: Need to do temporal smoothing, otherwise the output will skip around eratically
+				// and not be that useful, BUT, I'm skipping that for now.
+
+				freq_hz := f32(i) * f32(SAMPLE_RATE) / f32(FFT_WINDOW_SIZE)
+				if freq_hz < 20 || freq_hz > 20_000 do continue // skip sub-bass
+
+				x := math.log10(freq_hz / 20.0) / math.log10(f32(1000.0)) // 0 <-> 1
+
+				magnitude := max(cmplx.abs(sample), 1e-10) / (FFT_WINDOW_SIZE / 2)
+
+				db := max(20 * math.log10(magnitude), -60)
+				y := map_range(-60.0, 20.0, 0.0, 1.0, f64(db))  // -90 dB at bottom, +20 dB at top
+
+				width_px  :f32 = 1.0 
+				height_px := f32(frequency_display_container.box.last_height) * f32(y)
+				// printfln("width: {}  height: {}", width_px, height_px)
+				box_from_cache(
+					{.Draw},
+					{
+						color = .Inverse_Primary,
+						semantic_size = {
+							{.Fixed, width_px},
+							{.Fixed, height_px},
+						},
+						floating_anchor_box = frequency_display_container.box,
+						floating_type = .Relative_Other,
+						floating_offset = {x, 1}
+					}
+				)
+			}
+
+			// Draw filter response curve.
 			for point, i in curve_total {
 				x := map_range(0.0, len(curve_total), 0.0, 1.0, f64(i))
 				y := map_range(
@@ -669,7 +736,7 @@ sampler :: proc(track_num: int, id_string: string) {
 			{
 			},
 			id("{}-waveform-display", sampler_container.box.id),
-			{.Draw, .Clickable},
+			{.Draw, .Clickable, .Scrollable},
 			Metadata_Sampler{
 				track_num
 			},
@@ -1105,14 +1172,9 @@ context_menu :: proc() {
 	switch metadata in ui_state.right_clicked_on.metadata {
 	case Metadata_Track_Step:
 		track_steps_context_menu(ui_state.right_clicked_on)
-	case Metadata_Track:
-		text(
-			"Context menu not implemented for this box type @ alskdjfalskdjfladf",
-			{semantic_size = Size_Fit_Text},
-		)
 	case Metadata_Browser_Item:
 		file_browser_context_menu(ui_state.right_clicked_on)
-	case Metadata_Sampler:
+	case Metadata_Sampler, Metadata_Audio_Spectrum, Metadata_Track:
 		text(
 			"Context menu not implemented for this box type @ alskdaajfalskdjfladf",
 			{semantic_size = Size_Fit_Text},
@@ -1153,7 +1215,7 @@ set_nth_child_select :: proc(track_num, nth: int, selected: bool) {
 		case Metadata_Track_Step:
 			if metadata.track != track_num do continue
 			if metadata.step % nth == 0 do box.selected = selected
-		case Metadata_Track, Metadata_Sampler, Metadata_Browser_Item, Metadata_EQ_Handle:
+		case Metadata_Track, Metadata_Sampler, Metadata_Browser_Item, Metadata_EQ_Handle, Metadata_Audio_Spectrum:
 			panic("set_nth_child() should only be called on box with Metadata_Track_Step")
 		}
 	}

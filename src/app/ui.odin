@@ -268,13 +268,24 @@ init_ui_state :: proc() -> ^UI_State {
 		gl.UNSIGNED_BYTE, // type of pixel data.
 		nil, // data -> nil as it's empty until we start rendering text.
 	)
+	ui_state.font_atlas_texture_id = atlas_texture_id
 
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
 
-	ui_state.font_atlas_texture_id = atlas_texture_id
+	// Create texture to store spectrum analyzed audio data.
+	frequency_spectrum_data: u32
+	gl.GenTextures(1, &frequency_spectrum_data)
+	gl.BindTexture(gl.TEXTURE_2D, frequency_spectrum_data)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.R32F, 512, 256, 0, gl.RED, gl.FLOAT, nil)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+	gl.BindTexture(gl.TEXTURE_2D, 0)
+
 	return ui_state
 }
 

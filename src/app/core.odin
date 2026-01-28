@@ -174,12 +174,18 @@ Metadata_EQ_Handle :: struct {
 	band: ^EQ_Band_State,
 }
 
+Metadata_Audio_Spectrum :: struct {
+}
+
+// Probably a little wasteful to have something like this to just denote that a 
+// box is a specific type of widget.
 Box_Metadata :: union {
 	Metadata_Track_Step,
 	Metadata_Track,
 	Metadata_Sampler,
 	Metadata_Browser_Item,
 	Metadata_EQ_Handle,
+	Metadata_Audio_Spectrum,
 }
 
 Box_Flag :: enum {
@@ -402,14 +408,14 @@ box_from_cache :: proc(flags: Box_Flags, config: Box_Config, label := "", id := 
 		x_size_type := box.config.semantic_size.x.type 
 		y_size_type := box.config.semantic_size.y.type 
 		// Not sure if you even need to skip .Fixed sized boxes here... Need to double check.
-		if x_size_type != .Fixed {
-			box.last_width = box.width
-			box.width = 0
-		}
-		if y_size_type != .Fixed {
-			box.last_height = box.height
-			box.height = 0
-		}
+		// if x_size_type != .Fixed {
+		box.last_width = box.width
+		box.width = 0
+		// }
+		// if y_size_type != .Fixed {
+		box.last_height = box.height
+		box.height = 0
+		// }
 
 		if x_size_type == .Fixed do box.width  = int(box.config.semantic_size.x.amount)
 		if y_size_type == .Fixed do box.height = int(box.config.semantic_size.y.amount)
