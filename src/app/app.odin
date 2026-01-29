@@ -108,18 +108,19 @@ app_update :: proc() -> (all_good: bool) {
 		clear(&ui_state.frame_signals)
 	}
 
-	end := time.now()._nsec
-	total_frame_time_ns := f64(end - start)
-	printfln("app_update() took {} ms", total_frame_time_ns / 1_000_000)
-
 	// Calculate how long this frame took and sleep until it's time for the next frame.
 	// max_frame_time_ns: f64 = 1_000_000 * 200 
 	// max_frame_time_ns: f64 = 1_000_000 * 8.3333 
-	// frame_time := f64(time.now()._nsec - start._nsec)
-	// time_to_wait := time.Duration(max_frame_time_ns - frame_time)
-	// if time_to_wait > 0 {
-	// 	time.accurate_sleep(time_to_wait)
-	// }
+	max_frame_time_ns: f64 = 1_000_000 * 16.6666
+	frame_time := f64(time.now()._nsec - start)
+	time_to_wait := time.Duration(max_frame_time_ns - frame_time)
+	if time_to_wait > 0 {
+		time.accurate_sleep(time_to_wait)
+	}
+
+	end := time.now()._nsec
+	total_frame_time_ns := f64(end - start)
+	printfln("app_update() took {} ms", total_frame_time_ns / 1_000_000)
 	return true
 }
 

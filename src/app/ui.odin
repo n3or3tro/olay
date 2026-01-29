@@ -33,6 +33,7 @@ UI_State :: struct {
 	quad_vabuffer:            ^u32,
 	quad_shader_program:      u32,
 	font_atlas_texture_id:    u32,
+	frequency_spectrum_texture_id:    u32,
 	frame_num:                u64,
 	hot_box:                  ^Box,
 	active_box:               ^Box,
@@ -255,6 +256,7 @@ init_ui_state :: proc() -> ^UI_State {
 	// Setup font texture atlas.
 	atlas_texture_id: u32
 	gl.GenTextures(1, &atlas_texture_id)
+	gl.ActiveTexture(gl.TEXTURE0)
 	gl.BindTexture(gl.TEXTURE_2D, atlas_texture_id)
 
 	gl.TexImage2D(
@@ -276,15 +278,21 @@ init_ui_state :: proc() -> ^UI_State {
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
 
 	// Create texture to store spectrum analyzed audio data.
-	frequency_spectrum_data: u32
-	gl.GenTextures(1, &frequency_spectrum_data)
-	gl.BindTexture(gl.TEXTURE_2D, frequency_spectrum_data)
+	frequency_spectrum_tex_id: u32
+	gl.GenTextures(1, &frequency_spectrum_tex_id)
+	gl.ActiveTexture(gl.TEXTURE1)
+	gl.BindTexture(gl.TEXTURE_2D, frequency_spectrum_tex_id)
 	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.R32F, 512, 256, 0, gl.RED, gl.FLOAT, nil)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
     gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
     gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
     gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-	gl.BindTexture(gl.TEXTURE_2D, 0)
+
+	// Let open gl know which texture we've uploaded corresponds to the variables
+	// that were defined in the shader code.
+	gl.Uniform1i(gl.GetUniformLocation(shader_program_id, "font_atlas"), 0)
+	gl.Uniform1i(gl.GetUniformLocation(shader_program_id, "audio_frequency_spectrum"), 1)
+	ui_state.frequency_spectrum_texture_id = frequency_spectrum_tex_id
 
 	return ui_state
 }
@@ -386,10 +394,6 @@ create_ui :: proc() -> ^Box {
 			text_button("there", {semantic_size = {{.Fixed, 300}, {.Fixed, 250}}})
 			text_button("mate",  {semantic_size = {{.Fixed, 300}, {.Fixed, 250}}})
 		}
-
-		text_button("what the heck", {semantic_size=Size_Fit_Text_And_Grow, color =.Primary_Container})
-		text_button("this is nice", {semantic_size={{.Fixed, 100}, {.Fixed, 200}}, color = .Secondary_Container})
-		text_button("hmmm", {semantic_size={{.Fixed, 100}, {.Fixed, 200}}, color = .Tertiary_Container})
 	}
 
 	if ui_state.context_menu.active {

@@ -91,6 +91,7 @@ EQ_State :: struct {
 	// it helps to keep single source of truth.
 	show: bool,
 	active_band: int,
+	frequency_spectrum_bins: [FFT_N_SPECTRUM_BINS]f32
 }
 
 Track :: struct {
@@ -103,8 +104,8 @@ Track :: struct {
 		left_channel:  [dynamic]f32,
 		right_channel: [dynamic]f32,
 	},
-	name: string,	// Name / label of this track.
-	track_num: int, // Number ID of this track
+	name: 			string,	// Name / label of this track.
+	track_num: 		int, // Number ID of this track
 	curr_step:      u32,
 	// Actual amount of steps in the track.
 	n_steps:        u32,
@@ -223,11 +224,11 @@ hot reload, where as our own audio state for tracks and stuff, can persist.
 */
 audio_init_miniaudio :: proc(audio_state: ^Audio_State) { 
 	println("initing mini audio")
-	engine := new(ma.engine)
 
-	// Engine config is set by default when you init the engine, but can be manually set.
-	// engine_config := ma.engine_config_init()
-	res := ma.engine_init(nil, engine)
+	engine_config := ma.engine_config_init()
+	engine := new(ma.engine)
+	engine_config.sampleRate = 44_100
+	res := ma.engine_init(&engine_config, engine)
 	assert(res == .SUCCESS)
 
 	sound_group_config := ma.sound_group_config {
@@ -747,12 +748,6 @@ audio_thread_timing_proc :: proc() {
 			if time_since_last_step >= time_between_beats {
 				for &track, track_num in app.audio.tracks {
 					track.curr_step = (track.curr_step + 1) % track.n_steps
-					// if track.curr_step > ui_state.steps_vertical_offset + NUM_VISIBLE_STEPS - SCROLL_THRESHOLD {
-					// 	ui_state.steps_vertical_offset = track.curr_step - (NUM_VISIBLE_STEPS - SCROLL_THRESHOLD)
-					// }
-					// if track.curr_step < ui_state.steps_vertical_offset {
-					// 	ui_state.steps_vertical_offset = track.curr_step
-					// }
 					if track.armed {
 						if track.selected_steps[track.curr_step] {
 							track_play_step(u32(track_num))

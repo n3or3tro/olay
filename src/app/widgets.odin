@@ -90,7 +90,7 @@ topbar :: proc() {
 
 audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}) -> Track_Signals {
 	track := &app.audio.tracks[track_num]
-	n_steps := 32 // This will ultimately be a dynamic size for each track.
+	n_steps := 128 // This will ultimately be a dynamic size for each track.
 
 	track_container := child_container(
 		{semantic_size = {{.Fixed, track_width}, {.Percent, 1}}},
@@ -487,6 +487,8 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 					semantic_size = Size_Grow,
 					// semantic_size = {{.Fixed, 800}, {.Fixed, 500}},
 					color = .Inverse_On_Surface,
+					overflow_x = .Hidden,
+					overflow_y = .Hidden,
 				},
 				{alignment_horizontal = .Space_Between},
 				id("{}-frequency-display-container", eq_id),
@@ -596,10 +598,10 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 
 			cooley_turkey_fft(fft_input[:])
 			useful_data := fft_input[0:len(fft_input)/2]
+			frequency_bin_amplitudes: [FFT_WINDOW_SIZE / 2]f32
 			for sample, i in useful_data {
 				// !! TODO: Need to do temporal smoothing, otherwise the output will skip around eratically
 				// and not be that useful, BUT, I'm skipping that for now.
-
 				freq_hz := f32(i) * f32(SAMPLE_RATE) / f32(FFT_WINDOW_SIZE)
 				if freq_hz < 20 || freq_hz > 20_000 do continue // skip sub-bass
 
@@ -608,29 +610,72 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 				magnitude := max(cmplx.abs(sample), 1e-10) / (FFT_WINDOW_SIZE / 2)
 
 				db := max(20 * math.log10(magnitude), -60)
-				y := map_range(-60.0, 20.0, 0.0, 1.0, f64(db))  // -90 dB at bottom, +20 dB at top
+				// y := map_range(-60.0, 20.0, 0.0, 1.0, f64(db))  // -90 dB at bottom, +20 dB at top
 
-				width_px  :f32 = 1.0 
-				height_px := f32(frequency_display_container.box.last_height) * f32(y)
-				// printfln("width: {}  height: {}", width_px, height_px)
-				box_from_cache(
+				// width_px  :f32 = 1.0 
+				// height_px := f32(frequency_display_container.box.last_height) * f32(y)
+
+				frequency_bin_amplitudes[i] = db
+			}
+			println(ma.engine_get_sample_rate(app.audio.engine))
+			output_bins:[512]f32
+			min_freq :: 20.0
+			max_freq :: 20_000.0
+			for i in 0..< FFT_N_SPECTRUM_BINS { 
+				// Log-spaced frequency range for this output bin
+				freq_low  := min_freq * math.pow(max_freq/min_freq, f32(i) / 511.0)
+				freq_high := min_freq * math.pow(max_freq/min_freq, f32(i+1) / 511.0)	
+
+				// Convert frequencies to FFT bin indices
+				fft_low  := int(f64(freq_low)  * f64(FFT_WINDOW_SIZE) / SAMPLE_RATE)
+				fft_high := int(f64(freq_high) * f64(FFT_WINDOW_SIZE) / SAMPLE_RATE)
+				fft_high = max(fft_high, fft_low + 1)  // at least 1 bin
+				
+				// Average the FFT bins in this range
+				sum: f32 = 0
+				for fft_i in fft_low..<fft_high {
+					sum += frequency_bin_amplitudes[fft_i]
+				}
+				db := sum / f32(fft_high - fft_low)
+				current := (db + 60.0 )	 / 60 // -60dB -> 0, 0dB -> 1
+				
+				// Lerp bins from prev frame to current frame as to avoid an eratic frequency response. 
+				// The response is erratic irl, but users are used to a nice smooth flowing curve.
+				prev := eq_state.frequency_spectrum_bins[i]
+				if current > prev { 
+					eq_state.frequency_spectrum_bins[i] = math.lerp(prev, current, f32(0.30))
+				} else {
+					eq_state.frequency_spectrum_bins[i] = math.lerp(prev, current, f32(0.10))
+				}
+			}
+
+			for i in 1..<511 {
+				output_bins[i] = output_bins[i-1] * 0.25 + output_bins[i] * 0.5 + output_bins[i+1] * 0.25
+			}
+			// eq_state.frequency_spectrum_bins = output_bins
+
+			// Single quad which pixel shader will draw the frequency response inside of.
+			box_from_cache(
 					{.Draw},
 					{
 						color = .Inverse_Primary,
 						semantic_size = {
-							{.Fixed, width_px},
-							{.Fixed, height_px},
+							{.Percent, 1},
+							{.Percent, 1},
 						},
 						floating_anchor_box = frequency_display_container.box,
 						floating_type = .Relative_Other,
-						floating_offset = {x, 1}
-					}
-				)
-			}
+						floating_offset = {0, 0}
+					},
+					metadata = Metadata_Audio_Spectrum{
+						track_num = track_num
+					},
+			)
 
 			// Draw filter response curve.
 			for point, i in curve_total {
-				x := map_range(0.0, len(curve_total), 0.0, 1.0, f64(i))
+				// x := map_range(0.0, len(curve_total), 0.0, 1.0, f64(i))
+				x := f64(i) / f64(len(curve_total) - 1)
 				y := map_range(
 					-EQ_MAX_GAIN, 
 					EQ_MAX_GAIN, 

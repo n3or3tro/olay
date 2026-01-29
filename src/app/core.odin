@@ -175,6 +175,10 @@ Metadata_EQ_Handle :: struct {
 }
 
 Metadata_Audio_Spectrum :: struct {
+	// This will be ultimately passed into the pixel shader so it nows
+	// which row of the specturm_data to sample from.
+	// which_eq : int
+	track_num: int,
 }
 
 // Probably a little wasteful to have something like this to just denote that a 
@@ -205,7 +209,7 @@ Box_Flag :: enum {
 	Draw_Border,
 	Draw_Background,
 	Draw_Drop_Shadow,
-	Clipped,
+	Clip_Children,
 	Hot_Animation,
 	// disabled state propogates down the tree automatically,
 	// some children should ALWAYS be enabled, hence the flag.

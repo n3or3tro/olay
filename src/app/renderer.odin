@@ -352,12 +352,28 @@ get_boxes_rendering_data :: proc(box: Box, allocator := context.allocator) -> Bo
 	// 	}
 	// }
 
-	if .Draw in box.flags {
-		result.box = box_render_data
+	if metadata, ok := box.metadata.(Metadata_Audio_Spectrum); ok{ 
+		box_render_data.ui_element_type = .Audio_Spectrum
+		// re-purpose this vertex attribute to indicate which row the pixel shader should sample from.
+		box_render_data.texture_top_left = ({f32(metadata.track_num), f32(metadata.track_num)})
+		// Update GPU texture so it can render whatever new audio data we have.
+		data := app.audio.tracks[metadata.track_num].eq.frequency_spectrum_bins
+		gl.ActiveTexture(gl.TEXTURE1)
+		gl.BindTexture(gl.TEXTURE_2D, ui_state.frequency_spectrum_texture_id)
+		gl.TexSubImage2D(
+			gl.TEXTURE_2D,
+			0, 			// mip level
+			0, i32(metadata.track_num), // x, y offset
+			512,
+			1,
+			gl.RED,
+			gl.FLOAT,
+			raw_data(data[:])
+		)
 	}
 
-
-	if boxes_children_tot_width(box) > box.width { 
+	if .Draw in box.flags {
+		result.box = box_render_data
 	}
 
 	return result
@@ -481,8 +497,10 @@ collect_render_data_from_ui_tree :: proc(render_data: ^[dynamic]Rect_Render_Data
 		}
 
 		// Some boxes may not need to be rendered themselves, but their related data to that box may need to be rendered.
+		// Hence the conditional.
 		if box_data, ok := boxes_render_data.box.(Rect_Render_Data); ok {
 			append(render_data, box_data)
+			
 		}
 
 		for data in boxes_render_data.additional_data {
@@ -495,6 +513,8 @@ collect_render_data_from_ui_tree :: proc(render_data: ^[dynamic]Rect_Render_Data
 		}
 
 		draw_text: if .Draw_Text in box.flags {
+			// gl.ActiveTexture(gl.TEXTURE0)
+			// gl.BindTexture(gl.TEXTURE_2D, ui_state.font_atlas_texture_id)
 			text_to_render: string
 			if .Edit_Text in box.flags {
 				text_to_render = box_data_as_string(box.data, context.temp_allocator)
@@ -635,7 +655,7 @@ draw :: proc(n_vertices: i32, indices: [^]u32) {
 setup_for_quads :: proc(shader_program: ^u32) {
 	//odinfmt:disable
 	gl.BindVertexArray(ui_state.quad_vabuffer^)
-	bind_shader(shader_program^)
+	// bind_shader(shader_program^)
 
 	gl.VertexAttribPointer(0, 2, gl.FLOAT, false, size_of(Rect_Render_Data), offset_of(Rect_Render_Data, top_left))
 	gl.VertexAttribDivisor(0, 1)

@@ -6,6 +6,8 @@ import "base:runtime"
 import "core:math/cmplx"
 
 FFT_HANN_WINDOW : [FFT_WINDOW_SIZE]f32
+FFT_N_SPECTRUM_BINS :: 512
+FFT_WINDOW_SIZE :: 8192
 
 Biquad_Coefficients :: struct { 
     b0, b1, b2, a1, a2: f64
@@ -260,7 +262,6 @@ generate_curve_points :: proc(coeffs: Biquad_Coefficients, sample_rate: f64) -> 
 }
 
 /* ======================== FFT STUFF ================================================= */
-FFT_WINDOW_SIZE :: 8192
 
 Spectrum_Analyzer_Node :: struct { 
     base_node: ma.node_base,

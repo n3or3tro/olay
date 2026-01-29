@@ -22,22 +22,30 @@ layout(location = 14) in vec2 clip_br;
 layout(location = 15) in float rotation_radians; 		
 
 
-layout(location = 0)  out vec4 v_color;
-layout(location = 1)  out vec2 out_dst_pos;
-layout(location = 2)  out vec2 out_dst_center;
-layout(location = 3)  out vec2 out_dst_half_size;
+layout(location = 0)  out vec4  v_color;
+layout(location = 1)  out vec2  out_dst_pos;
+layout(location = 2)  out vec2  out_dst_center;
+layout(location = 3)  out vec2  out_dst_half_size;
 layout(location = 4)  out float out_corner_radius;
 layout(location = 5)  out float out_edge_softness;
 layout(location = 6)  out float out_border_thickness;
-layout(location = 7)  out vec2 out_texture_uv;
+layout(location = 7)  out vec2  out_texture_uv;
 layout(location = 8)  out float out_ui_element_type; // 0 = normal quad, 1 = text, 2 = to be decided    
 layout(location = 9)  out float out_font_size; 
-layout(location = 10) out vec2 out_clip_tl; 
-layout(location = 11) out vec2 out_clip_br; 
+layout(location = 10) out vec2  out_clip_tl; 
+layout(location = 11) out vec2  out_clip_br; 
 layout(location = 12) out float out_rotation_radians;
 
 // uniform vec2 screen_res = vec2(3000, 2000);
 uniform vec2 screen_res; 
+
+#define UI_Type_Regular 		0
+#define UI_Type_Font 			1
+#define UI_Type_Waveform_Data 	2
+#define UI_Type_Circle 			3
+#define UI_Type_Fader_Knob 		4
+#define UI_Type_Audio_Spectrum	5
+#define UI_Type_Background  	15
 
 void main() {
 	vec4[4] colors;
@@ -66,9 +74,14 @@ void main() {
 	vec2 tex_center = (texture_bottom_right + texture_top_left) / 2;
 	vec2 tex_pos = (vertices[gl_VertexID] * tex_half_size + tex_center);
 
-	if (ui_element_type == 1.0) { // 
+	if (ui_element_type == 1) { 
 		out_texture_uv = tex_pos;
-	} else { // rest of textures you just paste the whole texture ontop of the quad.
+	}
+	else if (ui_element_type == UI_Type_Audio_Spectrum) {
+		// we pass in the track number of the eq's spectrum we're sampling.
+		out_texture_uv = texture_top_left;
+	}
+	else { // rest of textures you just paste the whole texture ontop of the quad.
 		out_texture_uv = (vertices[gl_VertexID] + 1.0) * 0.5;
 		out_texture_uv.y = 1.0 - out_texture_uv.y; 
 	}
