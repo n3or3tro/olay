@@ -190,12 +190,15 @@ font_add_shaped_run :: proc(
 	last_direction: kb.direction,
 	script: kb.script,
 ) {
-	key := utf8.runes_to_string(text, context.temp_allocator)
-	temp_glyph_buffer := make([dynamic]kb.glyph, len(text))
+	arena, scratch := arena_allocator_new()
+	defer arena_allocator_destroy(arena, scratch)
+
+	key := utf8.runes_to_string(text, scratch)
+	temp_glyph_buffer := make([dynamic]kb.glyph, len(text), scratch)
 	for codepoint, i in text {
 		temp_glyph_buffer[i] = kb.CodepointToGlyph(font, codepoint)
 	}
-	state, err := kb.CreateShapeState(font, context.temp_allocator)
+	state, err := kb.CreateShapeState(font, scratch)
 	assert(err == .None)
 
 	shape_config := kb.ShapeConfig(font, script, .DONT_KNOW)

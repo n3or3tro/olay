@@ -111,12 +111,12 @@ app_update :: proc() -> (all_good: bool) {
 	// Calculate how long this frame took and sleep until it's time for the next frame.
 	// max_frame_time_ns: f64 = 1_000_000 * 200 
 	// max_frame_time_ns: f64 = 1_000_000 * 8.3333 
-	max_frame_time_ns: f64 = 1_000_000 * 16.6666
-	frame_time := f64(time.now()._nsec - start)
-	time_to_wait := time.Duration(max_frame_time_ns - frame_time)
-	if time_to_wait > 0 {
-		time.accurate_sleep(time_to_wait)
-	}
+	// max_frame_time_ns: f64 = 1_000_000 * 16.6666
+	// frame_time := f64(time.now()._nsec - start)
+	// time_to_wait := time.Duration(max_frame_time_ns - frame_time)
+	// if time_to_wait > 0 {
+	// 	time.accurate_sleep(time_to_wait)
+	// }
 
 	end := time.now()._nsec
 	total_frame_time_ns := f64(end - start)
@@ -133,7 +133,8 @@ app_init :: proc(first_run := true) -> ^App {
 	root_dir := new(Browser_Directory)
 	root_dir.name = str.clone("Root dir")
 	app.browser_selected_dir = root_dir
-	app.browser_root_dir  = root_dir
+	app.browser_root_dir     = root_dir
+	file_browser_read_from_disk()
 	app.audio = audio_init()
 	app.running = true
 	app_hot_reload(app)

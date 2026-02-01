@@ -11,6 +11,7 @@ import "core:time"
 import "core:unicode/utf8/utf8string"
 import gl "vendor:OpenGL"
 import sdl "vendor:sdl2"
+import vmem "core:mem/virtual"
 
 id :: fmt.tprintf
 
@@ -89,7 +90,10 @@ UI_State :: struct {
 	// Whether or not a track's eq is showing.
 	eqs:                      [dynamic]bool,
 	// Maps scrollable containers id to the amount of offset to apply to their scrolled children in px.
-	scroll_offsets: map[string]int
+	scroll_offsets: map[string]int,
+	file_browser_allocator: mem.Allocator,
+	browser_files: [dynamic]Browser_File,
+	browser_dirs:  [dynamic]Browser_Directory
 }
 
 // These are all the types of data that can be dropped on items that are drag-and-drop
@@ -217,7 +221,16 @@ init_ui_state :: proc() -> ^UI_State {
 	ui_state.color_stack = make([dynamic]Color_RGBA)
 	ui_state.box_cache = make(map[string]^Box)
 	ui_state.frame_signals = make(map[string]Box_Signals)
+	ui_state.sidebar_shown = true
 	// ui_state.clipping_stack = make([dynamic]^Rect)
+
+	// Fine to leave this dangling since it has the same lifetime as the whole program.
+	file_browser_arena : vmem.Arena
+	err := vmem.arena_init_growing(&file_browser_arena)
+	assert(err == .None)
+
+	ui_state.file_browser_allocator = vmem.arena_allocator(&file_browser_arena)
+	// ui_state.file_browser_allocator = file_browser_allocator
 
 	wx: i32 = 0
 	wy: i32 = 0
@@ -401,9 +414,15 @@ create_ui :: proc() -> ^Box {
 	}
 
 	if ui_state.sidebar_shown {
-		_, closed := draggable_window("File browser", {direction = .Vertical}, "file-browser-dragging-container")
-		if closed do ui_state.sidebar_shown = false
-		file_browser_menu()
+		// _, closed := draggable_window("File browser", {direction = .Vertical}, "file-browser-dragging-container")
+		// if closed do ui_state.sidebar_shown = false
+		child_container(
+			{
+				floating_type = .Center_Right
+			},
+			{}
+		)
+		file_browser_menu(ui_state.file_browser_allocator)
 	}
 
 	// Render current dragging item under the mouse if applicable.

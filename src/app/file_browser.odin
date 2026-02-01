@@ -1,11 +1,17 @@
 package app
 
+import "core:bytes"
+import "core:io"
+import "core:mem"
 import "core:math/rand"
 import "core:slice"
 import str "core:strings"
-import "core:os"
+import os "core:os/os2"
 import vmem "core:mem/virtual"
 import "core:path/filepath"
+import "core:encoding/json"
+// import q "core:container/queue"
+BROWSER_SAVE_FILE :: "./file-browser.txt"
 
 Browser_File :: struct {
 	// Pseudo GID for sorting and ID shit.
@@ -22,50 +28,52 @@ Browser_Directory :: struct {
 	// a directory.
 	path: 			 string,
 	parent:          ^Browser_Directory,
-	sub_directories: [dynamic]Browser_Directory,
-	files:           [dynamic]Browser_File,
+	// Not the most performant in terms of cache access patterns to store pointers,
+	// but other approaches are a headache for not much gain.
+	sub_directories: [dynamic]^Browser_Directory,
+	files:           [dynamic]^Browser_File,
 	selected_files:  [2]int, // [start ..= end]
 	collapsed:       bool,
 }
 
-Trie :: struct { 
-}
 @(private="file")
 add_dirs_to_browser :: proc(parent: ^Browser_Directory, dirs: []string) { 
 	arena, scratch := arena_allocator_new()
 	defer arena_allocator_destroy(arena, scratch)
+
 	for dir in dirs {
 		handle, o_err := os.open(dir)
 		if o_err != nil do panicf("{}", o_err)
 		defer os.close(handle)
 		dir_name := filepath.base(dir)
-		new_dir  := Browser_Directory {
+		new_dir  := new(Browser_Directory)
+		new_dir^  =   Browser_Directory{
 			name   = str.clone(dir_name),
 			parent = parent, 
 			id     = int(rand.int63()),
 			path   = str.clone(dir)
 		}
 
+
 		append(&parent.sub_directories, new_dir)
-		new_dir_ptr := slice.last_ptr(parent.sub_directories[:])
 
 		files, d_err := os.read_dir(handle, 100, scratch)
 		if d_err != nil do panicf("{}", d_err)
 
-		audio_files := make([dynamic]Browser_File, scratch)
+		audio_files := make([dynamic]^Browser_File, scratch)
 		subdirs := make([dynamic]string, scratch)
 
 		for f in files {
-			if f.is_dir {
-				// add_dirs_to_browser(new_dir_ptr, {f.fullpath})
+			if f.type == .Directory {
 				append(&subdirs, f.fullpath)
 			}
 			if !is_audio_file_via_path(f.name) do continue
 
-			new_file := Browser_File {
+			new_file := new(Browser_File)
+			new_file^ =  Browser_File {
 				id = int(rand.int63()),
 				name = str.clone(f.name),
-				parent = new_dir_ptr,
+				parent = new_dir,
 			}
 			append(&audio_files, new_file)
 		}
@@ -74,12 +82,12 @@ add_dirs_to_browser :: proc(parent: ^Browser_Directory, dirs: []string) {
 			// This will certainly break, we need something like persistent reliable handles, not pointers
 			// into a dyn array which will certainly resize and be moved in mem.
 			for &file in audio_files { 
-				file.parent = new_dir_ptr
-				append(&new_dir_ptr.files, file)
+				file.parent = new_dir
+				append(&new_dir.files, file)
 			}
-			add_dirs_to_browser(new_dir_ptr, subdirs[:])
+			add_dirs_to_browser(new_dir, subdirs[:])
 		} else if len(subdirs) > 0 {
-			add_dirs_to_browser(new_dir_ptr, subdirs[:])
+			add_dirs_to_browser(new_dir, subdirs[:])
 		} else {
 			// Kinda jank to append then delete like this.
 			delete(new_dir.name)
@@ -88,7 +96,7 @@ add_dirs_to_browser :: proc(parent: ^Browser_Directory, dirs: []string) {
 	}
 }
 
-file_browser_menu :: proc() {
+file_browser_menu :: proc(allocator: mem.Allocator) {
 	child_container(
 		{
 			semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}},
@@ -142,6 +150,16 @@ file_browser_menu :: proc() {
 			add_folder := text_button("Add Folder", btn_config)
 			sort_files := text_button("Sort", btn_config)
 			flip 	   := text_button("Flip", btn_config)
+			save 	   := text_button("Save", btn_config)
+			open_file  := text_button("Open", btn_config)
+
+			if save.clicked { 
+				file_browser_write_to_disk()
+			}
+
+			if open_file.clicked {
+				file_browser_read_from_disk()
+			}
 
 			if add_folder.clicked {
 				arena, scratch := arena_allocator_new()
@@ -157,6 +175,7 @@ file_browser_menu :: proc() {
 			}
 		}
 	}
+
 	files_and_folders: {
 		create_subdirs_files :: proc(dir: ^Browser_Directory, level: int, search_term: string) {
 			{
@@ -218,8 +237,8 @@ file_browser_menu :: proc() {
 
 					if file_signals.box == ui_state.dragged_box {
 						// Pretty inefficient if you have a long list
-						if !slice.contains(ui_state.dropped_data[:], file) {
-							append(&ui_state.dropped_data, file)
+						if !slice.contains(ui_state.dropped_data[:], file^) {
+							append(&ui_state.dropped_data, file^)
 						}
 					}
 
@@ -232,7 +251,7 @@ file_browser_menu :: proc() {
 					}
 				}
 				for &subdir in dir.sub_directories {
-					create_subdirs_files(&subdir, level + 1, search_term)
+					create_subdirs_files(subdir, level + 1, search_term)
 				}
 			}
 		}
@@ -254,67 +273,36 @@ file_browser_menu :: proc() {
 		// Create each child of the root at the top level, this is because we don't actually
 		// want to render / interact with the root.
 		for &subdir in app.browser_root_dir.sub_directories{
-			create_subdirs_files(&subdir, 0, search_term)
+			create_subdirs_files(subdir, 0, search_term)
 		}
 	}
 }
 
-file_browser_delete_file :: proc(file: ^Browser_File) {
-	idx, found := index_of(file.parent.files[:], file)
-	if !found {
-		panicf("could not find file: {} with name: {} in it's parent", file.id, file.name)
+file_browser_write_to_disk :: proc() {
+	arena, scratch := arena_allocator_new()
+	defer arena_allocator_destroy(arena, scratch)
+
+	f, err := os.open(BROWSER_SAVE_FILE, {.Write, .Create, .Read}, {.Read_User, .Write_User})
+	assert(err == io.Error.None , tprintf("Failed to open {} for writing\nGot err: {}", BROWSER_SAVE_FILE, err))
+	defer os.close(f)
+
+	for child in app.browser_root_dir.sub_directories {
+		os.write_string(f, child.path)
 	}
-	ordered_remove(&file.parent.files, idx)
 }
 
-file_browser_delete_dir :: proc(dir: ^Browser_Directory) {
-	// We don't need to
-	if dir.parent == nil {
-		printfln("Cannot delete the root dir: {}", dir.name)
-		return
-	}
-	delete(dir.files)
-	for &subdir in dir.sub_directories {
-		file_browser_delete_dir(&subdir)
-	}
-	idx, found := index_of(dir.parent.sub_directories[:], dir)
-	if !found {
-		panicf("could not find dir: {} in it's parent", dir.name)
-	}
-	ordered_remove(&dir.parent.sub_directories, idx)
-}
+// Assumed to run only at program startup.
+file_browser_read_from_disk :: proc() {
+	arena, scratch := arena_allocator_new()
+	defer arena_allocator_destroy(arena, scratch)
 
-@(private = "file")
-find_directory_by_id :: proc(node: ^Browser_Directory, id: int) -> (dir: ^Browser_Directory, found_it: bool) {
-	if node.id == id do return node, true
-	for &subdir in node.sub_directories {
-		if dir, found := find_directory_by_id(&subdir, id); found {
-			return dir, true
-		}
-	}
-	return nil, false
-}
+	data, err := os.read_entire_file_from_path(BROWSER_SAVE_FILE, allocator = scratch)
+	assert(err == io.Error.None , tprintf("Failed to open {} for reading\nGot err: {}", BROWSER_SAVE_FILE, err))
 
-@(private = "file")
-find_file_by_id :: proc(root: ^Browser_Directory, id: int) -> (file: ^Browser_File, found_it: bool) {
-	search_dir :: proc(root: ^Browser_Directory, id: int) -> (^Browser_File, bool) {
-		for &file in root.files {
-			if file.id == id {
-				return &file, true
-			}
-		}
-		return nil, false
-	}
+	data_as_str, err2 := str.clone_from_bytes(data, scratch)
+	assert(err2 == .None)
 
-	if file, found := search_dir(root, id); found {
-		return file, true
-	}
+	lines := str.split_lines(data_as_str, scratch)
 
-	for &subdir in root.sub_directories {
-		if file, found := search_dir(&subdir, id); found {
-			return file, true
-		}
-	}
-
-	return nil, false
+	add_dirs_to_browser(app.browser_root_dir, lines)
 }

@@ -60,9 +60,35 @@ topbar :: proc() {
 			{gap_horizontal = 3},
 			"top-bar-middle-container",
 		)
-		label := app.audio.playing ? "Stop" : "Play"
-		if text_button(label, btn_config, "top-bar-toggle-playing").clicked {
+		if text_button("Reset", btn_config).clicked {
+			curr_engine_time := ma.engine_get_time_in_pcm_frames(app.audio.engine)	
+			// Basically beat 0 is always in the past, so when resetting the play head to the first beat,
+			// we need to add a small delay.
+			buffer_time := u64(SAMPLE_RATE * 20 / 1000)
+			sync.atomic_store(
+				&app.audio.last_playback_start_time_pcm,
+				curr_engine_time + buffer_time
+			)
+			sync.atomic_store(&app.audio.paused_at_step, -1)
+		}
+
+		label := app.audio.playing ? "Pause" : "Play"
+		if text_button(label, btn_config).clicked {
 			app.audio.playing = !app.audio.playing
+			if !app.audio.playing { 
+				sync.atomic_store(&app.audio.paused_at_step, audio_get_current_step())
+				audio_stop_all()
+			} else {
+				last_paused_step := sync.atomic_load(&app.audio.paused_at_step)
+				// Adjust start time so playhead continues from paused position
+				samples_per_step := u64(SAMPLE_RATE * 60 / f64(app.audio.bpm) / 8)
+				engine_now := ma.engine_get_time_in_pcm_frames(app.audio.engine)
+				sync.atomic_store(
+					&app.audio.last_playback_start_time_pcm, 
+					engine_now - u64(last_paused_step) * samples_per_step
+				)
+				sync.atomic_store(&app.audio.paused_at_step, -1)
+			}
 		}
 	}
 
@@ -160,19 +186,6 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 				{direction = .Horizontal, gap_horizontal = 0},
 				box_flags = {.Drag_Drop_Sink},
 			)
-			// text(
-			// 	tprintf("{}", i),
-			// 	{
-			// 		color = .Error_Container,
-			// 		semantic_size = {{.Percent, 0.12}, {.Fit_Text_And_Grow, 1}},
-			// 		text_justify = {.Center, .Center},
-			// 		margin = {top = 6, left = 2, right = 4},
-			// 		// padding = {right = 5,}
-			// 	},
-			// 	{
-
-			// 	}
-			// )
 
 			pitch_box := edit_text_box(
 				substep_config,
@@ -253,23 +266,13 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 				send1_box.box.selected  = false
 				send2_box.box.selected  = false
 			}
-
+			curr_step := audio_get_current_step()
 			// If this is the current step, indicate so.
-			if app.audio.tracks[track_num].curr_step == u32(i) {
-			 	box_from_cache(
-					{.Draw, .Draw_Border},
-					{
-						floating_anchor_box = pitch_box.box,
-						floating_type = .Relative_Other,
-						floating_offset = {0, 0},
-						semantic_size = {{.Fixed, f32(pitch_box.box.last_width * 4)}, {.Fixed, f32(pitch_box.box.last_height)}},
-						color = .Warning_Container,
-						border = 2,
-					},
-					// "",
-					// id("track-{}-curr-step-indicator", track_num),
-				)
-				// printfln("created curr_step indicator: {}", curr_step_inidcator)
+			if curr_step == i {
+				pitch_box.box.config.color  = .Primary_Container
+				volume_box.box.config.color = .Primary_Container
+				send1_box.box.config.color  = .Primary_Container
+				send2_box.box.config.color  = .Primary_Container
 			}
 		}
 	}
@@ -294,7 +297,6 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 				println("Cant drop this onto a track")
 		}
 		track_set_sound(u32(track_num), cpath)
-		// printfln("set track {} to have sound {}", track_num, cpath)
 	}
 
 	sample_label: {
