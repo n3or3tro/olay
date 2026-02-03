@@ -341,10 +341,10 @@ edit_text_box :: proc(
 				break
 			case .UP:
 				edit.move_to(editor, .End)
-				return up_one_semitone(str.to_string(editor.builder^))
+				return pitch_up_one_semitone(str.to_string(editor.builder^))
 			case .DOWN:
 				edit.move_to(editor, .End)
-				return down_one_semitone(str.to_string(editor.builder^))
+				return pitch_down_one_semitone(str.to_string(editor.builder^))
 			case:
 				// Pitch can be at most 3 chars.
 				if str.builder_len(editor.builder^) < 3 {
@@ -422,7 +422,7 @@ edit_text_box :: proc(
 			// Only update audio state if the string the user entered, actually represents a valid pitch.
 			// If not, the last valid pitch is still the current pitch, regardless if the textbox says
 			// something like: Y#4
-			if valid_pitch(new_data) {
+			if pitch_valid(new_data) {
 				track_num := text_container.metadata.(Metadata_Track_Step).track
 				step_num := text_container.metadata.(Metadata_Track_Step).step
 				old_pitch := app.audio.tracks[track_num].pitches[step_num]

@@ -301,16 +301,20 @@ track_add_new :: proc(audio_state: ^Audio_State) {
 
 track_set_sound :: proc(which: u32, path: cstring) {
 	track := &app.audio.tracks[which]
-	had_sound := false
+	first_use := true
 	if track.sound != nil {
+		ma.sound_stop_with_fade_in_milliseconds(track.sound, 400)
 		ma.sound_uninit(track.sound)
 		delete(track.sound_path)
-
 		// Deleting might be inefficient, could maybe use clear() or something. 
 		// But this happens quite infrequently, so should be okay.
 		delete(track.pcm_data.left_channel)
 		delete(track.pcm_data.right_channel)
-		had_sound = true
+		free(track.sound)
+		track.spectrum_analyzer.ring_buffer = {}
+		track.spectrum_analyzer.write_pos = 0
+		track.eq.frequency_spectrum_bins = {}
+		first_use = false
 	}
 
 	new_sound := new(ma.sound)
@@ -333,73 +337,72 @@ track_set_sound :: proc(which: u32, path: cstring) {
 	track.pcm_data.left_channel  = left
 	track.pcm_data.right_channel = right
 
-	/* 
-	When a new sound is loaded, we need to wire it up to the EQ of that track, this function is a natural place to do that.
-	EQ has to be initialized and valid at this point, otherwise we'll crash!!
-	*/
+	// When a track is loaded with it's first sound, we need to wire up the EQ filters and spectrum analyzer
+	// nodes in the graph.
+	if first_use {
+		eq_bands := track.eq.bands
 
-	eq_bands := track.eq.bands
+		// Wire sound -> first eq band 
+		if len(eq_bands) < 1 do return 
+		res = ma.node_attach_output_bus(cast(^ma.node)(track.sound), 0, cast(^ma.node)(eq_bands[0].biquad_node), 0) 
+		assert(res == .SUCCESS, tprintf("{}", res))
 
-	// Wire sound -> first eq band 
-	if len(eq_bands) < 1 do return 
-	res = ma.node_attach_output_bus(cast(^ma.node)(track.sound), 0, cast(^ma.node)(eq_bands[0].biquad_node), 0) 
-	assert(res == .SUCCESS, tprintf("{}", res))
+		// Wire the rest of the bands to each other.
+		for i in 1..<len(eq_bands) {
+			res = ma.node_attach_output_bus(
+				cast(^ma.node)(eq_bands[i-1].biquad_node), 
+				0, 
+				cast(^ma.node)(eq_bands[i].biquad_node), 
+				0
+			)
+			assert(res == .SUCCESS, tprintf("{}", res))
+		}
 
-	// Wire the rest of the bands to each other.
-	for i in 1..<len(eq_bands) {
+		// Wire up spectrum analyzer to last band of EQ and out to output.
+		if !spectrum_analyzer_vtable_initialized {
+			spectrum_analyzer_vtable.inputBusCount = 1
+			spectrum_analyzer_vtable.outputBusCount = 1
+			spectrum_analyzer_vtable.onProcess = spectrum_analyzer_node_process
+			spectrum_analyzer_vtable_initialized = true
+		}
+
+		config := ma.node_config_init()
+		config.vtable = &spectrum_analyzer_vtable
+		config.inputBusCount = 1
+		config.outputBusCount = 1
+		config.pInputChannels = &spectrum_analyzer_input_channels[0]
+		config.pOutputChannels = &spectrum_analyzer_output_channels[0]
+
+		// config := ma.node_config_init()
+		// config.vtable = new(ma.node_vtable)
+		// config.vtable.inputBusCount = 1
+		// config.vtable.outputBusCount = 1
+		// config.vtable.onProcess = spectrum_analyzer_node_process
+		// config.inputBusCount = 1
+		// config.outputBusCount = 1
+
+		// input_channels: [1]u32 = {2}
+		// output_channels: [1]u32 = {2}
+		// config.pInputChannels = &input_channels[0]
+		// config.pOutputChannels = &output_channels[0]
+
+		res = ma.node_init(ma.engine_get_node_graph(app.audio.engine), &config, nil, cast(^ma.node)&track.spectrum_analyzer)
+		assert(res == .SUCCESS, tprintf("{}", res))
+
+		last_eq_band := &eq_bands[len(track.eq.bands)-1]
+
+		res = ma.node_attach_output_bus(cast(^ma.node)last_eq_band.biquad_node, 0, cast(^ma.node)&track.spectrum_analyzer, 0)
+		assert(res == .SUCCESS, tprintf("{}", res))
+
+		// Wire spectrum analyzer node to -> output
 		res = ma.node_attach_output_bus(
-			cast(^ma.node)(eq_bands[i-1].biquad_node), 
+			cast(^ma.node)&track.spectrum_analyzer, 
 			0, 
-			cast(^ma.node)(eq_bands[i].biquad_node), 
+			ma.engine_get_endpoint(app.audio.engine), 
 			0
 		)
 		assert(res == .SUCCESS, tprintf("{}", res))
 	}
-
-	// Wire up spectrum analyzer to last band of EQ and out to output.
-	if !spectrum_analyzer_vtable_initialized {
-		spectrum_analyzer_vtable.inputBusCount = 1
-		spectrum_analyzer_vtable.outputBusCount = 1
-		spectrum_analyzer_vtable.onProcess = spectrum_analyzer_node_process
-		spectrum_analyzer_vtable_initialized = true
-	}
-
-	config := ma.node_config_init()
-	config.vtable = &spectrum_analyzer_vtable
-	config.inputBusCount = 1
-	config.outputBusCount = 1
-	config.pInputChannels = &spectrum_analyzer_input_channels[0]
-	config.pOutputChannels = &spectrum_analyzer_output_channels[0]
-
-	// config := ma.node_config_init()
-	// config.vtable = new(ma.node_vtable)
-	// config.vtable.inputBusCount = 1
-	// config.vtable.outputBusCount = 1
-	// config.vtable.onProcess = spectrum_analyzer_node_process
-	// config.inputBusCount = 1
-	// config.outputBusCount = 1
-
-	// input_channels: [1]u32 = {2}
-	// output_channels: [1]u32 = {2}
-	// config.pInputChannels = &input_channels[0]
-	// config.pOutputChannels = &output_channels[0]
-
-	res = ma.node_init(ma.engine_get_node_graph(app.audio.engine), &config, nil, cast(^ma.node)&track.spectrum_analyzer)
-	assert(res == .SUCCESS, tprintf("{}", res))
-
-	last_eq_band := &eq_bands[len(track.eq.bands)-1]
-
-	res = ma.node_attach_output_bus(cast(^ma.node)last_eq_band.biquad_node, 0, cast(^ma.node)&track.spectrum_analyzer, 0)
-	assert(res == .SUCCESS, tprintf("{}", res))
-
-	// Wire spectrum analyzer node to -> output
-	res = ma.node_attach_output_bus(
-		cast(^ma.node)&track.spectrum_analyzer, 
-		0, 
-		ma.engine_get_endpoint(app.audio.engine), 
-		0
-	)
-	assert(res == .SUCCESS, tprintf("{}", res))
 }
 
 /*
@@ -532,7 +535,7 @@ pitch_difference :: proc(from: string, to: string) -> int {
 	return -1 * int(total_diff)
 }
 
-up_one_semitone :: proc(curr_note: string) -> string {
+pitch_up_one_semitone :: proc(curr_note: string) -> string {
 	if len(curr_note) < 2 {
 		return curr_note
 	}
@@ -561,7 +564,7 @@ up_one_semitone :: proc(curr_note: string) -> string {
 	return new_value
 }
 
-down_one_semitone :: proc(curr_note: string) -> string {
+pitch_down_one_semitone :: proc(curr_note: string) -> string {
 	curr_value := str.to_upper(curr_note, context.temp_allocator)
 	is_sharp := str.contains(curr_value, "#")
 	octave := is_sharp ? strconv.atoi(curr_value[2:]) : strconv.atoi(curr_value[1:])
@@ -588,7 +591,7 @@ down_one_semitone :: proc(curr_note: string) -> string {
 	return new_value
 }
 
-valid_pitch :: proc(s: string) -> bool { 
+pitch_valid :: proc(s: string) -> bool { 
 	s_len := len(s)
 
 	if s_len != 2 && s_len != 3 {
@@ -634,7 +637,7 @@ get_note_from_num :: proc(pitch: int) -> string{
 		// We're up from C3
 		curr_note := "C3"
 		for i in 0 ..< pitch { 
-			curr_note = up_one_semitone(curr_note)
+			curr_note = pitch_up_one_semitone(curr_note)
 		}
 		return curr_note
 	}
@@ -642,7 +645,7 @@ get_note_from_num :: proc(pitch: int) -> string{
 		// We're down from C3
 		curr_note := "C3"
 		for i in 0 ..< -1*pitch { 
-			curr_note = down_one_semitone(curr_note)
+			curr_note = pitch_down_one_semitone(curr_note)
 		}
 		return curr_note
 	}
@@ -685,10 +688,6 @@ eq_reinit_band :: proc(band: EQ_Band_State) {
 
 // ========================================= END EQ STUFF ==========================================
 
-delay_enable :: proc() {
-}
-
-
 /*  
 	Any data that is written to from outside this thread needs to be accessed atomically 
 	inside this thread. Might need to use locks, unclear right now.
@@ -727,22 +726,22 @@ audio_thread_timing_proc :: proc() {
 					step_in_pattern := u32(step) % track.n_steps
 					
 					if track.armed && track.selected_steps[step_in_pattern] {
-						schedule_track_step(u32(track_num), step_in_pattern, step_start_time_pcm)
+						track_step_schedule(u32(track_num), step_in_pattern, step_start_time_pcm)
 					}
 				}
 				sync.atomic_store(&app.audio.last_scheduled_step, step)
 			}
 		} 
 		// Sleep to conserve energy.
-		time.accurate_sleep(time.Millisecond * 10)
+		time.accurate_sleep(time.Millisecond * AUDIO_SCHEDULING_HORIZON_MS)
 	}
 }
 
-schedule_track_step :: proc(which_track: u32, step_num: u32, start_time_pcm: u64) {
+track_step_schedule :: proc(which_track: u32, step_num: u32, start_time_pcm: u64) {
     track := &app.audio.tracks[which_track]
     sound := track.sound
     if sound == nil do return
-    
+
     pitch 		 := f32(track.pitches[step_num])
     sound_volume := f32(track.volumes[step_num])
     
@@ -765,5 +764,5 @@ audio_get_current_step :: proc() -> int {
 	// Assumes 32 steps per beat.
     samples_per_step := u64(SAMPLE_RATE * 60 / f64(app.audio.bpm) / 8)
     elapsed 		 := curr_time_pcm - last_start_time
-    return int(elapsed / samples_per_step)
+    return int(elapsed / samples_per_step) % N_TRACK_STEPS
 }
