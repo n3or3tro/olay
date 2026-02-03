@@ -867,6 +867,7 @@ sampler :: proc(track_num: int, id_string: string) {
 			line_thickness = 2,
 			color = .Warning, 
 		}
+
 		// Render slices:
 		for i in 0..< sampler.n_slices {
 			config := slice_config

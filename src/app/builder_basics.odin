@@ -387,7 +387,7 @@ edit_text_box :: proc(
 		text_container.data = str.clone(get_note_from_num(app.audio.tracks[track_num].pitches[step_num]))
 	} else {
 		// Since we ALWAYS delete the previous box.data on a keystroke, a new text box needs an empty "" allocated.
-		if text_container.fresh { 
+		if text_container.fresh || text_container.data == nil { 
 			text_container.data = str.clone("")
 		}
 	}

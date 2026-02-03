@@ -547,9 +547,9 @@ reset_ui_state :: proc() {
 		box := ui_state.box_cache[key]
 
 		// Delete editor state related to box if it exists
-		// if .Edit_Text in box.flags {
-		// 	delete_key(&ui_state.text_editors_state, box.id)
-		// }
+		if .Edit_Text in box.flags {
+			delete_key(&ui_state.text_editors_state, box.id)
+		}
 
 		// delete(box.children) <-- was causing weird crashes, thought I'd leak memory without this, but seems to be fine.
 		delete_key(&ui_state.box_cache, key)

@@ -134,7 +134,7 @@ file_browser_menu :: proc(allocator: mem.Allocator) {
 			},
 			.Generic_One_Line,
 		)
-		search_term = search_bar.box.data.(string)
+		search_term = search_bar.box.data != nil ? search_bar.box.data.(string) : ""
 		hori: {
 			child_container(
 				{semantic_size = Size_Fit_Children},

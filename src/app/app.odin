@@ -118,9 +118,9 @@ app_update :: proc() -> (all_good: bool) {
 	// 	time.accurate_sleep(time_to_wait)
 	// }
 
-	// end := time.now()._nsec
-	// total_frame_time_ns := f64(end - start)
-	// printfln("app_update() took {} ms", total_frame_time_ns / 1_000_000)
+	end := time.now()._nsec
+	total_frame_time_ns := f64(end - start)
+	printfln("app_update() took {} ms", total_frame_time_ns / 1_000_000)
 	return true
 }
 

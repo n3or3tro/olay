@@ -409,7 +409,6 @@ add_waveform_rendering_data :: proc(
 	if sound == nil {
 		return
 	}
-	printfln("inside waveform rendering function, sampler.zoom_point is: {}", track.sampler.zoom_point)
 	// render_width := rect_width(rect)
 	render_width := f32(box.last_width)
 	// render_height := rect_height(rect)
