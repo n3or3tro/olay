@@ -1,13 +1,15 @@
 package app
 import "base:intrinsics"
 import "core:math"
-import alg "core:math/linalg"
 import "core:sort"
 import str "core:strings"
 import "core:time"
 import "core:unicode/utf8"
 import gl "vendor:OpenGL"
 import ma "vendor:miniaudio"
+import "core:simd"
+import "core:math/rand"
+
 
 PI :: math.PI
 
@@ -409,9 +411,7 @@ add_waveform_rendering_data :: proc(
 	if sound == nil {
 		return
 	}
-	// render_width := rect_width(rect)
 	render_width := f32(box.last_width)
-	// render_height := rect_height(rect)
 	render_height := f32(box.last_height)
 	frames_read := u64(len(pcm_frames))
 	wav_rendering_data := make([dynamic]Rect_Render_Data, u32(render_width), allocator = context.temp_allocator)
@@ -434,23 +434,48 @@ add_waveform_rendering_data :: proc(
 		panic("failed to get cursor position of sound")
 	}
 
-	played_color := ui_state.dark_theme[Semantic_Color_Token.Secondary]
-	unplayed_color := ui_state.dark_theme[Semantic_Color_Token.Secondary]
+	// time_spent_calcing 				: [dynamic]f64
+	// time_spent_creating_render_data : [dynamic]f64
+
+	played_color   := ui_state.dark_theme[Semantic_Color_Token.Secondary]
+	unplayed_color := ui_state.dark_theme[Semantic_Color_Token.Primary]
 	for x in 0 ..< render_width {
+
+		calc_start := f64(time.now()._nsec) / 1_000_000
+
 		ratio_of_waveform := f64(x) / f64(render_width)
 		start := start_sample + u64((f64(x) / f64(render_width)) * (f64(end_sample - start_sample)))
 		end := start_sample + u64((f64(x + 1) / f64(render_width)) * (f64(end_sample - start_sample)))
 		if end >= frames_read {end = frames_read}
-		min: f32 = 1
-		max: f32 = -1
-		for i in start ..< end {
-			if pcm_frames[i] < min {min = pcm_frames[i]}
-			if pcm_frames[i] > max {max = pcm_frames[i]}
+
+		// Process 8 f32s at at time.
+		SIMD_WIDTH :: 8
+		mins:  #simd[SIMD_WIDTH]f32 = {1, 1, 1, 1, 1, 1, 1, 1}
+		maxs:  #simd[SIMD_WIDTH]f32 = {-1, -1, -1, -1, -1, -1, -1, -1}
+		for i := start; i < end - SIMD_WIDTH - 1; i += SIMD_WIDTH {
+			chunk := simd.from_slice(simd.f32x8, pcm_frames[i:i+SIMD_WIDTH])
+			mins  = simd.min(mins, chunk)
+			maxs  = simd.max(maxs, chunk)
 		}
+
+		min := simd.reduce_min(mins)
+		max := simd.reduce_max(maxs)
+
+		remaining_floats := (end - start) % SIMD_WIDTH
+		for i := end - remaining_floats; i < end; i += 1 {
+			if pcm_frames[i] < min { min = pcm_frames[i] }
+			if pcm_frames[i] > max { max = pcm_frames[i] }
+		}
+
 		norm_x: f32 = f32(x) / f32(render_width)
 		x_pos := f32(box.top_left.x) + norm_x * render_width
 		y_top := f32(box.top_left.y) + (0.5 - max * 0.5) * render_height
 		y_bot := f32(box.top_left.y) + (0.5 - min * 0.5) * render_height
+
+		// calc_end := f64(time.now()._nsec) / 1_000_000
+		// append(&time_spent_calcing, calc_end - calc_start)
+
+		render_data_start := f64(time.now()._nsec) / 1_000_000
 		new_data := Rect_Render_Data {
 			border_thickness = 300,
 			corner_radius    = 0,
@@ -470,10 +495,14 @@ add_waveform_rendering_data :: proc(
 			new_data.bl_color = unplayed_color
 			new_data.br_color = unplayed_color
 		}
-		new_data.clip_tl = {0, 0}
-		new_data.clip_br = {f32(app.wx), f32(app.wy)}
 		append(rendering_data, new_data)
+		// render_data_end := f64(time.now()._nsec) / 1_000_000
+		// append(&time_spent_creating_render_data, render_data_end - render_data_start)
 	}
+	// calcing   := math.sum(time_spent_calcing[:])
+	// rendering := math.sum(time_spent_creating_render_data[:])
+	// printfln("spent {}ms calcing", calcing)
+	// printfln("spent {}ms creating render data", rendering)
 }
 
 collect_render_data_from_ui_tree :: proc(render_data: ^[dynamic]Rect_Render_Data) {

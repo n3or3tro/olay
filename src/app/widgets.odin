@@ -9,6 +9,7 @@ so they'll need some re-thinking when I ship the UI stuff as a lib.
 
 package app
 import "core:math"
+import "core:time"
 import "core:math/cmplx"
 import "core:mem"
 import "core:sync"
@@ -400,7 +401,10 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 			track.sampler.show = false
 			break show_sampler
 		}
+		start := time.now()._nsec
 		sampler(track_num, id("track-{}-sampler", track_num))
+		end := time.now()._nsec
+		printfln("running code for sampler took: {} ms\n", f64(end - start) / 1_000_000)
 	}
 	return Track_Signals{step_signals, {}}
 }
@@ -656,7 +660,7 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 			}
 			// eq_state.frequency_spectrum_bins = output_bins
 
-			// Single quad which pixel shader will draw the frequency response inside of.
+			// S ingle quad which pixel shader will draw the frequency response inside of.
 			box_from_cache(
 					{.Draw},
 					{

@@ -692,6 +692,8 @@ eq_reinit_band :: proc(band: EQ_Band_State) {
 	Any data that is written to from outside this thread needs to be accessed atomically 
 	inside this thread. Might need to use locks, unclear right now.
 */
+
+// ========================================= PLAYBACK / TIMING STUFF ==============================================
 audio_thread_timing_proc :: proc() {
 	for {
 		if sync.atomic_load(&app.audio.exit_timing_thread) do return
@@ -766,3 +768,25 @@ audio_get_current_step :: proc() -> int {
     elapsed 		 := curr_time_pcm - last_start_time
     return int(elapsed / samples_per_step) % N_TRACK_STEPS
 }
+// ========================================= END PLAYBACK / TIMING STUFF ==============================================
+
+// MipMap_Entry :: struct {
+// 	min, max: f32
+// }
+
+// Waveform_MipMap :: struct { 
+// 	left:  [dynamic]MipMap_Entry,
+// 	right: [dynamic]MipMap_Entry,
+// }
+
+// waveform_create_mipmap :: proc(left, right: [dynamic]f32) -> Waveform_MipMap{
+// 	mipmap := new(Waveform_MipMap)
+// 	mipmap.left  = make([dynamic]MipMap_Entry, len(left))
+
+// 	// First level needs to calc'd manually.
+// 	for i:=0; i < len(left)-1; i+=2 {
+// 		lo := min(left[i], left[i + 1])
+// 		hi := max(left[i], left[i + 1])
+// 		append(&mipmap.left, MipMap_Entry{lo, hi})
+// 	}
+// }

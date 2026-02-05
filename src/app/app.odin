@@ -75,11 +75,15 @@ app_update :: proc() -> (all_good: bool) {
 		ui_state.context_menu.active = false
 	}
 
+	render_start := time.now()._nsec
 	rect_render_data := make([dynamic]Rect_Render_Data, context.temp_allocator)
 	collect_render_data_from_ui_tree(&rect_render_data)
 	if ui_state.frame_num > 0 {
 		render_ui(rect_render_data)
 	}
+	render_end := time.now()._nsec
+	printfln("rendering the UI took: {}", f64(render_end - render_start) / 1_000_000)
+
 	sdl.GL_SwapWindow(app.window)
 
 	// We do this here instead of inside 'handle_input' because handle_input runs at the start of the frame,
