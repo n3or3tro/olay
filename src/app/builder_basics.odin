@@ -487,7 +487,7 @@ vertical_slider :: proc(
 	track_signals := box_signals(track)
 	if track_signals.pressed { 
 		delta_from_top := f32(app.mouse.pos.y - track.top_left.y)
-		ratio_of_click := delta_from_top / f32(track.last_height)
+		ratio_of_click := delta_from_top / f32(track.prev_height)
 		slider_value^  =  (1 - ratio_of_click) * max_val
 	}
 
@@ -506,7 +506,7 @@ vertical_slider :: proc(
 	if grip_signals.box == ui_state.dragged_box { 
 		mouse_y := f32(app.mouse.pos.y)
         track_top := f32(track.top_left.y)  // This is also from last frame
-        track_height := f32(track.last_height)  // Use last_height instead of height
+        track_height := f32(track.prev_height)  // Use last_height instead of height
         normalized_pos := clamp((mouse_y - track_top) / track_height, 0, 1)
         slider_value^ = map_range(f32(0), f32(1), max_val, min_val, normalized_pos)
 	}
@@ -689,8 +689,8 @@ draggable_window :: proc(title: string, child_layout: Box_Child_Layout, id := ""
 	if ui_state.dragged_box == title_bar {
 		delta_x := f32(app.mouse.pos.x - app.mouse_last_frame.pos.x)
 		delta_y := f32(app.mouse.pos.y - app.mouse_last_frame.pos.y)
-		offset_from_root.x = clamp(offset_from_root.x + delta_x, 0, f32(app.wx - container.last_width))
-		offset_from_root.y = clamp(offset_from_root.y + delta_y, 0, f32(app.wy - container.last_height))
+		offset_from_root.x = clamp(offset_from_root.x + delta_x, 0, f32(app.wx - container.prev_width))
+		offset_from_root.y = clamp(offset_from_root.y + delta_y, 0, f32(app.wy - container.prev_height))
 	}
 	return box_signals(container), close_button.clicked
 }

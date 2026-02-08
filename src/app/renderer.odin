@@ -403,7 +403,7 @@ get_boxes_rendering_data :: proc(box: Box, allocator := context.allocator) -> Bo
 // Might need to cache calls to this function since it's pretty costly.
 add_waveform_rendering_data :: proc(
 	box: Box,
-	track: Track,
+	track: ^Track,
 	pcm_frames: [dynamic]f32,
 	rendering_data: ^[dynamic]Rect_Render_Data,
 ) {
@@ -411,11 +411,11 @@ add_waveform_rendering_data :: proc(
 	if sound == nil {
 		return
 	}
-	render_width := f32(box.last_width)
-	render_height := f32(box.last_height)
+	render_width := f32(box.prev_width)
+	render_height := f32(box.prev_height)
 	frames_read := u64(len(pcm_frames))
 	wav_rendering_data := make([dynamic]Rect_Render_Data, u32(render_width), allocator = context.temp_allocator)
-	sampler := track.sampler
+	sampler := &track.sampler
 	// might break with very large samples.
 	visible_width := f64(frames_read) * f64(1 - sampler.zoom_amount)
 
@@ -439,65 +439,105 @@ add_waveform_rendering_data :: proc(
 
 	played_color   := ui_state.dark_theme[Semantic_Color_Token.Secondary]
 	unplayed_color := ui_state.dark_theme[Semantic_Color_Token.Primary]
-	for x in 0 ..< render_width {
+	if sampler.zoom_amount == sampler.prev_zoom_amount && ui_state.frame_num > 2 &&
+	box.top_left == box.prev_top_left && box.bottom_right == box.prev_bottom_right {
+		for curr, i in sampler.cached_sample_heights {
+			calc_start := f64(time.now()._nsec) / 1_000_000
+			x_pos := curr.x_pos
+			y_top := curr.y_top
+			y_bot := curr.y_bottom
+			pixels_end_pcm_frame := curr.end_pcm_frame
 
-		calc_start := f64(time.now()._nsec) / 1_000_000
-
-		ratio_of_waveform := f64(x) / f64(render_width)
-		start := start_sample + u64((f64(x) / f64(render_width)) * (f64(end_sample - start_sample)))
-		end := start_sample + u64((f64(x + 1) / f64(render_width)) * (f64(end_sample - start_sample)))
-		if end >= frames_read {end = frames_read}
-
-		// Process 8 f32s at at time.
-		SIMD_WIDTH :: 8
-		mins:  #simd[SIMD_WIDTH]f32 = {1, 1, 1, 1, 1, 1, 1, 1}
-		maxs:  #simd[SIMD_WIDTH]f32 = {-1, -1, -1, -1, -1, -1, -1, -1}
-		for i := start; i < end - SIMD_WIDTH - 1; i += SIMD_WIDTH {
-			chunk := simd.from_slice(simd.f32x8, pcm_frames[i:i+SIMD_WIDTH])
-			mins  = simd.min(mins, chunk)
-			maxs  = simd.max(maxs, chunk)
+			new_data := Rect_Render_Data {
+				border_thickness = 300,
+				corner_radius    = 0,
+				edge_softness    = 0,
+				top_left         = Vec2_f32{x_pos - 0.5, y_top},
+				bottom_right     = Vec2_f32{x_pos + 0.5, y_bot},
+			}
+			if pixels_end_pcm_frame <= pos_in_track {
+				new_data.tl_color = played_color
+				new_data.tr_color = played_color
+				new_data.bl_color = played_color
+				new_data.br_color = played_color
+			} else {
+				new_data.tl_color = unplayed_color
+				new_data.tr_color = unplayed_color
+				new_data.bl_color = unplayed_color
+				new_data.br_color = unplayed_color
+			}
+			append(rendering_data, new_data)
 		}
+	// Cache invalidated - we need to re-calculate the data.
+	// i.e: zoom changed, pan position changed, zoom point changed, sampler window resized, etc.
+	} else {
+		println("re-calcing waveform rendering info :(")
+		clear(&sampler.cached_sample_heights)
+		for x in 0 ..< render_width {
+			calc_start := f64(time.now()._nsec) / 1_000_000
 
-		min := simd.reduce_min(mins)
-		max := simd.reduce_max(maxs)
+			ratio_of_waveform := f64(x) / f64(render_width)
+			start := start_sample + u64((f64(x) / f64(render_width)) * (f64(end_sample - start_sample)))
+			end := start_sample + u64((f64(x + 1) / f64(render_width)) * (f64(end_sample - start_sample)))
+			if end >= frames_read {end = frames_read}
 
-		remaining_floats := (end - start) % SIMD_WIDTH
-		for i := end - remaining_floats; i < end; i += 1 {
-			if pcm_frames[i] < min { min = pcm_frames[i] }
-			if pcm_frames[i] > max { max = pcm_frames[i] }
+			// Process 8 f32s at at time.
+			SIMD_WIDTH :: 8
+			mins:  #simd[SIMD_WIDTH]f32 = {1, 1, 1, 1, 1, 1, 1, 1}
+			maxs:  #simd[SIMD_WIDTH]f32 = {-1, -1, -1, -1, -1, -1, -1, -1}
+			for i := start; i < end - SIMD_WIDTH; i += SIMD_WIDTH {
+				chunk := simd.from_slice(simd.f32x8, pcm_frames[i:i+SIMD_WIDTH])
+				mins  = simd.min(mins, chunk)
+				maxs  = simd.max(maxs, chunk)
+			}
+
+			min := simd.reduce_min(mins)
+			max := simd.reduce_max(maxs)
+
+			remaining_floats := (end - start) % SIMD_WIDTH
+			for i := end - remaining_floats; i < end; i += 1 {
+				if pcm_frames[i] < min { min = pcm_frames[i] }
+				if pcm_frames[i] > max { max = pcm_frames[i] }
+			}
+
+			norm_x: f32 = f32(x) / f32(render_width)
+			x_pos := f32(box.top_left.x) + norm_x * render_width
+			y_top := f32(box.top_left.y) + (0.5 - max * 0.5) * render_height
+			y_bot := f32(box.top_left.y) + (0.5 - min * 0.5) * render_height
+			pixels_end_pcm_frame := end
+			append(&sampler.cached_sample_heights, Waveform_Sample_Render_Info {
+				x_pos, 
+				y_top, 
+				y_bot, 
+				pixels_end_pcm_frame,
+			})
+			// calc_end := f64(time.now()._nsec) / 1_000_000
+			// append(&time_spent_calcing, calc_end - calc_start)
+
+			render_data_start := f64(time.now()._nsec) / 1_000_000
+			new_data := Rect_Render_Data {
+				border_thickness = 300,
+				corner_radius    = 0,
+				edge_softness    = 0,
+				top_left         = Vec2_f32{x_pos - 0.5, y_top},
+				bottom_right     = Vec2_f32{x_pos + 0.5, y_bot},
+				// ui_element_type  = 2.0,
+			}
+			if end <= pos_in_track {
+				new_data.tl_color = played_color
+				new_data.tr_color = played_color
+				new_data.bl_color = played_color
+				new_data.br_color = played_color
+			} else {
+				new_data.tl_color = unplayed_color
+				new_data.tr_color = unplayed_color
+				new_data.bl_color = unplayed_color
+				new_data.br_color = unplayed_color
+			}
+			append(rendering_data, new_data)
+			// render_data_end := f64(time.now()._nsec) / 1_000_000
+			// append(&time_spent_creating_render_data, render_data_end - render_data_start)
 		}
-
-		norm_x: f32 = f32(x) / f32(render_width)
-		x_pos := f32(box.top_left.x) + norm_x * render_width
-		y_top := f32(box.top_left.y) + (0.5 - max * 0.5) * render_height
-		y_bot := f32(box.top_left.y) + (0.5 - min * 0.5) * render_height
-
-		// calc_end := f64(time.now()._nsec) / 1_000_000
-		// append(&time_spent_calcing, calc_end - calc_start)
-
-		render_data_start := f64(time.now()._nsec) / 1_000_000
-		new_data := Rect_Render_Data {
-			border_thickness = 300,
-			corner_radius    = 0,
-			edge_softness    = 0,
-			top_left         = Vec2_f32{x_pos - 0.5, y_top},
-			bottom_right     = Vec2_f32{x_pos + 0.5, y_bot},
-			// ui_element_type  = 2.0,
-		}
-		if end <= pos_in_track {
-			new_data.tl_color = played_color
-			new_data.tr_color = played_color
-			new_data.bl_color = played_color
-			new_data.br_color = played_color
-		} else {
-			new_data.tl_color = unplayed_color
-			new_data.tr_color = unplayed_color
-			new_data.bl_color = unplayed_color
-			new_data.br_color = unplayed_color
-		}
-		append(rendering_data, new_data)
-		// render_data_end := f64(time.now()._nsec) / 1_000_000
-		// append(&time_spent_creating_render_data, render_data_end - render_data_start)
 	}
 	// calcing   := math.sum(time_spent_calcing[:])
 	// rendering := math.sum(time_spent_creating_render_data[:])
@@ -568,7 +608,7 @@ collect_render_data_from_ui_tree :: proc(render_data: ^[dynamic]Rect_Render_Data
 		}
 
 		if metadata, ok := box.metadata.(Metadata_Sampler); ok {
-			track := app.audio.tracks[metadata.track_num]
+			track := &app.audio.tracks[metadata.track_num]
 			add_waveform_rendering_data(box^, track, track.pcm_data.left_channel, render_data)
 		}
 		if overlay, ok := boxes_render_data.overlay.(Rect_Render_Data); ok {

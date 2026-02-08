@@ -401,10 +401,7 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 			track.sampler.show = false
 			break show_sampler
 		}
-		start := time.now()._nsec
 		sampler(track_num, id("track-{}-sampler", track_num))
-		end := time.now()._nsec
-		printfln("running code for sampler took: {} ms\n", f64(end - start) / 1_000_000)
 	}
 	return Track_Signals{step_signals, {}}
 }
@@ -550,13 +547,13 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 				if handle_signals.box == ui_state.dragged_box { 
 					mouse_y := f64(app.mouse.pos.y)
 					parent_top := f64(handle.parent.top_left.y)  
-					parent_height := f64(handle.parent.last_height)
+					parent_height := f64(handle.parent.prev_height)
 					normalized_pos := clamp((mouse_y - parent_top) / parent_height, 0.0, 1.0)
 					band.gain_db = map_range(0.0, 1.0, EQ_MAX_GAIN, -EQ_MAX_GAIN, normalized_pos)
 
 					mouse_x := f64(app.mouse.pos.x)
 					parent_left := f64(handle.parent.top_left.x)
-					parent_width := f64(handle.parent.last_width)  
+					parent_width := f64(handle.parent.prev_width)  
 					normalized_pos = clamp((mouse_x - parent_left) / parent_width, 0.0, 1.0)
 					// Convert position back to freq (exponential):
 					band.freq_hz = 20.0 * math.pow(20_000.0 / 20.0, f64(normalized_pos))
@@ -719,7 +716,7 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 sampler :: proc(track_num: int, id_string: string) {
 	track   := &app.audio.tracks[track_num]
 	sampler := &track.sampler
-
+	sampler.prev_zoom_amount = sampler.zoom_amount
 	sampler_container := child_container(
 		{
 			semantic_size = {{.Fixed, 850}, {.Fixed, 400}},
@@ -795,7 +792,7 @@ sampler :: proc(track_num: int, id_string: string) {
 		if waveform_parent.double_clicked {
 			slice_x_pos := 
 				f32(app.mouse.pos.x - waveform_parent.box.top_left.x) / 
-				f32(waveform_parent.box.last_width)
+				f32(waveform_parent.box.prev_width)
 			new_slice := Sampler_Slice {
 				how_far = slice_x_pos,
 				which = sampler.n_slices
@@ -875,7 +872,7 @@ sampler :: proc(track_num: int, id_string: string) {
 		// Render slices:
 		for i in 0..< sampler.n_slices {
 			config := slice_config
-			slice_x_pos := sampler.slices[i].how_far * f32(waveform_parent.box.last_width) + f32(waveform_parent.box.top_left.x)
+			slice_x_pos := sampler.slices[i].how_far * f32(waveform_parent.box.prev_width) + f32(waveform_parent.box.top_left.x)
 			config.line_start = {slice_x_pos, f32(waveform_parent.box.top_left.y)}
 			config.line_end = {slice_x_pos, f32(waveform_parent.box.bottom_right.y)}
 			line(
@@ -895,7 +892,7 @@ sampler :: proc(track_num: int, id_string: string) {
 			)
 			if drag_handle.box == ui_state.dragged_box {
 				drag_delta := get_drag_delta()
-				change_as_prct := f32(drag_delta.x) / f32(waveform_parent.box.last_width)
+				change_as_prct := f32(drag_delta.x) / f32(waveform_parent.box.prev_width)
 				sampler.slices[i].how_far += change_as_prct * 1.001
 			}
 		}

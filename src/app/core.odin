@@ -262,10 +262,15 @@ Box :: struct {
 	// We need to keep track of these for calculations we perform when building the tree,
 	// for example calculating drag deltas (dragging volume handle up a track, track height)
 	// needs to be known.
-	last_height:  int,
-	last_width:   int,
+	prev_height:  int,
+	prev_width:   int,
 	top_left:     Vec2_int,
 	bottom_right: Vec2_int,
+	// These are basically only used to check if we've invalidated our assumptions for cached 
+	// waveform rendering data, might be better off just having an explicit flag for just that
+	// use case.
+	prev_top_left:     Vec2_int,
+	prev_bottom_right: Vec2_int,
 	z_index:      int,
 	// next:         ^Box, // Sibling, aka, on the same level of the UI tree. Have the same parent.
 	keep:         bool, // Indicates whether we keep this box around for th next frame.
@@ -413,11 +418,11 @@ box_from_cache :: proc(flags: Box_Flags, config: Box_Config, label := "", id := 
 		y_size_type := box.config.semantic_size.y.type 
 		// Not sure if you even need to skip .Fixed sized boxes here... Need to double check.
 		// if x_size_type != .Fixed {
-		box.last_width = box.width
+		box.prev_width = box.width
 		box.width = 0
 		// }
 		// if y_size_type != .Fixed {
-		box.last_height = box.height
+		box.prev_height = box.height
 		box.height = 0
 		// }
 
@@ -1331,7 +1336,6 @@ I.e. we place the x co-ords of some root's children and then we place their y co
 We continue like this from the root down to all leaves.
 */
 position_boxes :: proc(root: ^Box) {
-
 	// 100% offset means the far edge of the box is inline with the far edge of the inside
 	// of the parents space. 
 	// All relative values are [0..=1], 0 = 0%, 0.5 = 50%, 1 = 100%.
@@ -1350,7 +1354,6 @@ position_boxes :: proc(root: ^Box) {
 
 			offset_x := int(width_diff * child.config.floating_offset.x)
 			offset_y := int(height_diff * child.config.floating_offset.y)
-
 
 			child.top_left = {parent.top_left.x + offset_x, parent.top_left.y + offset_y}
 			child.bottom_right = {child.top_left.x + child.width, child.top_left.y + child.height}
@@ -1615,7 +1618,13 @@ position_boxes :: proc(root: ^Box) {
 
 	// Some of the more complicated positioning aren't implemented fully, but start, center and end are.
 	position_children :: proc(root: ^Box) {
-		// printfln("setting position for {}'s children", root.id_string)
+
+		// prev_* is only check in waveform rendering, kinda wasteful.
+		for child in root.children {
+			child.prev_bottom_right = child.bottom_right
+			child.prev_top_left     = child.top_left
+		}
+
 		if root.id == "root@root" {
 			root.top_left = {0, 0}
 			root.bottom_right = {app.wx, app.wy}
@@ -1687,6 +1696,7 @@ position_boxes :: proc(root: ^Box) {
 			position_children(child)
 		}
 	}
+
 	position_children(root)
 }
 /* ============================ END LAYOUT CODE ============================== */

@@ -37,6 +37,14 @@ Sampler_Slice :: struct {
 	which:   u32,
 }
 
+Waveform_Sample_Render_Info :: struct { 
+	x_pos, y_top, y_bottom: f32,
+	// This is basically the last pcm_frame in the pixel chunk. Let's us know
+	// if this pixel should be colored or not depending on where the playhead
+	// of the sample is.
+	end_pcm_frame: u64,
+}
+
 Sampler_State :: struct {
 	n_slices:         u32,
 	mode:             enum {
@@ -48,6 +56,8 @@ Sampler_State :: struct {
 	slices:           [128]Sampler_Slice,
 	// How zoomed in the view of the wav data is.
 	zoom_amount:      f32,
+	// Used as a cache key
+	prev_zoom_amount: f32,
 	// Where the zoom occurs 'around'. This changes as you move the mouse.
 	// Doesn't change when you're zooming as it's relevant to the rect, not the wave.
 	zoom_point:       f32,
@@ -57,7 +67,9 @@ Sampler_State :: struct {
 	// so trying to implement 'sticky stateful' dragging.
 	dragged_slice:    u32,
 	// Whether to hide or show the sampler in the UI.
-	show: 			  bool
+	show: 			  bool,
+	// (x, y) of previously calculated waveform samples.
+	cached_sample_heights: [dynamic]Waveform_Sample_Render_Info // {x_pos, y_top, y_bottom}
 }
 
 EQ_Band_Type :: enum { 
