@@ -134,7 +134,18 @@ file_browser_menu :: proc(allocator: mem.Allocator) {
 			},
 			.Generic_One_Line,
 		)
-		search_term = search_bar.box.data != nil ? search_bar.box.data.(string) : ""
+		// Quick hack coz I fucked up setting search_bar.box.data somewhere
+		// along the line. This really shoudl just be a one liner where we are
+		// certain that box.data always holds a valid string.
+		if search_bar.box.data == nil {
+			search_term = ""
+		} else {
+			if val, ok := search_bar.box.data.(string); !ok {
+				search_term = val
+			} else {
+				search_term = ""	
+			}
+		}
 		hori: {
 			child_container(
 				{semantic_size = Size_Fit_Children},

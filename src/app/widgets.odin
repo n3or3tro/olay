@@ -175,7 +175,7 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 		// Draw step nums just once.
 
 		substep_config: Box_Config = {
-			semantic_size    = {{.Percent, 0.22}, {.Percent, 1}},
+			semantic_size    = {{.Percent, 0.25}, {.Percent, 1}},
 			color 			 = .Primary,
 			border 			 = 1,
 		}
@@ -747,28 +747,32 @@ sampler :: proc(track_num: int, id_string: string) {
 		text_button(
 			"Control 1",
 			{
-				semantic_size = Size_Fit_Text_And_Grow
+				semantic_size = Size_Fit_Text_And_Grow,
+				color = .Secondary_Container
 			},
 			id("sampler-{}-controls-button-1", track_num),
 		)
 		text_button(
 			"Control 2",
 			{
-				semantic_size = Size_Fit_Text_And_Grow
+				semantic_size = Size_Fit_Text_And_Grow,
+				color = .Secondary_Container
 			},
 			id("sampler-{}-controls-button-2", track_num),
 		)
 		text_button(
 			"Control 3",
 			{
-				semantic_size = Size_Fit_Text_And_Grow
+				semantic_size = Size_Fit_Text_And_Grow,
+				color = .Secondary_Container
 			},
 			id("sampler-{}-controls-button-3", track_num),
 		)
 		text_button(
 			"Control 4",
 			{
-				semantic_size = Size_Fit_Text_And_Grow
+				semantic_size = Size_Fit_Text_And_Grow,
+				color = .Secondary_Container
 			},
 			id("sampler-{}-controls-button-4", track_num),
 		)
