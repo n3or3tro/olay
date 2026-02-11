@@ -93,7 +93,8 @@ UI_State :: struct {
 	scroll_offsets: map[string]int,
 	file_browser_allocator: mem.Allocator,
 	browser_files: [dynamic]Browser_File,
-	browser_dirs:  [dynamic]Browser_Directory
+	browser_dirs:  [dynamic]Browser_Directory,
+	frames_since_sleep: 	i8
 }
 
 // These are all the types of data that can be dropped on items that are drag-and-drop

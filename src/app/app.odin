@@ -51,6 +51,7 @@ app_create :: proc() -> ^App {
 
 @(export)
 app_update :: proc() -> (all_good: bool) {
+	if ui_state.frames_since_sleep >= 5 do ui_state.frames_since_sleep = 0
 	start := time.now()._nsec
 	if register_resize() {
 		printfln("changing screen res to : {} x {}", app.wx, app.wy)
@@ -59,6 +60,16 @@ app_update :: proc() -> (all_good: bool) {
 	event: sdl.Event
 	reset_mouse_state()
 	show_context_menu, exit := ui_state.context_menu.active, false
+
+	// Sleep until an event arrives and unblocks us.
+	if ui_state.frames_since_sleep == 0 && sdl.WaitEvent(&event)  {
+		exit, show_context_menu = handle_input(event)
+		if exit {
+			return false
+		}
+	}
+
+	// Poll for any other events that arrived with the unblocking event.
 	for sdl.PollEvent(&event) {
 		exit, show_context_menu = handle_input(event)
 		if exit {
@@ -82,7 +93,7 @@ app_update :: proc() -> (all_good: bool) {
 		render_ui(rect_render_data)
 	}
 	render_end := time.now()._nsec
-	printfln("rendering the UI took: {}", f64(render_end - render_start) / 1_000_000)
+	// printfln("rendering the UI took: {}", f64(render_end - render_start) / 1_000_000)
 
 	sdl.GL_SwapWindow(app.window)
 
@@ -114,17 +125,19 @@ app_update :: proc() -> (all_good: bool) {
 
 	// Calculate how long this frame took and sleep until it's time for the next frame.
 	// max_frame_time_ns: f64 = 1_000_000 * 200 
-	// max_frame_time_ns: f64 = 1_000_000 * 8.3333 
+	max_frame_time_ns: f64 = 1_000_000 * 8.3333 
 	// max_frame_time_ns: f64 = 1_000_000 * 16.6666
-	// frame_time := f64(time.now()._nsec - start)
-	// time_to_wait := time.Duration(max_frame_time_ns - frame_time)
-	// if time_to_wait > 0 {
-	// 	time.accurate_sleep(time_to_wait)
-	// }
+	frame_time := f64(time.now()._nsec - start)
+	time_to_wait := time.Duration(max_frame_time_ns - frame_time)
 
 	end := time.now()._nsec
 	total_frame_time_ns := f64(end - start)
 	printfln("app_update() took {} ms", total_frame_time_ns / 1_000_000)
+
+	if time_to_wait > 0 {
+		time.accurate_sleep(time_to_wait)
+	}
+	ui_state.frames_since_sleep += 1
 	return true
 }
 
@@ -143,17 +156,17 @@ app_init :: proc(first_run := true) -> ^App {
 	app.running = true
 	app_hot_reload(app)
 
-	t := thread.create_and_start(audio_thread_timing_proc, priority = .High)
-	// This a per thread thing that will persist across hot reloads, so we set it up once only
-	when ODIN_OS == .Windows {
-		if first_run {
-			hr := windows.CoInitializeEx(nil, windows.COINIT.APARTMENTTHREADED)
-			if !windows.SUCCEEDED(hr) {
-				panic("failed 1")
-			}
-			app.windows_com_handle = hr
-		}
-	}
+	// t := thread.create_and_start(audio_thread_timing_proc, priority = .High)
+	// // This a per thread thing that will persist across hot reloads, so we set it up once only
+	// when ODIN_OS == .Windows {
+	// 	if first_run {
+	// 		hr := windows.CoInitializeEx(nil, windows.COINIT.APARTMENTTHREADED)
+	// 		if !windows.SUCCEEDED(hr) {
+	// 			panic("failed 1")
+	// 		}
+	// 		app.windows_com_handle = hr
+	// 	}
+	// }
 	return app
 }
 
@@ -246,7 +259,7 @@ app_hot_reload :: proc(mem: rawptr) {
 	font_init(&ui_state.font_state, ui_state.font_state.font_size)
 	audio_init_miniaudio(app.audio)
 	sync.atomic_store(&app.audio.exit_timing_thread, false)
-	thread.create_and_start(audio_thread_timing_proc, priority = .High)
+	// thread.create_and_start(audio_thread_timing_proc, priority = .High)
 }
 
 @(export)
