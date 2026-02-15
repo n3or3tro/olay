@@ -3,8 +3,7 @@ import "core:fmt"
 import "core:math"
 import "core:slice"
 import "core:sync"
-import "core:mem"
-import "core:os"
+import sdl "vendor:sdl2"
 import "core:strconv"
 import str "core:strings"
 import "core:time"
@@ -21,7 +20,7 @@ spectrum_analyzer_output_channels: [1]u32 = {2}
 spectrum_analyzer_vtable_initialized := false
 
 SAMPLE_RATE : f64 = 44_100
-AUDIO_SCHEDULING_HORIZON_MS :: 10
+AUDIO_SCHEDULING_HORIZON_MS :: 80
 
 N_TRACK_STEPS :: 128
 MAX_TRACKS :: 256
@@ -150,9 +149,10 @@ Audio_State :: struct {
 	// Basically in a hot reload situation, I need a way to indicate to the timing thread that it
 	// should stop looping and exit when we hot reload the dll. It will be restarted once the new
 	// dll is loaded.
-	exit_timing_thread: bool,
+	exit_timing_thread: 		  bool,
 	last_playback_start_time_pcm: u64,
-	last_scheduled_step: int,
+	last_scheduled_step: 		  int,
+	last_ui_notified_step: 	  	  int
 }
 
 SOUND_FILE_LOAD_FLAGS: ma.sound_flags = {.DECODE, .NO_SPATIALIZATION}
@@ -514,6 +514,49 @@ audio_stop_all :: proc() {
 	}
 }
 
+audio_transport_play :: proc() {
+    paused_step := sync.atomic_load(&app.audio.paused_at_step)
+    if paused_step < 0 do paused_step = 0
+
+    samples_per_step := u64(SAMPLE_RATE * 60 / f64(app.audio.bpm) / 8)
+    engine_now := ma.engine_get_time_in_pcm_frames(app.audio.engine)
+
+    // Set scheduling state BEFORE setting playing = true,
+    // so the timing thread sees consistent state when it wakes up.
+    sync.atomic_store(&app.audio.last_playback_start_time_pcm,
+        engine_now - u64(paused_step) * samples_per_step)
+    sync.atomic_store(&app.audio.last_scheduled_step, paused_step - 1)
+    sync.atomic_store(&app.audio.paused_at_step, -1)
+    // This goes last -- it's the gate that lets the timing thread start scheduling.
+    sync.atomic_store(&app.audio.playing, true)
+}
+
+audio_transport_pause :: proc() {
+    // Read current step before stopping, while engine time is still meaningful.
+    step := audio_get_current_step()
+    // Disable scheduling first so timing thread stops.
+    sync.atomic_store(&app.audio.playing, false)
+    audio_stop_all()
+    sync.atomic_store(&app.audio.paused_at_step, step)
+}
+
+audio_transport_reset :: proc() {
+    was_playing := sync.atomic_load(&app.audio.playing)
+
+    // Stop scheduling and sounds.
+    sync.atomic_store(&app.audio.playing, false)
+    audio_stop_all()
+
+    // Reset timeline to step 0.
+    sync.atomic_store(&app.audio.last_scheduled_step, -1)
+    sync.atomic_store(&app.audio.paused_at_step, 0)
+
+    // If we were playing, resume from step 0.
+    if was_playing {
+        audio_transport_play()
+    }
+}
+
 // returns number of semitones between 2 notes.
 pitch_difference :: proc(from: string, to: string) -> int {
 	chromatic_scale := make(map[string]int, context.temp_allocator)
@@ -707,7 +750,11 @@ eq_reinit_band :: proc(band: EQ_Band_State) {
 
 // ========================================= PLAYBACK / TIMING STUFF ==============================================
 audio_thread_timing_proc :: proc() {
+	beats_per_bar :: 4
+	steps_per_bar :: 32
+	steps_per_beat := steps_per_bar / beats_per_bar
 	for {
+		start := time.now()._nsec
 		if sync.atomic_load(&app.audio.exit_timing_thread) do return
 
 		playing := sync.atomic_load(&app.audio.playing)
@@ -715,9 +762,7 @@ audio_thread_timing_proc :: proc() {
 			curr_time_pcm := ma.engine_get_time_in_pcm_frames(app.audio.engine)
 			step_time_pcm := (SAMPLE_RATE / N_TRACK_STEPS)
 			// Assumes 1/32 steps.
-			beats_per_bar :: 4
-			steps_per_bar :: 32
-			steps_per_beat := steps_per_bar / beats_per_bar 
+ 
 			samples_per_step := SAMPLE_RATE * 60 / f64(app.audio.bpm) / f64(steps_per_beat)
 
 			// The only way to get sample accurate playback with the high level engine in miniaudio
@@ -728,8 +773,17 @@ audio_thread_timing_proc :: proc() {
 			last_scheduled_step := sync.atomic_load(&app.audio.last_scheduled_step)
 
 			// Calculate which step we're currently on and how far ahead to schedule.
-			elapsed_pcm := curr_time_pcm - last_playback_start_time
+			elapsed_pcm  := curr_time_pcm - last_playback_start_time
 			current_step := int(f64(elapsed_pcm) / samples_per_step)
+
+			wrapped_step := current_step % N_TRACK_STEPS
+			last_ui_step := sync.atomic_load(&app.audio.last_ui_notified_step)
+			if wrapped_step != last_ui_step {
+				sync.atomic_store(&app.audio.last_ui_notified_step, wrapped_step)
+				event: sdl.Event
+				event.type = .USEREVENT
+				sdl.PushEvent(&event)
+			}
 			horizon_step := int((elapsed_pcm + u64(horizon_samples)) / u64(samples_per_step))
 
 			// Schedule next steps to be played.
@@ -737,7 +791,7 @@ audio_thread_timing_proc :: proc() {
 				step_start_time_pcm := last_playback_start_time + u64(f64(step) * samples_per_step)
 				
 				for &track, track_num in app.audio.tracks {
-					step_in_pattern := u32(step) % track.n_steps
+					step_in_pattern := track.loop_at == -1 ? u32(step) % track.n_steps : u32(step % track.loop_at)
 					
 					if track.armed && track.selected_steps[step_in_pattern] {
 						track_step_schedule(u32(track_num), step_in_pattern, step_start_time_pcm)
@@ -746,9 +800,24 @@ audio_thread_timing_proc :: proc() {
 				sync.atomic_store(&app.audio.last_scheduled_step, step)
 			}
 		} 
+		end := time.now()._nsec
+		elapsed_ms := f64(end - start) / 1_000_000
 		// Sleep to conserve energy.
-		time.accurate_sleep(time.Millisecond * AUDIO_SCHEDULING_HORIZON_MS)
+		time.accurate_sleep((time.Millisecond * 30) - time.Duration(int(elapsed_ms)))
 	}
+}
+
+audio_get_current_step :: proc() -> int {
+	paused := sync.atomic_load(&app.audio.paused_at_step) 
+	if paused >= 0 {
+		return paused
+	}
+	curr_time_pcm 	 := ma.engine_get_time_in_pcm_frames(app.audio.engine)
+    last_start_time  := sync.atomic_load(&app.audio.last_playback_start_time_pcm)
+	// Assumes 32 steps per beat.
+    samples_per_step := u64(SAMPLE_RATE * 60 / f64(app.audio.bpm) / 8)
+    elapsed 		 := curr_time_pcm - last_start_time
+    return int(elapsed / samples_per_step) % N_TRACK_STEPS
 }
 
 track_step_schedule :: proc(which_track: u32, step_num: u32, start_time_pcm: u64) {
@@ -768,37 +837,5 @@ track_step_schedule :: proc(which_track: u32, step_num: u32, start_time_pcm: u64
     ma.sound_start(sound)
 }
 
-audio_get_current_step :: proc() -> int {
-	paused := sync.atomic_load(&app.audio.paused_at_step) 
-	if paused >= 0 {
-		return paused
-	}
-	curr_time_pcm 	 := ma.engine_get_time_in_pcm_frames(app.audio.engine)
-    last_start_time  := sync.atomic_load(&app.audio.last_playback_start_time_pcm)
-	// Assumes 32 steps per beat.
-    samples_per_step := u64(SAMPLE_RATE * 60 / f64(app.audio.bpm) / 8)
-    elapsed 		 := curr_time_pcm - last_start_time
-    return int(elapsed / samples_per_step) % N_TRACK_STEPS
-}
+
 // ========================================= END PLAYBACK / TIMING STUFF ==============================================
-
-// MipMap_Entry :: struct {
-// 	min, max: f32
-// }
-
-// Waveform_MipMap :: struct { 
-// 	left:  [dynamic]MipMap_Entry,
-// 	right: [dynamic]MipMap_Entry,
-// }
-
-// waveform_create_mipmap :: proc(left, right: [dynamic]f32) -> Waveform_MipMap{
-// 	mipmap := new(Waveform_MipMap)
-// 	mipmap.left  = make([dynamic]MipMap_Entry, len(left))
-
-// 	// First level needs to calc'd manually.
-// 	for i:=0; i < len(left)-1; i+=2 {
-// 		lo := min(left[i], left[i + 1])
-// 		hi := max(left[i], left[i + 1])
-// 		append(&mipmap.left, MipMap_Entry{lo, hi})
-// 	}
-// }

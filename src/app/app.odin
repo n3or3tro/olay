@@ -1,5 +1,6 @@
 package app
 import "core:fmt"
+import "core:math"
 import "core:sync"
 import "vendor:kb_text_shape"
 import "core:thread"
@@ -33,11 +34,10 @@ App :: struct {
 	browser_root_dir:  		  ^Browser_Directory,
 	browser_selected_dir:     ^Browser_Directory,
 	running:           		  bool,
-	windows_com_handle:		  windows.HRESULT
+	windows_com_handle:		  windows.HRESULT,
 }
 
 Window :: sdl.Window
-
 
 ui_state: ^UI_State
 app: ^App
@@ -52,6 +52,11 @@ app_create :: proc() -> ^App {
 @(export)
 app_update :: proc() -> (all_good: bool) {
 	if ui_state.frames_since_sleep >= 5 do ui_state.frames_since_sleep = 0
+	ui_state.event_wait_timeout = 1_000_000_000
+	dt_ms := (f64(time.now()._nsec) / 1_000_000) - ui_state.prev_frame_start_ms
+	dt_ms = min(dt_ms, 100)
+	ui_state.prev_frame_start_ms = f64(time.now()._nsec) / 1_000_000
+	animation_update_all(dt_ms / 1_000)
 	start := time.now()._nsec
 	if register_resize() {
 		printfln("changing screen res to : {} x {}", app.wx, app.wy)
@@ -60,9 +65,8 @@ app_update :: proc() -> (all_good: bool) {
 	event: sdl.Event
 	reset_mouse_state()
 	show_context_menu, exit := ui_state.context_menu.active, false
-
 	// Sleep until an event arrives and unblocks us.
-	if ui_state.frames_since_sleep == 0 && sdl.WaitEvent(&event)  {
+	if ui_state.frames_since_sleep == 0 && sdl.WaitEventTimeout(&event, i32(ui_state.event_wait_timeout * 1_000))  {
 		exit, show_context_menu = handle_input(event)
 		if exit {
 			return false
@@ -156,17 +160,17 @@ app_init :: proc(first_run := true) -> ^App {
 	app.running = true
 	app_hot_reload(app)
 
-	// t := thread.create_and_start(audio_thread_timing_proc, priority = .High)
-	// // This a per thread thing that will persist across hot reloads, so we set it up once only
-	// when ODIN_OS == .Windows {
-	// 	if first_run {
-	// 		hr := windows.CoInitializeEx(nil, windows.COINIT.APARTMENTTHREADED)
-	// 		if !windows.SUCCEEDED(hr) {
-	// 			panic("failed 1")
-	// 		}
-	// 		app.windows_com_handle = hr
-	// 	}
-	// }
+	t := thread.create_and_start(audio_thread_timing_proc, priority = .High)
+	// This a per thread thing that will persist across hot reloads, so we set it up once only
+	when ODIN_OS == .Windows {
+		if first_run {
+			hr := windows.CoInitializeEx(nil, windows.COINIT.APARTMENTTHREADED)
+			if !windows.SUCCEEDED(hr) {
+				panic("failed 1")
+			}
+			app.windows_com_handle = hr
+		}
+	}
 	return app
 }
 
@@ -259,7 +263,7 @@ app_hot_reload :: proc(mem: rawptr) {
 	font_init(&ui_state.font_state, ui_state.font_state.font_size)
 	audio_init_miniaudio(app.audio)
 	sync.atomic_store(&app.audio.exit_timing_thread, false)
-	// thread.create_and_start(audio_thread_timing_proc, priority = .High)
+	thread.create_and_start(audio_thread_timing_proc, priority = .High)
 }
 
 @(export)
