@@ -21,7 +21,7 @@ import ma"vendor:miniaudio"
 topbar :: proc() {
 	child_container(
 		{
-			semantic_size    = {{.Fixed, f32(app.wx)}, {.Fixed, TOPBAR_HEIGHT}},
+			size    = {{.Fixed, f32(app.wx)}, {.Fixed, TOPBAR_HEIGHT}},
 			color = .Secondary,
 			padding = {top = 3, bottom = 3}
 		},
@@ -35,7 +35,7 @@ topbar :: proc() {
 	)
 
 	btn_config := Box_Config {
-		semantic_size = {{.Fit_Text_And_Grow, 1}, {.Fit_Text_And_Grow, 1}},
+		size = {{.Fit_Text_And_Grow, 1}, {.Fit_Text_And_Grow, 1}},
 		color = .Tertiary,
 		corner_radius = 5,
 		padding = {top = 0, bottom = 0, left = 2, right = 2},
@@ -43,7 +43,7 @@ topbar :: proc() {
 
 	left_container: {
 		child_container(
-			{semantic_size = {{.Fit_Children, 1}, {.Fit_Children_And_Grow, 1}}},
+			{size = {{.Fit_Children, 1}, {.Fit_Children_And_Grow, 1}}},
 			{gap_horizontal = 3},
 			"top-bar-left-container",
 		)
@@ -57,45 +57,27 @@ topbar :: proc() {
 
 	middle_container: {
 		child_container(
-			{semantic_size = {{.Fit_Children, 1}, {.Fit_Children_And_Grow, 1}}},
+			{size = {{.Fit_Children, 1}, {.Fit_Children_And_Grow, 1}}},
 			{gap_horizontal = 3},
 			"top-bar-middle-container",
 		)
 		if text_button("Reset", btn_config).clicked {
-			curr_engine_time := ma.engine_get_time_in_pcm_frames(app.audio.engine)	
-			// Basically beat 0 is always in the past, so when resetting the play head to the first beat,
-			// we need to add a small delay.
-			buffer_time := u64(SAMPLE_RATE * 20 / 1000)
-			sync.atomic_store(
-				&app.audio.last_playback_start_time_pcm,
-				curr_engine_time + buffer_time
-			)
-			sync.atomic_store(&app.audio.paused_at_step, -1)
-		}
+			audio_transport_reset()
+		} 
 
 		label := app.audio.playing ? "Pause" : "Play"
 		if text_button(label, btn_config).clicked {
-			app.audio.playing = !app.audio.playing
-			if !app.audio.playing { 
-				sync.atomic_store(&app.audio.paused_at_step, audio_get_current_step())
-				audio_stop_all()
+			if app.audio.playing  {
+				audio_transport_pause()
 			} else {
-				last_paused_step := sync.atomic_load(&app.audio.paused_at_step)
-				// Adjust start time so playhead continues from paused position
-				samples_per_step := u64(SAMPLE_RATE * 60 / f64(app.audio.bpm) / 8)
-				engine_now := ma.engine_get_time_in_pcm_frames(app.audio.engine)
-				sync.atomic_store(
-					&app.audio.last_playback_start_time_pcm, 
-					engine_now - u64(last_paused_step) * samples_per_step
-				)
-				sync.atomic_store(&app.audio.paused_at_step, -1)
-			}
+				audio_transport_play()
+			} 
 		}
 	}
 
 	right_container: {
 		child_container(
-			{semantic_size = {{.Fit_Children, 1}, {.Fit_Children_And_Grow, 1}}},
+			{size = {{.Fit_Children, 1}, {.Fit_Children_And_Grow, 1}}},
 			{gap_horizontal = 3},
 			"top-bar-right-container",
 		)
@@ -115,12 +97,12 @@ topbar :: proc() {
 	}
 }
 
-audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}) -> Track_Signals {
+audio_track :: proc(track_num: int, track_width: f32, step_containers: ^[dynamic]^Box, extra_flags := Box_Flags{}) -> Track_Signals {
 	track := &app.audio.tracks[track_num]
 	n_steps := 128 // This will ultimately be a dynamic size for each track.
 
 	track_container := child_container(
-		{semantic_size = {{.Fixed, track_width}, {.Percent, 1}}},
+		{size = {{.Fixed, track_width}, {.Percent, 1}}},
 		{direction = .Vertical, gap_vertical = 3},
 		metadata = Metadata_Track {
 			track_num = track_num
@@ -133,7 +115,7 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 	track_label: {
 		child_container(
 			{
-				semantic_size = {{.Fixed, track_width}, {.Fit_Children, 1}},
+				size = {{.Fixed, track_width}, {.Fit_Children, 1}},
 				padding = {left = 2, right = 0}
 			},
 			{
@@ -145,7 +127,7 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 		text(
 			tprintf("{}.", track_num),
 			{
-				semantic_size = Size_Fit_Text,
+				size = Size_Fit_Text,
 				color = .Primary_Container,
 				text_justify = {.Start, .Center},
 				margin = {right = 2}
@@ -153,7 +135,7 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 		)
 		edit_text_box(
 			{
-				semantic_size = {{.Grow, 1}, {.Fixed, 30}},
+				size = {{.Grow, 1}, {.Fixed, 30}},
 				color = .Secondary
 			},
 			.Generic_One_Line,
@@ -165,28 +147,48 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 	steps: {
 		steps_container := child_container(
 			{
-				semantic_size = {{.Fixed, track_width}, {.Grow, 0.7}},
+				size = {{.Fixed, track_width + 30}, {.Grow, 0.1}},
 				color = .Tertiary,
 				overflow_y = .Scroll
 			},
 			{direction = .Vertical, gap_vertical = 0},
 			box_flags = {.Drag_Drop_Source, .Scrollable},
 		)
-		// Draw step nums just once.
+		append(step_containers, steps_container.box)
+
 
 		substep_config: Box_Config = {
-			semantic_size    = {{.Percent, 0.25}, {.Percent, 1}},
+			size    		 = {{.Percent, 0.25}, {.Percent, 1}},
 			color 			 = .Primary,
 			border 			 = 1,
 		}
 		substep_extra_flags := Box_Flags{.Draw_Border, .Track_Step, .Drag_Drop_Sink}
 
+		loop_back_step := track.loop_at
 		for i in 0 ..< N_TRACK_STEPS {
+			child_container({size = {{.Fixed, track_width + 30}, {.Percent, 1.0/32.0}}}, {})
+			text(tprintf("{}", i), {size={{.Fixed, 30}, {.Percent, 1}}, text_justify={.Center, .Center}, color = .Surface})
 			step_row_container := child_container(
-				{semantic_size = {{.Fixed, track_width}, {.Percent, f32(1) / 32}}},
+				{size = {{.Fixed, track_width - 30}, {.Percent, 1}}},
 				{direction = .Horizontal, gap_horizontal = 0},
 				box_flags = {.Drag_Drop_Sink},
 			)
+			if loop_back_step != -1 && i > loop_back_step {
+				step_row_container.box.disabled = true
+			}
+
+			if i == loop_back_step {
+				loop_back_indicator := text_button(
+					"remove loop back",
+					{
+						size = Size_Fit_Text_And_Grow
+					}
+				)
+				if loop_back_indicator.double_clicked {
+					track.loop_at = -1
+				} 
+				break
+			}
 
 			pitch_box := edit_text_box(
 				substep_config,
@@ -267,7 +269,8 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 				send1_box.box.selected  = false
 				send2_box.box.selected  = false
 			}
-			curr_step := audio_get_current_step()
+			curr_step_global := audio_get_current_step()
+			curr_step := track.loop_at == -1 ? curr_step_global % int(track.n_steps) : curr_step_global % track.loop_at
 			// If this is the current step, indicate so.
 			if curr_step == i {
 				pitch_box.box.config.color  = .Primary_Container
@@ -302,7 +305,7 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 
 	sample_label: {
 		label : string
-		if track.sound != nil { 
+		if track.sounds[0] != nil { 
 			tokens, _ := str.split(track.sound_path, "\\", context.temp_allocator)
 			label = tail(tokens)^
 		} else {
@@ -311,7 +314,7 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 		text(
 			label,
 			{
-				semantic_size = {{.Fit_Text_And_Grow, 1}, {.Fit_Text, 1}},
+				size = {{.Fit_Text_And_Grow, 1}, {.Fit_Text, 1}},
 				color = .Primary_Container,
 				text_justify = {.Start, .Center},
 				overflow_x = .Hidden
@@ -325,7 +328,7 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 	controls: {
 		controls_container := child_container(
 			{
-				semantic_size = {{.Fixed, track_width}, {.Percent, 0.3}},
+				size = {{.Fixed, track_width}, {.Percent, 0.3}},
 				color = .Surface_Bright,
 			},
 			{
@@ -340,7 +343,7 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 		arm_button := text_button(
 			arm_label,
 			{
-				semantic_size = {{.Percent, 0.333}, {.Fixed, 30}},
+				size = {{.Percent, 0.333}, {.Fixed, 30}},
 				color = .Secondary,
 				corner_radius = 3,
 
@@ -349,7 +352,7 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 			{.Ignore_Parent_Disabled},
 		)
 		volume_slider := vertical_slider(
-			{semantic_size = {{.Percent, 0.333}, {.Grow, 30}}},
+			{size = {{.Percent, 0.333}, {.Grow, 30}}},
 			&track.volume,
 			0,
 			100,
@@ -358,7 +361,7 @@ audio_track :: proc(track_num: int, track_width: f32, extra_flags := Box_Flags{}
 		load_sound_button := text_button(
 			"load",
 			{
-				semantic_size = {{.Percent, 0.333}, {.Fixed, 30}},
+				size = {{.Percent, 0.333}, {.Fixed, 30}},
 				color = .Secondary,
 				corner_radius = 3,
 			},
@@ -414,7 +417,7 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 	// resizable floating container.
 	eq_container := child_container(
 		{
-			semantic_size = {{.Fixed, 800}, {.Fixed, 400}},
+			size = {{.Fixed, 800}, {.Fixed, 400}},
 			color = .Secondary_Container,
 			z_index = 10,
 			padding = padding(3),
@@ -432,8 +435,8 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 	eq: {
 		child_container(
 			{
-				// semantic_size = {{.Percent, 0.3}, {.Percent, 0.5}},
-				semantic_size = Size_Fit_Children_And_Grow,
+				// size = {{.Percent, 0.3}, {.Percent, 0.5}},
+				size = Size_Fit_Children_And_Grow,
 				z_index = 30,
 				color = .Error_Container,
 			},
@@ -446,7 +449,7 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 		main_controls: {
 			eq_main_controls := child_container(
 				{
-					semantic_size = {{.Percent, 0.11}, {.Percent, 1}},
+					size = {{.Percent, 0.11}, {.Percent, 1}},
 					// padding = {left=4, right=4, top=10, bottom=10},
 				},
 				{
@@ -459,7 +462,7 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 			)
 			text(
 				id("Band {}", eq_state.active_band),
-				{semantic_size=Size_Fit_Text, color = .Secondary},
+				{size=Size_Fit_Text, color = .Secondary},
 				"heya",
 			)
 			circular_knob(
@@ -487,8 +490,8 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 		freq_display: {
 			frequency_display_container := child_container(
 				{
-					semantic_size = Size_Grow,
-					// semantic_size = {{.Fixed, 800}, {.Fixed, 500}},
+					size = Size_Grow,
+					// size = {{.Fixed, 800}, {.Fixed, 500}},
 					color = .Inverse_On_Surface,
 					overflow_x = .Hidden,
 					overflow_y = .Hidden,
@@ -516,7 +519,7 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 							f32(math.log10(f64(band.freq_hz) / 20.0) / math.log10(f64(20_000.0 / 20.0))),
 							f32(map_range(EQ_MAX_GAIN, -EQ_MAX_GAIN, 0.0, 1.0, band.gain_db))
 						},
-						semantic_size = {{.Fixed, 30}, {.Fixed, 30}},
+						size = {{.Fixed, 30}, {.Fixed, 30}},
 						corner_radius = 15,
 						z_index  = 40,
 					},
@@ -662,7 +665,7 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 					{.Draw},
 					{
 						color = .Inverse_Primary,
-						semantic_size = {
+						size = {
 							{.Percent, 1},
 							{.Percent, 1},
 						},
@@ -690,7 +693,7 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 				text_button(
 					"a",
 					{
-						semantic_size = {{.Fixed, 2}, {.Fixed, 2}},
+						size = {{.Fixed, 2}, {.Fixed, 2}},
 						color = .Primary_Container,
 						floating_type = .Relative_Other,
 						floating_anchor_box = frequency_display_container.box,
@@ -703,7 +706,7 @@ equalizer_8 :: proc(eq_id: string, track_num: int) {
 		level_meter := box_from_cache(
 			{.Draw},
 			{
-				semantic_size = {{.Fixed, 30}, {.Percent, 1}},
+				size = {{.Fixed, 30}, {.Percent, 1}},
 				z_index = 30,
 			},
 			"",
@@ -719,7 +722,7 @@ sampler :: proc(track_num: int, id_string: string) {
 	sampler.prev_zoom_amount = sampler.zoom_amount
 	sampler_container := child_container(
 		{
-			semantic_size = {{.Fixed, 850}, {.Fixed, 400}},
+			size = {{.Fixed, 850}, {.Fixed, 400}},
 			color = .Surface_Container_High
 		},
 		{
@@ -732,8 +735,8 @@ sampler :: proc(track_num: int, id_string: string) {
 	left_controls: {
 		control_container := child_container(
 			{
-				// semantic_size = {{.Percent, 0.1}, {.Percent, 1}},
-				semantic_size = Size_Grow,
+				// size = {{.Percent, 0.1}, {.Percent, 1}},
+				size = Size_Grow,
 				// color = .Primary,
 			},
 			{
@@ -747,7 +750,7 @@ sampler :: proc(track_num: int, id_string: string) {
 		text_button(
 			"Control 1",
 			{
-				semantic_size = Size_Fit_Text_And_Grow,
+				size = Size_Fit_Text_And_Grow,
 				color = .Secondary_Container
 			},
 			id("sampler-{}-controls-button-1", track_num),
@@ -755,7 +758,7 @@ sampler :: proc(track_num: int, id_string: string) {
 		text_button(
 			"Control 2",
 			{
-				semantic_size = Size_Fit_Text_And_Grow,
+				size = Size_Fit_Text_And_Grow,
 				color = .Secondary_Container
 			},
 			id("sampler-{}-controls-button-2", track_num),
@@ -763,7 +766,7 @@ sampler :: proc(track_num: int, id_string: string) {
 		text_button(
 			"Control 3",
 			{
-				semantic_size = Size_Fit_Text_And_Grow,
+				size = Size_Fit_Text_And_Grow,
 				color = .Secondary_Container
 			},
 			id("sampler-{}-controls-button-3", track_num),
@@ -771,7 +774,7 @@ sampler :: proc(track_num: int, id_string: string) {
 		text_button(
 			"Control 4",
 			{
-				semantic_size = Size_Fit_Text_And_Grow,
+				size = Size_Fit_Text_And_Grow,
 				color = .Secondary_Container
 			},
 			id("sampler-{}-controls-button-4", track_num),
@@ -782,7 +785,7 @@ sampler :: proc(track_num: int, id_string: string) {
 		// Inside here we'll render the waveform and the slice markers.
 		waveform_parent := child_container(
 			{
-				semantic_size = {{.Percent, 0.90}, {.Percent, 0.85}},
+				size = {{.Percent, 0.90}, {.Percent, 0.85}},
 				color = .Secondary,
 			},
 			{
@@ -862,7 +865,7 @@ sampler :: proc(track_num: int, id_string: string) {
 		text(
 			"Here is where the waveform goes",
 			{
-				semantic_size = Size_Fit_Text,
+				size = Size_Fit_Text,
 				color = .Secondary,
 			},
 			id("sampler-{}-waveform-placeholder", track_num),
@@ -888,7 +891,7 @@ sampler :: proc(track_num: int, id_string: string) {
 				{
 					floating_type = .Absolute_Pixel,
 					floating_offset = {config.line_start.x - 10, config.line_start.y},
-					semantic_size = {{.Fixed, 20}, {.Fixed, 20}},
+					size = {{.Fixed, 20}, {.Fixed, 20}},
 					color = .Error_Container,
 					z_index = 50,
 				},
@@ -905,7 +908,7 @@ sampler :: proc(track_num: int, id_string: string) {
 			child_container(
 				{
 					color = .Secondary,
-					semantic_size = Size_Grow,
+					size = Size_Grow,
 				},
 				{
 					alignment_vertical = .Center,
@@ -919,14 +922,12 @@ sampler :: proc(track_num: int, id_string: string) {
 
 context_menu :: proc() {
 	track_steps_context_menu :: proc(box: ^Box) {
-		// Draw parent rect
-		
-
-		track_num := box.metadata.(Metadata_Track_Step).track
+		metadata := box.metadata.(Metadata_Track_Step)
+		track_num := metadata.track
 		track := &app.audio.tracks[track_num]
 
 		top_level_btn_config := Box_Config {
-			semantic_size = Size_Fit_Text_And_Grow,
+			size = Size_Fit_Text_And_Grow,
 			text_justify  = {.Start, .Center},
 			padding = padding(10),
 			border = 1,
@@ -936,15 +937,23 @@ context_menu :: proc() {
 		add_button := text_button(
 			"Add steps",
 			top_level_btn_config,
-			"context-menu-1",
 		)
 
 		top_level_btn_config.color = .Warning_Container
 		remove_button := text_button(
 			"Remove steps",
 			top_level_btn_config,
-			"conext-menu-2",
 		)
+
+		top_level_btn_config.color = .Primary_Container
+		loop_button := text_button(
+			"Loop back here",
+			top_level_btn_config,
+		)
+
+		if loop_button.clicked {
+			track.loop_at = metadata.step
+		}
 
 		disarm_labl := track.armed ? "Disarm" : "Arm"
 		top_level_btn_config.color = .Surface
@@ -993,7 +1002,7 @@ context_menu :: proc() {
 				{
 					floating_type = .Absolute_Pixel,
 					floating_offset = {f32(add_button.box.bottom_right.x), f32(add_button.box.top_left.y)},
-					semantic_size = Size_Fit_Children,
+					size = Size_Fit_Children,
 					z_index = 20,
 				},
 				{direction = .Vertical, gap_vertical = 2},
@@ -1001,7 +1010,7 @@ context_menu :: proc() {
 				{.Clickable},
 			)
 			btn_config := Box_Config {
-				semantic_size    = Size_Fit_Text_And_Grow,
+				size    = Size_Fit_Text_And_Grow,
 				text_justify 	 = {.Start, .Center},
 				color 			 = .Primary_Container,
 				padding          = {10, 10, 10, 10},
@@ -1046,7 +1055,7 @@ context_menu :: proc() {
 						f32(remove_button.box.bottom_right.x),
 						f32(remove_button.box.top_left.y),
 					},
-					semantic_size = Size_Fit_Children,
+					size = Size_Fit_Children,
 					z_index = 20,
 				},
 				{direction = .Vertical, gap_vertical = 2},
@@ -1054,7 +1063,7 @@ context_menu :: proc() {
 				{.Clickable},
 			)
 			btn_config := Box_Config {
-				semantic_size    = Size_Fit_Text_And_Grow,
+				size    		= Size_Fit_Text_And_Grow,
 				color 			 = .Warning_Container,
 				padding          = {10, 10, 10, 10},
 			}
@@ -1095,7 +1104,7 @@ context_menu :: proc() {
 
 	file_browser_context_menu :: proc(box: ^Box) {
 		config := Box_Config {
-			semantic_size = Size_Fit_Text_And_Grow,
+			size = Size_Fit_Text_And_Grow,
 			text_justify = {.Start, .Center},
 			padding = padding(5),
 		}
@@ -1117,14 +1126,14 @@ context_menu :: proc() {
 	eq_handle_context_menu :: proc(which:int, track_num: int, band: ^EQ_Band_State) { 
 		child_container(
 			{
-				semantic_size = Size_Fit_Children
+				size = Size_Fit_Children
 			},
 			{
 				direction = .Vertical
 			},
 		)
 		btn_config := Box_Config {
-			semantic_size = Size_Fit_Text_And_Grow,
+			size = Size_Fit_Text_And_Grow,
 			color = .Primary_Container,
 			padding = padding(5),
 		}
@@ -1147,7 +1156,7 @@ context_menu :: proc() {
 		if shape_btn.hovering || hovering_submenu {
 			child_container(
 				{
-					semantic_size = Size_Fit_Children,
+					size = Size_Fit_Children,
 					floating_type = .Absolute_Pixel,
 					floating_offset = ({
 						f32(shape_btn.box.bottom_right.x),
@@ -1159,40 +1168,53 @@ context_menu :: proc() {
 				},
 				id = id
 			)
-
+			altered := false
 			if text_button("Bell", btn_config).clicked {
 				band.type = .Bell
-				eq_init_band(app.audio.tracks[track_num], band, ma.engine_get_node_graph(app.audio.engine))
+				altered = true
 			}
 
 			if text_button("High Cut", btn_config).clicked {
 				band.type = .High_Cut
-				eq_init_band(app.audio.tracks[track_num], band, ma.engine_get_node_graph(app.audio.engine))
+				altered = true
 			}
 
 			if text_button("Low Cut", btn_config).clicked {
 				band.type = .Low_Cut
-				eq_init_band(app.audio.tracks[track_num], band, ma.engine_get_node_graph(app.audio.engine))
+				altered = true
 			}
 
 			if text_button("High Shelf", btn_config).clicked {
 				band.type = .High_Shelf
-				eq_init_band(app.audio.tracks[track_num], band, ma.engine_get_node_graph(app.audio.engine))
+				altered = true
 			}
 
 			if text_button("Low Shelf", btn_config).clicked {
 				band.type = .Low_Shelf
-				eq_init_band(app.audio.tracks[track_num], band, ma.engine_get_node_graph(app.audio.engine))
+				altered = true
 			}
 
 			if text_button("Notch", btn_config).clicked {
 				band.type = .Notch
-				eq_init_band(app.audio.tracks[track_num], band, ma.engine_get_node_graph(app.audio.engine))
+				altered = true
 			}
 
 			if text_button("Band Pass", btn_config).clicked {
 				band.type = .Band_Pass
-				eq_init_band(app.audio.tracks[track_num], band, ma.engine_get_node_graph(app.audio.engine))
+				altered = true
+			}
+			if altered {
+				// Might need some more logic to set sane defaults for certain band types,
+				// this is okay for now though.
+				band.q = 0.7
+				band.gain_db = 0
+				band.coefficients.a0 = 1
+				band.coefficients.a1 = 0
+				band.coefficients.a2 = 0
+				band.coefficients.b0 = 1
+				band.coefficients.b1 = 0
+				band.coefficients.b2 = 0
+				eq_reinit_band(band^)
 			}
 		}
 	}
@@ -1204,7 +1226,7 @@ context_menu :: proc() {
 
 	context_menu_container := child_container(
 		{
-			semantic_size 		= Size_Fit_Children,
+			size 		= Size_Fit_Children,
 			z_index 			= 100,
 			floating_type		= .Absolute_Pixel,
 			floating_offset 	= {f32(ui_state.context_menu.pos.x), f32(ui_state.context_menu.pos.y)},
@@ -1230,7 +1252,7 @@ context_menu :: proc() {
 	case Metadata_Sampler, Metadata_Audio_Spectrum, Metadata_Track:
 		text(
 			"Context menu not implemented for this box type @ alskdaajfalskdjfladf",
-			{semantic_size = Size_Fit_Text},
+			{size = Size_Fit_Text},
 		)
 	case Metadata_EQ_Handle:
 		eq_handle_context_menu(metadata.which, metadata.track_num, metadata.band)

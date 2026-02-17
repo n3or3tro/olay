@@ -11,14 +11,14 @@ test_percent_width_basic :: proc(t: ^testing.T) {
 		width = 500,
 		config = {
 			padding = {left = 10, top = 0, right = 10, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 500}, {type = .Fixed, amount = 100}},
+			size = {{type = .Fixed, amount = 500}, {type = .Fixed, amount = 100}},
 		},
 		children = make([dynamic]^app.Box),
 	}
 
 	child := app.Box{
 		config = {
-			semantic_size = {{type = .Percent, amount = 0.5}, {type = .Fixed, amount = 100}},
+			size = {{type = .Percent, amount = 0.5}, {type = .Fixed, amount = 100}},
 			floating_type = .Not_Floating,
 		},
 		parent = &parent,
@@ -44,14 +44,14 @@ test_percent_height_basic :: proc(t: ^testing.T) {
 		height = 500,
 		config = {
 			padding = {left = 0, top = 10, right = 0, bottom = 10},
-			semantic_size = {{type = .Fixed, amount = 100}, {type = .Fixed, amount = 500}},
+			size = {{type = .Fixed, amount = 100}, {type = .Fixed, amount = 500}},
 		},
 		children = make([dynamic]^app.Box),
 	}
 
 	child := app.Box{
 		config = {
-			semantic_size = {{type = .Fixed, amount = 100}, {type = .Percent, amount = 0.75}},
+			size = {{type = .Fixed, amount = 100}, {type = .Percent, amount = 0.75}},
 			floating_type = .Not_Floating,
 		},
 		parent = &parent,
@@ -76,14 +76,14 @@ test_percent_multiple_children :: proc(t: ^testing.T) {
 		width = 1000,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 1000}, {type = .Fixed, amount = 100}},
+			size = {{type = .Fixed, amount = 1000}, {type = .Fixed, amount = 100}},
 		},
 		children = make([dynamic]^app.Box),
 	}
 
 	child1 := app.Box{
 		config = {
-			semantic_size = {{type = .Percent, amount = 0.3}, {type = .Fixed, amount = 50}},
+			size = {{type = .Percent, amount = 0.3}, {type = .Fixed, amount = 50}},
 			floating_type = .Not_Floating,
 		},
 		parent = &parent,
@@ -91,7 +91,7 @@ test_percent_multiple_children :: proc(t: ^testing.T) {
 
 	child2 := app.Box{
 		config = {
-			semantic_size = {{type = .Percent, amount = 0.6}, {type = .Fixed, amount = 50}},
+			size = {{type = .Percent, amount = 0.6}, {type = .Fixed, amount = 50}},
 			floating_type = .Not_Floating,
 		},
 		parent = &parent,
@@ -117,14 +117,14 @@ test_percent_with_padding :: proc(t: ^testing.T) {
 		width = 500,
 		config = {
 			padding = {left = 50, top = 0, right = 50, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 500}, {type = .Fixed, amount = 100}},
+			size = {{type = .Fixed, amount = 500}, {type = .Fixed, amount = 100}},
 		},
 		children = make([dynamic]^app.Box),
 	}
 
 	child := app.Box{
 		config = {
-			semantic_size = {{type = .Percent, amount = 1.0}, {type = .Fixed, amount = 100}},
+			size = {{type = .Percent, amount = 1.0}, {type = .Fixed, amount = 100}},
 			floating_type = .Not_Floating,
 		},
 		parent = &parent,
@@ -149,14 +149,14 @@ test_percent_nested :: proc(t: ^testing.T) {
 		width = 1000,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 1000}, {type = .Fixed, amount = 200}},
+			size = {{type = .Fixed, amount = 1000}, {type = .Fixed, amount = 200}},
 		},
 		children = make([dynamic]^app.Box),
 	}
 
 	parent := app.Box{
 		config = {
-			semantic_size = {{type = .Percent, amount = 0.5}, {type = .Fixed, amount = 100}},
+			size = {{type = .Percent, amount = 0.5}, {type = .Fixed, amount = 100}},
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -166,7 +166,7 @@ test_percent_nested :: proc(t: ^testing.T) {
 
 	child := app.Box{
 		config = {
-			semantic_size = {{type = .Percent, amount = 0.8}, {type = .Fixed, amount = 50}},
+			size = {{type = .Percent, amount = 0.8}, {type = .Fixed, amount = 50}},
 			floating_type = .Not_Floating,
 		},
 		parent = &parent,
@@ -194,14 +194,14 @@ test_percent_ignores_floating :: proc(t: ^testing.T) {
 		width = 500,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 500}, {type = .Fixed, amount = 100}},
+			size = {{type = .Fixed, amount = 500}, {type = .Fixed, amount = 100}},
 		},
 		children = make([dynamic]^app.Box),
 	}
 
 	child_normal := app.Box{
 		config = {
-			semantic_size = {{type = .Percent, amount = 0.5}, {type = .Fixed, amount = 100}},
+			size = {{type = .Percent, amount = 0.5}, {type = .Fixed, amount = 100}},
 			floating_type = .Not_Floating,
 		},
 		parent = &parent,
@@ -210,7 +210,7 @@ test_percent_ignores_floating :: proc(t: ^testing.T) {
 	child_floating := app.Box{
 		width = 100,
 		config = {
-			semantic_size = {{type = .Percent, amount = 0.5}, {type = .Fixed, amount = 100}},
+			size = {{type = .Percent, amount = 0.5}, {type = .Fixed, amount = 100}},
 			floating_type = .Relative_Root,
 		},
 		parent = &parent,
@@ -240,14 +240,14 @@ test_percent_edge_cases :: proc(t: ^testing.T) {
 		width = 500,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 500}, {type = .Fixed, amount = 100}},
+			size = {{type = .Fixed, amount = 500}, {type = .Fixed, amount = 100}},
 		},
 		children = make([dynamic]^app.Box),
 	}
 
 	child_zero := app.Box{
 		config = {
-			semantic_size = {{type = .Percent, amount = 0.0}, {type = .Fixed, amount = 100}},
+			size = {{type = .Percent, amount = 0.0}, {type = .Fixed, amount = 100}},
 			floating_type = .Not_Floating,
 		},
 		parent = &parent,
@@ -255,7 +255,7 @@ test_percent_edge_cases :: proc(t: ^testing.T) {
 
 	child_full := app.Box{
 		config = {
-			semantic_size = {{type = .Percent, amount = 1.0}, {type = .Fixed, amount = 100}},
+			size = {{type = .Percent, amount = 1.0}, {type = .Fixed, amount = 100}},
 			floating_type = .Not_Floating,
 		},
 		parent = &parent,

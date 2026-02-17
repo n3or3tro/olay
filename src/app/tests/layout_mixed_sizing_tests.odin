@@ -11,7 +11,7 @@ test_mixed_fixed_and_grow :: proc(t: ^testing.T) {
 		width = 500,
 		config = {
 			padding = {left = 10, top = 0, right = 10, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 500}, {type = .Fixed, amount = 100}},
+			size = {{type = .Fixed, amount = 500}, {type = .Fixed, amount = 100}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -23,7 +23,7 @@ test_mixed_fixed_and_grow :: proc(t: ^testing.T) {
 	child_fixed := app.Box{
 		width = 100,
 		config = {
-			semantic_size = {{type = .Fixed, amount = 100}, {type = .Fixed, amount = 50}},
+			size = {{type = .Fixed, amount = 100}, {type = .Fixed, amount = 50}},
 			floating_type = .Not_Floating,
 		},
 	}
@@ -31,7 +31,7 @@ test_mixed_fixed_and_grow :: proc(t: ^testing.T) {
 	child_grow := app.Box{
 		width = 50, // Initial small width
 		config = {
-			semantic_size = {{type = .Grow, amount = 0}, {type = .Fixed, amount = 50}},
+			size = {{type = .Grow, amount = 0}, {type = .Fixed, amount = 50}},
 			floating_type = .Not_Floating,
 		},
 	}
@@ -60,7 +60,7 @@ test_mixed_fit_children_and_grow :: proc(t: ^testing.T) {
 		width = 600,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 600}, {type = .Fixed, amount = 100}},
+			size = {{type = .Fixed, amount = 600}, {type = .Fixed, amount = 100}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -72,7 +72,7 @@ test_mixed_fit_children_and_grow :: proc(t: ^testing.T) {
 	container := app.Box{
 		width = 150, // Fits its children
 		config = {
-			semantic_size = {{type = .Fit_Children, amount = 0}, {type = .Fixed, amount = 50}},
+			size = {{type = .Fit_Children, amount = 0}, {type = .Fixed, amount = 50}},
 			floating_type = .Not_Floating,
 		},
 	}
@@ -80,7 +80,7 @@ test_mixed_fit_children_and_grow :: proc(t: ^testing.T) {
 	grow_child := app.Box{
 		width = 100,
 		config = {
-			semantic_size = {{type = .Grow, amount = 0}, {type = .Fixed, amount = 50}},
+			size = {{type = .Grow, amount = 0}, {type = .Fixed, amount = 50}},
 			floating_type = .Not_Floating,
 		},
 	}
@@ -109,7 +109,7 @@ test_all_sizing_modes_together :: proc(t: ^testing.T) {
 		width = 1000,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 1000}, {type = .Fixed, amount = 100}},
+			size = {{type = .Fixed, amount = 1000}, {type = .Fixed, amount = 100}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -121,7 +121,7 @@ test_all_sizing_modes_together :: proc(t: ^testing.T) {
 	// After percent sizing, this will be set
 	child_percent := app.Box{
 		config = {
-			semantic_size = {{type = .Percent, amount = 0.2}, {type = .Fixed, amount = 50}},
+			size = {{type = .Percent, amount = 0.2}, {type = .Fixed, amount = 50}},
 			floating_type = .Not_Floating,
 		},
 		parent = &parent,
@@ -130,7 +130,7 @@ test_all_sizing_modes_together :: proc(t: ^testing.T) {
 	child_fixed := app.Box{
 		width = 150,
 		config = {
-			semantic_size = {{type = .Fixed, amount = 150}, {type = .Fixed, amount = 50}},
+			size = {{type = .Fixed, amount = 150}, {type = .Fixed, amount = 50}},
 			floating_type = .Not_Floating,
 		},
 	}
@@ -138,7 +138,7 @@ test_all_sizing_modes_together :: proc(t: ^testing.T) {
 	child_grow1 := app.Box{
 		width = 100,
 		config = {
-			semantic_size = {{type = .Grow, amount = 0}, {type = .Fixed, amount = 50}},
+			size = {{type = .Grow, amount = 0}, {type = .Fixed, amount = 50}},
 			floating_type = .Not_Floating,
 		},
 	}
@@ -146,7 +146,7 @@ test_all_sizing_modes_together :: proc(t: ^testing.T) {
 	child_grow2 := app.Box{
 		width = 100,
 		config = {
-			semantic_size = {{type = .Grow, amount = 0}, {type = .Fixed, amount = 50}},
+			size = {{type = .Grow, amount = 0}, {type = .Fixed, amount = 50}},
 			floating_type = .Not_Floating,
 		},
 	}
@@ -185,7 +185,7 @@ test_fit_text_with_other_modes :: proc(t: ^testing.T) {
 		width = 500,
 		config = {
 			padding = {left = 10, top = 0, right = 10, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 500}, {type = .Fixed, amount = 50}},
+			size = {{type = .Fixed, amount = 500}, {type = .Fixed, amount = 50}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -198,7 +198,7 @@ test_fit_text_with_other_modes :: proc(t: ^testing.T) {
 	text_child := app.Box{
 		width = 80, // Set by text measurement
 		config = {
-			semantic_size = {{type = .Fit_Text, amount = 0}, {type = .Fixed, amount = 30}},
+			size = {{type = .Fit_Text, amount = 0}, {type = .Fixed, amount = 30}},
 			floating_type = .Not_Floating,
 		},
 	}
@@ -206,7 +206,7 @@ test_fit_text_with_other_modes :: proc(t: ^testing.T) {
 	grow_child := app.Box{
 		width = 50,
 		config = {
-			semantic_size = {{type = .Grow, amount = 0}, {type = .Fixed, amount = 30}},
+			size = {{type = .Grow, amount = 0}, {type = .Fixed, amount = 30}},
 			floating_type = .Not_Floating,
 		},
 	}
@@ -234,7 +234,7 @@ test_empty_fit_children_container :: proc(t: ^testing.T) {
 	parent := app.Box{
 		config = {
 			padding = {left = 10, top = 5, right = 15, bottom = 8},
-			semantic_size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
+			size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -261,7 +261,7 @@ test_single_child_fit_children :: proc(t: ^testing.T) {
 	parent := app.Box{
 		config = {
 			padding = {left = 10, top = 10, right = 10, bottom = 10},
-			semantic_size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
+			size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -304,7 +304,7 @@ test_grow_unequal_initial_sizes :: proc(t: ^testing.T) {
 		width = 500,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 500}, {type = .Fixed, amount = 100}},
+			size = {{type = .Fixed, amount = 500}, {type = .Fixed, amount = 100}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -317,7 +317,7 @@ test_grow_unequal_initial_sizes :: proc(t: ^testing.T) {
 	child1 := app.Box{
 		width = 50,
 		config = {
-			semantic_size = {{type = .Grow, amount = 0}, {type = .Fixed, amount = 50}},
+			size = {{type = .Grow, amount = 0}, {type = .Fixed, amount = 50}},
 			floating_type = .Not_Floating,
 		},
 	}
@@ -325,7 +325,7 @@ test_grow_unequal_initial_sizes :: proc(t: ^testing.T) {
 	child2 := app.Box{
 		width = 100,
 		config = {
-			semantic_size = {{type = .Grow, amount = 0}, {type = .Fixed, amount = 50}},
+			size = {{type = .Grow, amount = 0}, {type = .Fixed, amount = 50}},
 			floating_type = .Not_Floating,
 		},
 	}
@@ -354,7 +354,7 @@ test_vertical_mixed_sizing :: proc(t: ^testing.T) {
 		height = 600,
 		config = {
 			padding = {left = 0, top = 10, right = 0, bottom = 10},
-			semantic_size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 600}},
+			size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 600}},
 		},
 		child_layout = {
 			direction = .Vertical,
@@ -366,7 +366,7 @@ test_vertical_mixed_sizing :: proc(t: ^testing.T) {
 	child_fixed := app.Box{
 		height = 100,
 		config = {
-			semantic_size = {{type = .Fixed, amount = 100}, {type = .Fixed, amount = 100}},
+			size = {{type = .Fixed, amount = 100}, {type = .Fixed, amount = 100}},
 			floating_type = .Not_Floating,
 		},
 	}
@@ -374,7 +374,7 @@ test_vertical_mixed_sizing :: proc(t: ^testing.T) {
 	child_grow := app.Box{
 		height = 50,
 		config = {
-			semantic_size = {{type = .Fixed, amount = 100}, {type = .Grow, amount = 0}},
+			size = {{type = .Fixed, amount = 100}, {type = .Grow, amount = 0}},
 			floating_type = .Not_Floating,
 		},
 	}

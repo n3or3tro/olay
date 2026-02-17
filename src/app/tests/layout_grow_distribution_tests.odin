@@ -13,7 +13,7 @@ test_grow_equal_distribution :: proc(t: ^testing.T) {
 		height = 100,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 600}, {type = .Fixed, amount = 100}},
+			size = {{type = .Fixed, amount = 600}, {type = .Fixed, amount = 100}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -26,7 +26,7 @@ test_grow_equal_distribution :: proc(t: ^testing.T) {
 		width = 100,
 		height = 50,
 		config = {
-			semantic_size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 50}},
+			size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 50}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -37,7 +37,7 @@ test_grow_equal_distribution :: proc(t: ^testing.T) {
 		width = 100,
 		height = 50,
 		config = {
-			semantic_size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 50}},
+			size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 50}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -75,7 +75,7 @@ test_grow_weighted_distribution :: proc(t: ^testing.T) {
 		height = 100,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 1000}, {type = .Fixed, amount = 100}},
+			size = {{type = .Fixed, amount = 1000}, {type = .Fixed, amount = 100}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -89,7 +89,7 @@ test_grow_weighted_distribution :: proc(t: ^testing.T) {
 		width = 100,
 		height = 50,
 		config = {
-			semantic_size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 50}},
+			size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 50}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -101,7 +101,7 @@ test_grow_weighted_distribution :: proc(t: ^testing.T) {
 		width = 100,
 		height = 50,
 		config = {
-			semantic_size = {{type = .Grow, amount = 2.0}, {type = .Fixed, amount = 50}},
+			size = {{type = .Grow, amount = 2.0}, {type = .Fixed, amount = 50}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -119,10 +119,10 @@ test_grow_weighted_distribution :: proc(t: ^testing.T) {
 	// Child2 final: 100 + 533 = 633
 
 	available_space := parent.width - (child1.width + child2.width)
-	total_grow_amount := child1.config.semantic_size.x.amount + child2.config.semantic_size.x.amount
+	total_grow_amount := child1.config.size.x.amount + child2.config.size.x.amount
 
-	child1_grow := int(f32(available_space) * (child1.config.semantic_size.x.amount / total_grow_amount))
-	child2_grow := int(f32(available_space) * (child2.config.semantic_size.x.amount / total_grow_amount))
+	child1_grow := int(f32(available_space) * (child1.config.size.x.amount / total_grow_amount))
+	child2_grow := int(f32(available_space) * (child2.config.size.x.amount / total_grow_amount))
 
 	expected_child1_final := child1.width + child1_grow
 	expected_child2_final := child2.width + child2_grow
@@ -142,7 +142,7 @@ test_grow_with_margins :: proc(t: ^testing.T) {
 		height = 100,
 		config = {
 			padding = {left = 10, top = 0, right = 10, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 500}, {type = .Fixed, amount = 100}},
+			size = {{type = .Fixed, amount = 500}, {type = .Fixed, amount = 100}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -155,7 +155,7 @@ test_grow_with_margins :: proc(t: ^testing.T) {
 		width = 80,
 		height = 50,
 		config = {
-			semantic_size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 50}},
+			size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 50}},
 			margin = {left = 10, right = 10, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -166,7 +166,7 @@ test_grow_with_margins :: proc(t: ^testing.T) {
 		width = 80,
 		height = 50,
 		config = {
-			semantic_size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 50}},
+			size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 50}},
 			margin = {left = 10, right = 10, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -201,7 +201,7 @@ test_grow_with_gaps :: proc(t: ^testing.T) {
 		height = 100,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 500}, {type = .Fixed, amount = 100}},
+			size = {{type = .Fixed, amount = 500}, {type = .Fixed, amount = 100}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -214,7 +214,7 @@ test_grow_with_gaps :: proc(t: ^testing.T) {
 		width = 100,
 		height = 50,
 		config = {
-			semantic_size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 50}},
+			size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 50}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -225,7 +225,7 @@ test_grow_with_gaps :: proc(t: ^testing.T) {
 		width = 100,
 		height = 50,
 		config = {
-			semantic_size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 50}},
+			size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 50}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -259,7 +259,7 @@ test_grow_mixed_with_fixed :: proc(t: ^testing.T) {
 		height = 100,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 600}, {type = .Fixed, amount = 100}},
+			size = {{type = .Fixed, amount = 600}, {type = .Fixed, amount = 100}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -272,7 +272,7 @@ test_grow_mixed_with_fixed :: proc(t: ^testing.T) {
 		width = 100,
 		height = 50,
 		config = {
-			semantic_size = {{type = .Fixed, amount = 100}, {type = .Fixed, amount = 50}},
+			size = {{type = .Fixed, amount = 100}, {type = .Fixed, amount = 50}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -283,7 +283,7 @@ test_grow_mixed_with_fixed :: proc(t: ^testing.T) {
 		width = 100,
 		height = 50,
 		config = {
-			semantic_size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 50}},
+			size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 50}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -318,7 +318,7 @@ test_grow_vertical :: proc(t: ^testing.T) {
 		height = 600,
 		config = {
 			padding = {left = 0, top = 10, right = 0, bottom = 10},
-			semantic_size = {{type = .Fixed, amount = 100}, {type = .Fixed, amount = 600}},
+			size = {{type = .Fixed, amount = 100}, {type = .Fixed, amount = 600}},
 		},
 		child_layout = {
 			direction = .Vertical,
@@ -331,7 +331,7 @@ test_grow_vertical :: proc(t: ^testing.T) {
 		width = 80,
 		height = 100,
 		config = {
-			semantic_size = {{type = .Fixed, amount = 80}, {type = .Grow, amount = 1.0}},
+			size = {{type = .Fixed, amount = 80}, {type = .Grow, amount = 1.0}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -342,7 +342,7 @@ test_grow_vertical :: proc(t: ^testing.T) {
 		width = 80,
 		height = 100,
 		config = {
-			semantic_size = {{type = .Fixed, amount = 80}, {type = .Grow, amount = 1.0}},
+			size = {{type = .Fixed, amount = 80}, {type = .Grow, amount = 1.0}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -377,7 +377,7 @@ test_grow_ignores_floating :: proc(t: ^testing.T) {
 		height = 100,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 600}, {type = .Fixed, amount = 100}},
+			size = {{type = .Fixed, amount = 600}, {type = .Fixed, amount = 100}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -390,7 +390,7 @@ test_grow_ignores_floating :: proc(t: ^testing.T) {
 		width = 100,
 		height = 50,
 		config = {
-			semantic_size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 50}},
+			size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 50}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -401,7 +401,7 @@ test_grow_ignores_floating :: proc(t: ^testing.T) {
 		width = 200,
 		height = 50,
 		config = {
-			semantic_size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 50}},
+			size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 50}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Relative_Parent,
 		},
@@ -436,7 +436,7 @@ test_fit_children_and_grow :: proc(t: ^testing.T) {
 		height = 100,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 800}, {type = .Fixed, amount = 100}},
+			size = {{type = .Fixed, amount = 800}, {type = .Fixed, amount = 100}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -450,7 +450,7 @@ test_fit_children_and_grow :: proc(t: ^testing.T) {
 		width = 150, // Initially fits children
 		height = 50,
 		config = {
-			semantic_size = {{type = .Fit_Children_And_Grow, amount = 1.0}, {type = .Fixed, amount = 50}},
+			size = {{type = .Fit_Children_And_Grow, amount = 1.0}, {type = .Fixed, amount = 50}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
@@ -463,7 +463,7 @@ test_fit_children_and_grow :: proc(t: ^testing.T) {
 		width = 200,
 		height = 50,
 		config = {
-			semantic_size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 50}},
+			size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 50}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -496,7 +496,7 @@ test_grow_three_children_weighted :: proc(t: ^testing.T) {
 		height = 100,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 1000}, {type = .Fixed, amount = 100}},
+			size = {{type = .Fixed, amount = 1000}, {type = .Fixed, amount = 100}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -509,7 +509,7 @@ test_grow_three_children_weighted :: proc(t: ^testing.T) {
 		width = 50,
 		height = 50,
 		config = {
-			semantic_size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 50}},
+			size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 50}},
 			floating_type = .Not_Floating,
 		},
 		parent = &parent,
@@ -519,7 +519,7 @@ test_grow_three_children_weighted :: proc(t: ^testing.T) {
 		width = 50,
 		height = 50,
 		config = {
-			semantic_size = {{type = .Grow, amount = 2.0}, {type = .Fixed, amount = 50}},
+			size = {{type = .Grow, amount = 2.0}, {type = .Fixed, amount = 50}},
 			floating_type = .Not_Floating,
 		},
 		parent = &parent,
@@ -529,7 +529,7 @@ test_grow_three_children_weighted :: proc(t: ^testing.T) {
 		width = 50,
 		height = 50,
 		config = {
-			semantic_size = {{type = .Grow, amount = 3.0}, {type = .Fixed, amount = 50}},
+			size = {{type = .Grow, amount = 3.0}, {type = .Fixed, amount = 50}},
 			floating_type = .Not_Floating,
 		},
 		parent = &parent,
@@ -545,11 +545,11 @@ test_grow_three_children_weighted :: proc(t: ^testing.T) {
 	// Child3: 850 * (3/6) = 425
 
 	available_space := parent.width - (child1.width + child2.width + child3.width)
-	total_grow := child1.config.semantic_size.x.amount + child2.config.semantic_size.x.amount + child3.config.semantic_size.x.amount
+	total_grow := child1.config.size.x.amount + child2.config.size.x.amount + child3.config.size.x.amount
 
-	child1_grow := int(f32(available_space) * (child1.config.semantic_size.x.amount / total_grow))
-	child2_grow := int(f32(available_space) * (child2.config.semantic_size.x.amount / total_grow))
-	child3_grow := int(f32(available_space) * (child3.config.semantic_size.x.amount / total_grow))
+	child1_grow := int(f32(available_space) * (child1.config.size.x.amount / total_grow))
+	child2_grow := int(f32(available_space) * (child2.config.size.x.amount / total_grow))
+	child3_grow := int(f32(available_space) * (child3.config.size.x.amount / total_grow))
 
 	// Verify the ratios are roughly correct
 	// Child3 should get about 3x what child1 gets

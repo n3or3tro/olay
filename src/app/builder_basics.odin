@@ -480,7 +480,7 @@ vertical_slider :: proc(
 	track := box_from_cache(
 		{.Clickable, .Draw, .Scrollable},
 		{
-			semantic_size = {{.Percent, 0.5}, {.Percent, 1}},
+			size = {{.Percent, 0.5}, {.Percent, 1}},
 			color = .Secondary
 		},
 	)
@@ -494,7 +494,7 @@ vertical_slider :: proc(
 	grip := box_from_cache(
 		{.Clickable, .Draggable, .Draw, .Hot_Animation},
 		{
-			semantic_size   = {{.Percent, 0.8}, {.Percent, 0.1}},
+			size   = {{.Percent, 0.8}, {.Percent, 0.1}},
 			color           = .Tertiary,
 			floating_type   = .Relative_Parent,
 			floating_offset = {0.5, map_range(min_val, max_val, 1, 0, slider_value^)},
@@ -551,7 +551,7 @@ multi_button_set :: proc(
 		item_id := id != "" ? tprintf("{}-item-{}", id, i) : ""
 		child_container(
 			{
-				semantic_size = Size_Fit_Children,
+				size = Size_Fit_Children,
 			},
 			{
 				direction = .Horizontal,
@@ -562,7 +562,7 @@ multi_button_set :: proc(
 		button_id := id != "" ? tprintf("{}-button-{}", id, i) : ""
 		b := button(
 			{
-				semantic_size = Size_Fit_Text,
+				size = Size_Fit_Text,
 				padding = {10, 10, 10, 10},
 				color = .Secondary,
 			},
@@ -584,7 +584,7 @@ multi_button_set :: proc(
 			tprintf("{} heya", val_as_str),
 			{
 				color 		  =  .Background,
-				semantic_size = Size_Fit_Text_And_Grow,
+				size = Size_Fit_Text_And_Grow,
 				text_justify  = {.End, .Center}
 			},
 			text_id,
@@ -636,7 +636,7 @@ draggable_window :: proc(title: string, child_layout: Box_Child_Layout, id := ""
 		{
 			floating_type   = .Absolute_Pixel,
 			floating_offset = box_center(ui_state.root^),
-			semantic_size   = Size_Fit_Children,
+			size   		    = Size_Fit_Children,
 			z_index         = 20,
 		},
 		"",
@@ -656,7 +656,7 @@ draggable_window :: proc(title: string, child_layout: Box_Child_Layout, id := ""
 	topbar_id := id != "" ? tprintf("{}-topbar", id) : ""
 	child_container(
 		{
-			semantic_size = {{.Grow, 100}, {.Fit_Children, 1}}
+			size = {{.Grow, 100}, {.Fit_Children, 1}}
 		},
 		{
 			direction = .Horizontal,
@@ -667,7 +667,7 @@ draggable_window :: proc(title: string, child_layout: Box_Child_Layout, id := ""
 	title_bar := box_from_cache(
 		{.Clickable, .Draw_Text, .Draw, .Hot_Animation, .Active_Animation},
 		{
-			semantic_size = {{.Percent, .95}, {.Fit_Text, 1}},
+			size = {{.Percent, .95}, {.Fit_Text, 1}},
 			padding = {top = 5, bottom = 5},
 			color = .Tertiary,
 			z_index = container.z_index,
@@ -680,7 +680,7 @@ draggable_window :: proc(title: string, child_layout: Box_Child_Layout, id := ""
 		"x",
 		{
 			color = .Error_Container,
-			semantic_size = Size_Fit_Text_And_Grow,
+			size = Size_Fit_Text_And_Grow,
 		},
 		close_button_id,
 	)
@@ -718,7 +718,7 @@ circular_knob :: proc(
     track := box_from_cache(
         {.Clickable, .Draw, .Scrollable},
         {
-            semantic_size = {{.Fixed, knob_size}, {.Fixed, knob_size}},
+            size = {{.Fixed, knob_size}, {.Fixed, knob_size}},
             color = config.color,
             corner_radius = int(knob_size / 2),  // Makes it circular
         },
@@ -730,7 +730,7 @@ circular_knob :: proc(
 	label_id := id != "" ? tprintf("{}-label", id) : ""
  	text(
 		label,
-		{color = .Secondary, semantic_size = Size_Fit_Text},
+		{color = .Secondary, size = Size_Fit_Text},
 		label_id,
 	)
 
@@ -780,7 +780,7 @@ circular_knob :: proc(
     grip := box_from_cache(
         {.Clickable, .Draggable, .Draw, .Hot_Animation},
         {
-            semantic_size = {{.Fixed, 10}, {.Fixed, 10}},
+            size = {{.Fixed, 10}, {.Fixed, 10}},
             color = .Error_Container,
             floating_type = .Relative_Other,
             floating_offset = vec2_f32([2]f64{grip_offset_x, grip_offset_y}),

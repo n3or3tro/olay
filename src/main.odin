@@ -9,6 +9,7 @@ import os "core:os/os2"
 import "core:prof/spall"
 import "core:sync"
 import "core:time"
+import "core:sys/windows"
 // import "pool_allocator"
 
 PROFILING :: #config(profile, false)
@@ -76,6 +77,7 @@ when PROFILING {
 api: App_API
 
 main :: proc() {
+	// windows.timeBeginPeriod(1)
 	when MODE_HOT_RELOAD {
 		run_hot_reload_mode()
 	}
@@ -84,6 +86,7 @@ main :: proc() {
 	when MODE_RELEASE {
 		run_release_mode()
 	}
+	// windows.timeEndPeriod(1)
 }
 
 run_release_mode :: proc() {
@@ -150,6 +153,7 @@ run_hot_reload_mode :: proc() {
 	api.create_gl_context()
 	api.load_gl_procs()
 	api.init()
+	// api.hot_reload(api.memory())
 	for {
 		if api.wants_restart() {
 			println("restarting app...")

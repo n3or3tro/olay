@@ -35,6 +35,8 @@ App :: struct {
 	browser_selected_dir:     ^Browser_Directory,
 	running:           		  bool,
 	windows_com_handle:		  windows.HRESULT,
+	ui_refresh_thread: 		  ^thread.Thread,
+	audio_update_thread: 	  ^thread.Thread
 }
 
 Window :: sdl.Window
@@ -134,9 +136,9 @@ app_update :: proc() -> (all_good: bool) {
 	frame_time := f64(time.now()._nsec - start)
 	time_to_wait := time.Duration(max_frame_time_ns - frame_time)
 
-	end := time.now()._nsec
-	total_frame_time_ns := f64(end - start)
-	printfln("app_update() took {} ms", total_frame_time_ns / 1_000_000)
+	// end := time.now()._nsec
+	// total_frame_time_ns := f64(end - start)
+	// printfln("app_update() took {} ms", total_frame_time_ns / 1_000_000)
 
 	if time_to_wait > 0 {
 		time.accurate_sleep(time_to_wait)
@@ -155,12 +157,17 @@ app_init :: proc(first_run := true) -> ^App {
 	root_dir.name = str.clone("Root dir")
 	app.browser_selected_dir = root_dir
 	app.browser_root_dir     = root_dir
+
+	font_init(&ui_state.font_state, ui_state.font_state.font_size)
+
 	file_browser_read_from_disk()
 	app.audio = audio_init()
+	audio_init_miniaudio(app.audio)
 	app.running = true
-	app_hot_reload(app)
 
-	t := thread.create_and_start(audio_thread_timing_proc, priority = .High)
+	app.ui_refresh_thread   = thread.create_and_start(ui_refresh_thread_proc, priority = .High)
+	app.audio_update_thread = thread.create_and_start(audio_thread_timing_proc, priority = .High)
+
 	// This a per thread thing that will persist across hot reloads, so we set it up once only
 	when ODIN_OS == .Windows {
 		if first_run {
@@ -172,10 +179,6 @@ app_init :: proc(first_run := true) -> ^App {
 		}
 	}
 	return app
-}
-
-@(export)
-app_init_gl :: proc() {
 }
 
 @(export)
@@ -263,7 +266,8 @@ app_hot_reload :: proc(mem: rawptr) {
 	font_init(&ui_state.font_state, ui_state.font_state.font_size)
 	audio_init_miniaudio(app.audio)
 	sync.atomic_store(&app.audio.exit_timing_thread, false)
-	thread.create_and_start(audio_thread_timing_proc, priority = .High)
+	app.ui_refresh_thread   = thread.create_and_start(ui_refresh_thread_proc, priority = .High)
+	app.audio_update_thread = thread.create_and_start(audio_thread_timing_proc, priority = .High)
 }
 
 @(export)
@@ -278,8 +282,9 @@ app_reload_colors :: proc(mem: rawptr, color_file_path: string) {
 @(export)
 app_unload_miniaudio :: proc() {
 	sync.atomic_store(&app.audio.exit_timing_thread, true)
+	sync.cond_broadcast(&app.audio.playing_cond)
 	// Wait for audio timing thread to pickup that it should terminate.
-	time.accurate_sleep(time.Millisecond * 10)
+	thread.join_multiple(app.ui_refresh_thread, app.audio_update_thread)
 	audio_uninit_miniaudio()
 }
 

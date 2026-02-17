@@ -13,7 +13,7 @@ test_fit_text_and_grow_horizontal_basic :: proc(t: ^testing.T) {
 		height = 100,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 100}},
+			size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 100}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -27,7 +27,7 @@ test_fit_text_and_grow_horizontal_basic :: proc(t: ^testing.T) {
 		width = 50, // Initial fit-text width
 		height = 20, // Initial fit-text height
 		config = {
-			semantic_size = {{type = .Fit_Text_And_Grow, amount = 1.0}, {type = .Fit_Text_And_Grow, amount = 1.0}},
+			size = {{type = .Fit_Text_And_Grow, amount = 1.0}, {type = .Fit_Text_And_Grow, amount = 1.0}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -60,7 +60,7 @@ test_fit_text_and_grow_horizontal_multiple :: proc(t: ^testing.T) {
 		height = 60,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 60}},
+			size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 60}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -75,7 +75,7 @@ test_fit_text_and_grow_horizontal_multiple :: proc(t: ^testing.T) {
 		width = 40, // Fit text "hey"
 		height = 20,
 		config = {
-			semantic_size = {{type = .Fit_Text_And_Grow, amount = 1.0}, {type = .Fit_Text_And_Grow, amount = 10.0}},
+			size = {{type = .Fit_Text_And_Grow, amount = 1.0}, {type = .Fit_Text_And_Grow, amount = 10.0}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -86,7 +86,7 @@ test_fit_text_and_grow_horizontal_multiple :: proc(t: ^testing.T) {
 		width = 45, // Fit text "mate"
 		height = 20,
 		config = {
-			semantic_size = {{type = .Fit_Text_And_Grow, amount = 1.0}, {type = .Fit_Text_And_Grow, amount = 10.0}},
+			size = {{type = .Fit_Text_And_Grow, amount = 1.0}, {type = .Fit_Text_And_Grow, amount = 10.0}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -97,7 +97,7 @@ test_fit_text_and_grow_horizontal_multiple :: proc(t: ^testing.T) {
 		width = 50, // Fit text "baby"
 		height = 20,
 		config = {
-			semantic_size = {{type = .Fit_Text_And_Grow, amount = 1.0}, {type = .Fit_Text_And_Grow, amount = 10.0}},
+			size = {{type = .Fit_Text_And_Grow, amount = 1.0}, {type = .Fit_Text_And_Grow, amount = 10.0}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -131,7 +131,7 @@ test_fit_children_parent_with_fit_text_and_grow :: proc(t: ^testing.T) {
 		height = 0,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
+			size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -144,7 +144,7 @@ test_fit_children_parent_with_fit_text_and_grow :: proc(t: ^testing.T) {
 		width = 50,
 		height = 20,
 		config = {
-			semantic_size = {{type = .Fit_Text_And_Grow, amount = 1.0}, {type = .Fixed, amount = 20}},
+			size = {{type = .Fit_Text_And_Grow, amount = 1.0}, {type = .Fixed, amount = 20}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -155,7 +155,7 @@ test_fit_children_parent_with_fit_text_and_grow :: proc(t: ^testing.T) {
 		width = 60,
 		height = 20,
 		config = {
-			semantic_size = {{type = .Fit_Text_And_Grow, amount = 1.0}, {type = .Fixed, amount = 20}},
+			size = {{type = .Fit_Text_And_Grow, amount = 1.0}, {type = .Fixed, amount = 20}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -189,7 +189,7 @@ test_fit_text_and_grow_sizing_order :: proc(t: ^testing.T) {
 		height = 0,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
+			size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -203,7 +203,7 @@ test_fit_text_and_grow_sizing_order :: proc(t: ^testing.T) {
 		width = 0, // NOT YET SIZED
 		height = 0,
 		config = {
-			semantic_size = {{type = .Fit_Text_And_Grow, amount = 1.0}, {type = .Fit_Text_And_Grow, amount = 1.0}},
+			size = {{type = .Fit_Text_And_Grow, amount = 1.0}, {type = .Fit_Text_And_Grow, amount = 1.0}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -233,7 +233,7 @@ test_fit_text_and_grow_different_axis_amounts :: proc(t: ^testing.T) {
 		height = 100,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 100}},
+			size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 100}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -247,7 +247,7 @@ test_fit_text_and_grow_different_axis_amounts :: proc(t: ^testing.T) {
 		width = 50,
 		height = 20,
 		config = {
-			semantic_size = {{type = .Fit_Text_And_Grow, amount = 1.0}, {type = .Fit_Text_And_Grow, amount = 10.0}},
+			size = {{type = .Fit_Text_And_Grow, amount = 1.0}, {type = .Fit_Text_And_Grow, amount = 10.0}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -262,10 +262,10 @@ test_fit_text_and_grow_different_axis_amounts :: proc(t: ^testing.T) {
 	// In horizontal layout, Y-axis grow should make child grow to parent height
 	// X-axis grow should make child grow to fill remaining width
 
-	testing.expect(t, child.config.semantic_size.x.amount == 1.0,
+	testing.expect(t, child.config.size.x.amount == 1.0,
 		fmt.tprintf("X-axis grow amount should be 1.0"))
 
-	testing.expect(t, child.config.semantic_size.y.amount == 10.0,
+	testing.expect(t, child.config.size.y.amount == 10.0,
 		fmt.tprintf("Y-axis grow amount should be 10.0"))
 
 	delete(parent.children)
@@ -278,19 +278,19 @@ test_fit_text_and_grow_is_growable :: proc(t: ^testing.T) {
 		width = 50,
 		height = 20,
 		config = {
-			semantic_size = {{type = .Fit_Text_And_Grow, amount = 1.0}, {type = .Fixed, amount = 20}},
+			size = {{type = .Fit_Text_And_Grow, amount = 1.0}, {type = .Fixed, amount = 20}},
 		},
 	}
 
 	// Check that the size type is correct
-	testing.expect(t, box.config.semantic_size.x.type == .Fit_Text_And_Grow,
+	testing.expect(t, box.config.size.x.type == .Fit_Text_And_Grow,
 		fmt.tprintf("X-axis should be Fit_Text_And_Grow"))
 
 	// In the actual layout code, sizing_grow_growable_width should include this type
 	// Let's verify it's one of the growable types
-	is_growable := box.config.semantic_size.x.type == .Grow ||
-	               box.config.semantic_size.x.type == .Fit_Text_And_Grow ||
-	               box.config.semantic_size.x.type == .Fit_Children_And_Grow
+	is_growable := box.config.size.x.type == .Grow ||
+	               box.config.size.x.type == .Fit_Text_And_Grow ||
+	               box.config.size.x.type == .Fit_Children_And_Grow
 
 	testing.expect(t, is_growable,
 		fmt.tprintf("Fit_Text_And_Grow should be recognized as growable"))
@@ -304,7 +304,7 @@ test_fit_children_and_grow_parent_with_fit_text_and_grow :: proc(t: ^testing.T) 
 		height = 0,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fit_Children_And_Grow, amount = 1.0}, {type = .Fit_Children, amount = 0}},
+			size = {{type = .Fit_Children_And_Grow, amount = 1.0}, {type = .Fit_Children, amount = 0}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -317,7 +317,7 @@ test_fit_children_and_grow_parent_with_fit_text_and_grow :: proc(t: ^testing.T) 
 		width = 50,
 		height = 20,
 		config = {
-			semantic_size = {{type = .Fit_Text_And_Grow, amount = 1.0}, {type = .Fixed, amount = 20}},
+			size = {{type = .Fit_Text_And_Grow, amount = 1.0}, {type = .Fixed, amount = 20}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -348,7 +348,7 @@ test_center_alignment_with_fit_text_and_grow :: proc(t: ^testing.T) {
 		bottom_right = {200, 60},
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 60}},
+			size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 60}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -363,7 +363,7 @@ test_center_alignment_with_fit_text_and_grow :: proc(t: ^testing.T) {
 		width = 40,
 		height = 20,
 		config = {
-			semantic_size = {{type = .Fit_Text_And_Grow, amount = 1.0}, {type = .Fit_Text_And_Grow, amount = 10.0}},
+			size = {{type = .Fit_Text_And_Grow, amount = 1.0}, {type = .Fit_Text_And_Grow, amount = 10.0}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -374,7 +374,7 @@ test_center_alignment_with_fit_text_and_grow :: proc(t: ^testing.T) {
 		width = 40,
 		height = 20,
 		config = {
-			semantic_size = {{type = .Fit_Text_And_Grow, amount = 1.0}, {type = .Fit_Text_And_Grow, amount = 10.0}},
+			size = {{type = .Fit_Text_And_Grow, amount = 1.0}, {type = .Fit_Text_And_Grow, amount = 10.0}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -404,7 +404,7 @@ test_ui_code_scenario :: proc(t: ^testing.T) {
 		width = 200,
 		height = 60,
 		config = {
-			semantic_size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 60}},
+			size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 60}},
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
 		},
 		child_layout = {
@@ -421,7 +421,7 @@ test_ui_code_scenario :: proc(t: ^testing.T) {
 		width = 35, // Approximate fit-text for "hey"
 		height = 20,
 		config = {
-			semantic_size = {{type = .Fit_Text_And_Grow, amount = 1}, {type = .Fit_Text_And_Grow, amount = 10}},
+			size = {{type = .Fit_Text_And_Grow, amount = 1}, {type = .Fit_Text_And_Grow, amount = 10}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -432,7 +432,7 @@ test_ui_code_scenario :: proc(t: ^testing.T) {
 		width = 40, // Approximate fit-text for "mate"
 		height = 20,
 		config = {
-			semantic_size = {{type = .Fit_Text_And_Grow, amount = 1}, {type = .Fit_Text_And_Grow, amount = 10}},
+			size = {{type = .Fit_Text_And_Grow, amount = 1}, {type = .Fit_Text_And_Grow, amount = 10}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -443,7 +443,7 @@ test_ui_code_scenario :: proc(t: ^testing.T) {
 		width = 45, // Approximate fit-text for "baby"
 		height = 20,
 		config = {
-			semantic_size = {{type = .Fit_Text_And_Grow, amount = 1}, {type = .Fit_Text_And_Grow, amount = 10}},
+			size = {{type = .Fit_Text_And_Grow, amount = 1}, {type = .Fit_Text_And_Grow, amount = 10}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -479,7 +479,7 @@ test_fit_text_and_grow_with_zero_initial_size :: proc(t: ^testing.T) {
 		height = 100,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 100}},
+			size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 100}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -493,7 +493,7 @@ test_fit_text_and_grow_with_zero_initial_size :: proc(t: ^testing.T) {
 		width = 0,
 		height = 0,
 		config = {
-			semantic_size = {{type = .Fit_Text_And_Grow, amount = 1.0}, {type = .Fixed, amount = 20}},
+			size = {{type = .Fit_Text_And_Grow, amount = 1.0}, {type = .Fixed, amount = 20}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},

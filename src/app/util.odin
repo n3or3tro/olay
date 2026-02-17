@@ -1,10 +1,12 @@
 package app
 import "base:intrinsics"
+import "core:time"
 import "core:strconv"
 import str "core:strings"
 import "core:path/filepath"
 import vmem "core:mem/virtual"
 import "core:mem"
+import win "core:sys/windows"
 
 
 // Could definitely break due to numeric type conversions and integer division and shit.
@@ -177,4 +179,23 @@ vec4_f32 :: proc(d: [4]$T) -> [4]f32
 where intrinsics.type_is_numeric(T) 
 {
 	return {f32(d[0]), f32(d[1]), f32(d[2]), f32(d[3])}
+}
+
+accurate_sleep :: proc(duration: time.Duration) {
+	when ODIN_OS == .Windows {
+		handle := win.CreateWaitableTimerExW(nil, nil, 2, win.TIMER_ALL_ACCESS)
+		if handle == nil do return
+		defer win.CloseHandle(handle)
+		due := win.LARGE_INTEGER(-i64(duration) / 100)
+		win.SetWaitableTimerEx(handle, &due, 0, nil, nil, nil, 0)
+		win.WaitForSingleObject(handle, win.INFINITE)
+	} 
+	else when ODIN_OS == .Linux { 
+		time.accurate_sleep(duration)
+	}
+	else when ODIN_OS == .Darwin {
+		time.accurate_sleep(duration)
+	} else {
+		panicf("Don't know how to accurately sleep on {}", ODIN_OS)
+	}
 }

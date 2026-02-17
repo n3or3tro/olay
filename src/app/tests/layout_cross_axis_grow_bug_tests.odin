@@ -13,7 +13,7 @@ test_fit_text_and_grow_both_axes :: proc(t: ^testing.T) {
 		height = 60,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 60}},
+			size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 60}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -29,7 +29,7 @@ test_fit_text_and_grow_both_axes :: proc(t: ^testing.T) {
 		width = 35,  // Initial fit-text width
 		height = 20, // Initial fit-text height
 		config = {
-			semantic_size = {{type = .Fit_Text_And_Grow, amount = 1}, {type = .Fit_Text_And_Grow, amount = 1}},
+			size = {{type = .Fit_Text_And_Grow, amount = 1}, {type = .Fit_Text_And_Grow, amount = 1}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			padding = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
@@ -64,7 +64,7 @@ test_cross_axis_height_growth_horizontal_layout :: proc(t: ^testing.T) {
 		height = 60,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 60}},
+			size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 60}},
 		},
 		child_layout = {
 			direction = .Horizontal, // Main axis is X, cross axis is Y
@@ -77,7 +77,7 @@ test_cross_axis_height_growth_horizontal_layout :: proc(t: ^testing.T) {
 		width = 50,
 		height = 20, // Starts at fit-text height
 		config = {
-			semantic_size = {{type = .Fit_Text_And_Grow, amount = 1}, {type = .Fit_Text_And_Grow, amount = 1}},
+			size = {{type = .Fit_Text_And_Grow, amount = 1}, {type = .Fit_Text_And_Grow, amount = 1}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			padding = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
@@ -111,7 +111,7 @@ test_horizontal_layout_cross_axis_identification :: proc(t: ^testing.T) {
 		height = 60,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 60}},
+			size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 60}},
 		},
 		child_layout = {
 			direction = .Horizontal, // This means X is main axis, Y is cross axis
@@ -140,7 +140,7 @@ test_cross_axis_growth_with_padding :: proc(t: ^testing.T) {
 		height = 60,
 		config = {
 			padding = {left = 10, top = 5, right = 10, bottom = 5}, // 10px Y padding total
-			semantic_size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 60}},
+			size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 60}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -153,7 +153,7 @@ test_cross_axis_growth_with_padding :: proc(t: ^testing.T) {
 		width = 50,
 		height = 20,
 		config = {
-			semantic_size = {{type = .Fit_Text_And_Grow, amount = 1}, {type = .Fit_Text_And_Grow, amount = 1}},
+			size = {{type = .Fit_Text_And_Grow, amount = 1}, {type = .Fit_Text_And_Grow, amount = 1}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			padding = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
@@ -183,7 +183,7 @@ test_cross_axis_growth_button_with_padding :: proc(t: ^testing.T) {
 		height = 60,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 60}},
+			size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 60}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -196,7 +196,7 @@ test_cross_axis_growth_button_with_padding :: proc(t: ^testing.T) {
 		width = 50,
 		height = 20, // This is the HEIGHT OF THE BOX, not including padding
 		config = {
-			semantic_size = {{type = .Fit_Text_And_Grow, amount = 1}, {type = .Fit_Text_And_Grow, amount = 1}},
+			size = {{type = .Fit_Text_And_Grow, amount = 1}, {type = .Fit_Text_And_Grow, amount = 1}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			padding = {left = 10, right = 10, top = 5, bottom = 5}, // Button has internal padding
 			floating_type = .Not_Floating,
@@ -223,7 +223,7 @@ test_exact_user_scenario :: proc(t: ^testing.T) {
 		width = 200,
 		height = 60,
 		config = {
-			semantic_size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 60}},
+			size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 60}},
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
 		},
 		child_layout = {
@@ -239,7 +239,7 @@ test_exact_user_scenario :: proc(t: ^testing.T) {
 		width = 35,
 		height = 20,
 		config = {
-			semantic_size = {{type = .Fit_Text_And_Grow, amount = 1}, {type = .Fit_Text_And_Grow, amount = 1}},
+			size = {{type = .Fit_Text_And_Grow, amount = 1}, {type = .Fit_Text_And_Grow, amount = 1}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			padding = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
@@ -273,7 +273,7 @@ test_cross_axis_growth_with_margins :: proc(t: ^testing.T) {
 		height = 60,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 60}},
+			size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 60}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -286,7 +286,7 @@ test_cross_axis_growth_with_margins :: proc(t: ^testing.T) {
 		width = 50,
 		height = 20,
 		config = {
-			semantic_size = {{type = .Fit_Text_And_Grow, amount = 1}, {type = .Fit_Text_And_Grow, amount = 1}},
+			size = {{type = .Fit_Text_And_Grow, amount = 1}, {type = .Fit_Text_And_Grow, amount = 1}},
 			margin = {left = 0, right = 0, top = 5, bottom = 5}, // 10px total Y margin
 			padding = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,

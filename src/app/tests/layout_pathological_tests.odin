@@ -15,7 +15,7 @@ test_extreme_nesting_10_levels :: proc(t: ^testing.T) {
 		levels[i] = app.Box{
 			config = {
 				padding = {left = 1, top = 1, right = 1, bottom = 1},
-				semantic_size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
+				size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
 				floating_type = i == 0 ? .Not_Floating : .Not_Floating,
 			},
 			child_layout = {
@@ -35,7 +35,7 @@ test_extreme_nesting_10_levels :: proc(t: ^testing.T) {
 		width = 5,
 		height = 5,
 		config = {
-			semantic_size = {{type = .Fixed, amount = 5}, {type = .Fixed, amount = 5}},
+			size = {{type = .Fixed, amount = 5}, {type = .Fixed, amount = 5}},
 			floating_type = .Not_Floating,
 		},
 		parent = &levels[9],
@@ -67,7 +67,7 @@ test_many_children_100 :: proc(t: ^testing.T) {
 	parent := app.Box{
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
+			size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -83,7 +83,7 @@ test_many_children_100 :: proc(t: ^testing.T) {
 			width = 10,
 			height = 10,
 			config = {
-				semantic_size = {{type = .Fixed, amount = 10}, {type = .Fixed, amount = 10}},
+				size = {{type = .Fixed, amount = 10}, {type = .Fixed, amount = 10}},
 				floating_type = .Not_Floating,
 			},
 			parent = &parent,
@@ -108,7 +108,7 @@ test_extreme_grow_amounts :: proc(t: ^testing.T) {
 		width = 10000,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 10000}, {type = .Fixed, amount = 100}},
+			size = {{type = .Fixed, amount = 10000}, {type = .Fixed, amount = 100}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -121,7 +121,7 @@ test_extreme_grow_amounts :: proc(t: ^testing.T) {
 	child1 := app.Box{
 		width = 10,
 		config = {
-			semantic_size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 100}},
+			size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 100}},
 			floating_type = .Not_Floating,
 		},
 		parent = &parent,
@@ -131,7 +131,7 @@ test_extreme_grow_amounts :: proc(t: ^testing.T) {
 	child2 := app.Box{
 		width = 10,
 		config = {
-			semantic_size = {{type = .Grow, amount = 100.0}, {type = .Fixed, amount = 100}},
+			size = {{type = .Grow, amount = 100.0}, {type = .Fixed, amount = 100}},
 			floating_type = .Not_Floating,
 		},
 		parent = &parent,
@@ -145,8 +145,8 @@ test_extreme_grow_amounts :: proc(t: ^testing.T) {
 	// Child2 grows by: 9980 * (100/101) ≈ 9881.2
 
 	available := parent.width - (child1.width + child2.width)
-	total_grow := child1.config.semantic_size.x.amount + child2.config.semantic_size.x.amount
-	child2_grow := int(f32(available) * (child2.config.semantic_size.x.amount / total_grow))
+	total_grow := child1.config.size.x.amount + child2.config.size.x.amount
+	child2_grow := int(f32(available) * (child2.config.size.x.amount / total_grow))
 
 	// Child2 should get approximately 100x more than child1
 	testing.expect(t, child2_grow > 9800,
@@ -162,7 +162,7 @@ test_very_small_grow_amount :: proc(t: ^testing.T) {
 		width = 1000,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 1000}, {type = .Fixed, amount = 100}},
+			size = {{type = .Fixed, amount = 1000}, {type = .Fixed, amount = 100}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -174,7 +174,7 @@ test_very_small_grow_amount :: proc(t: ^testing.T) {
 	child_tiny_grow := app.Box{
 		width = 100,
 		config = {
-			semantic_size = {{type = .Grow, amount = 0.01}, {type = .Fixed, amount = 100}},
+			size = {{type = .Grow, amount = 0.01}, {type = .Fixed, amount = 100}},
 			floating_type = .Not_Floating,
 		},
 		parent = &parent,
@@ -183,7 +183,7 @@ test_very_small_grow_amount :: proc(t: ^testing.T) {
 	child_normal_grow := app.Box{
 		width = 100,
 		config = {
-			semantic_size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 100}},
+			size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 100}},
 			floating_type = .Not_Floating,
 		},
 		parent = &parent,
@@ -197,8 +197,8 @@ test_very_small_grow_amount :: proc(t: ^testing.T) {
 	// Normal grows by: 800 * (1.0/1.01) ≈ 792.1
 
 	available := parent.width - (child_tiny_grow.width + child_normal_grow.width)
-	total_grow := child_tiny_grow.config.semantic_size.x.amount + child_normal_grow.config.semantic_size.x.amount
-	tiny_grow := int(f32(available) * (child_tiny_grow.config.semantic_size.x.amount / total_grow))
+	total_grow := child_tiny_grow.config.size.x.amount + child_normal_grow.config.size.x.amount
+	tiny_grow := int(f32(available) * (child_tiny_grow.config.size.x.amount / total_grow))
 
 	// Tiny grow should be very small
 	testing.expect(t, tiny_grow >= 7 && tiny_grow <= 9,
@@ -215,7 +215,7 @@ test_extreme_percent_values :: proc(t: ^testing.T) {
 		height = 500,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 1000}, {type = .Fixed, amount = 500}},
+			size = {{type = .Fixed, amount = 1000}, {type = .Fixed, amount = 500}},
 		},
 		children = make([dynamic]^app.Box),
 	}
@@ -223,7 +223,7 @@ test_extreme_percent_values :: proc(t: ^testing.T) {
 	// Child with 0.001% (very small)
 	child_tiny := app.Box{
 		config = {
-			semantic_size = {{type = .Percent, amount = 0.00001}, {type = .Fixed, amount = 100}},
+			size = {{type = .Percent, amount = 0.00001}, {type = .Fixed, amount = 100}},
 			floating_type = .Not_Floating,
 		},
 		parent = &parent,
@@ -232,7 +232,7 @@ test_extreme_percent_values :: proc(t: ^testing.T) {
 	// Child with 150% (exceeds parent)
 	child_exceed := app.Box{
 		config = {
-			semantic_size = {{type = .Percent, amount = 1.5}, {type = .Fixed, amount = 100}},
+			size = {{type = .Percent, amount = 1.5}, {type = .Fixed, amount = 100}},
 			floating_type = .Not_Floating,
 		},
 		parent = &parent,
@@ -259,7 +259,7 @@ test_padding_larger_than_content :: proc(t: ^testing.T) {
 	parent := app.Box{
 		config = {
 			padding = {left = 100, top = 100, right = 100, bottom = 100},
-			semantic_size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
+			size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
 		},
 		children = make([dynamic]^app.Box),
 	}
@@ -269,7 +269,7 @@ test_padding_larger_than_content :: proc(t: ^testing.T) {
 		width = 1,
 		height = 1,
 		config = {
-			semantic_size = {{type = .Fixed, amount = 1}, {type = .Fixed, amount = 1}},
+			size = {{type = .Fixed, amount = 1}, {type = .Fixed, amount = 1}},
 			floating_type = .Not_Floating,
 		},
 		parent = &parent,
@@ -296,7 +296,7 @@ test_margins_larger_than_content :: proc(t: ^testing.T) {
 	parent := app.Box{
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
+			size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -309,7 +309,7 @@ test_margins_larger_than_content :: proc(t: ^testing.T) {
 		width = 2,
 		height = 2,
 		config = {
-			semantic_size = {{type = .Fixed, amount = 2}, {type = .Fixed, amount = 2}},
+			size = {{type = .Fixed, amount = 2}, {type = .Fixed, amount = 2}},
 			margin = {left = 200, top = 200, right = 200, bottom = 200},
 			floating_type = .Not_Floating,
 		},
@@ -337,7 +337,7 @@ test_gap_larger_than_children :: proc(t: ^testing.T) {
 	parent := app.Box{
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
+			size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -350,7 +350,7 @@ test_gap_larger_than_children :: proc(t: ^testing.T) {
 		width = 10,
 		height = 10,
 		config = {
-			semantic_size = {{type = .Fixed, amount = 10}, {type = .Fixed, amount = 10}},
+			size = {{type = .Fixed, amount = 10}, {type = .Fixed, amount = 10}},
 			floating_type = .Not_Floating,
 		},
 		parent = &parent,
@@ -360,7 +360,7 @@ test_gap_larger_than_children :: proc(t: ^testing.T) {
 		width = 10,
 		height = 10,
 		config = {
-			semantic_size = {{type = .Fixed, amount = 10}, {type = .Fixed, amount = 10}},
+			size = {{type = .Fixed, amount = 10}, {type = .Fixed, amount = 10}},
 			floating_type = .Not_Floating,
 		},
 		parent = &parent,
@@ -384,7 +384,7 @@ test_single_pixel_everything :: proc(t: ^testing.T) {
 	parent := app.Box{
 		config = {
 			padding = {left = 1, top = 1, right = 1, bottom = 1},
-			semantic_size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
+			size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -397,7 +397,7 @@ test_single_pixel_everything :: proc(t: ^testing.T) {
 		width = 1,
 		height = 1,
 		config = {
-			semantic_size = {{type = .Fixed, amount = 1}, {type = .Fixed, amount = 1}},
+			size = {{type = .Fixed, amount = 1}, {type = .Fixed, amount = 1}},
 			margin = {left = 1, top = 1, right = 1, bottom = 1},
 			floating_type = .Not_Floating,
 		},
@@ -408,7 +408,7 @@ test_single_pixel_everything :: proc(t: ^testing.T) {
 		width = 1,
 		height = 1,
 		config = {
-			semantic_size = {{type = .Fixed, amount = 1}, {type = .Fixed, amount = 1}},
+			size = {{type = .Fixed, amount = 1}, {type = .Fixed, amount = 1}},
 			margin = {left = 1, top = 1, right = 1, bottom = 1},
 			floating_type = .Not_Floating,
 		},
@@ -436,7 +436,7 @@ test_extreme_aspect_ratio_wide :: proc(t: ^testing.T) {
 	parent := app.Box{
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
+			size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
 		},
 		children = make([dynamic]^app.Box),
 	}
@@ -446,7 +446,7 @@ test_extreme_aspect_ratio_wide :: proc(t: ^testing.T) {
 		width = 10000,
 		height = 1,
 		config = {
-			semantic_size = {{type = .Fixed, amount = 10000}, {type = .Fixed, amount = 1}},
+			size = {{type = .Fixed, amount = 10000}, {type = .Fixed, amount = 1}},
 			floating_type = .Not_Floating,
 		},
 		parent = &parent,
@@ -471,7 +471,7 @@ test_extreme_aspect_ratio_tall :: proc(t: ^testing.T) {
 	parent := app.Box{
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
+			size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
 		},
 		child_layout = {
 			direction = .Vertical,
@@ -484,7 +484,7 @@ test_extreme_aspect_ratio_tall :: proc(t: ^testing.T) {
 		width = 1,
 		height = 10000,
 		config = {
-			semantic_size = {{type = .Fixed, amount = 1}, {type = .Fixed, amount = 10000}},
+			size = {{type = .Fixed, amount = 1}, {type = .Fixed, amount = 10000}},
 			floating_type = .Not_Floating,
 		},
 		parent = &parent,
@@ -509,7 +509,7 @@ test_alternating_huge_tiny_children :: proc(t: ^testing.T) {
 	parent := app.Box{
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
+			size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -525,7 +525,7 @@ test_alternating_huge_tiny_children :: proc(t: ^testing.T) {
 			width = size,
 			height = size,
 			config = {
-				semantic_size = {{type = .Fixed, amount = f32(size)}, {type = .Fixed, amount = f32(size)}},
+				size = {{type = .Fixed, amount = f32(size)}, {type = .Fixed, amount = f32(size)}},
 				floating_type = .Not_Floating,
 			},
 			parent = &parent,
@@ -556,7 +556,7 @@ test_rounding_errors_many_percent :: proc(t: ^testing.T) {
 		width = 1000,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 1000}, {type = .Fixed, amount = 100}},
+			size = {{type = .Fixed, amount = 1000}, {type = .Fixed, amount = 100}},
 		},
 		children = make([dynamic]^app.Box),
 	}
@@ -566,7 +566,7 @@ test_rounding_errors_many_percent :: proc(t: ^testing.T) {
 	for i in 0..<7 {
 		children[i] = app.Box{
 			config = {
-				semantic_size = {{type = .Percent, amount = 1.0/7.0}, {type = .Fixed, amount = 100}},
+				size = {{type = .Percent, amount = 1.0/7.0}, {type = .Fixed, amount = 100}},
 				floating_type = .Not_Floating,
 			},
 			parent = &parent,
@@ -595,7 +595,7 @@ test_grow_with_limited_space :: proc(t: ^testing.T) {
 		width = 105, // Just barely enough for initial children
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 105}, {type = .Fixed, amount = 100}},
+			size = {{type = .Fixed, amount = 105}, {type = .Fixed, amount = 100}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -607,7 +607,7 @@ test_grow_with_limited_space :: proc(t: ^testing.T) {
 	child1 := app.Box{
 		width = 50,
 		config = {
-			semantic_size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 100}},
+			size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 100}},
 			floating_type = .Not_Floating,
 		},
 		parent = &parent,
@@ -616,7 +616,7 @@ test_grow_with_limited_space :: proc(t: ^testing.T) {
 	child2 := app.Box{
 		width = 50,
 		config = {
-			semantic_size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 100}},
+			size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 100}},
 			floating_type = .Not_Floating,
 		},
 		parent = &parent,
@@ -642,7 +642,7 @@ test_nested_all_sizing_modes_chaos :: proc(t: ^testing.T) {
 		height = 1000,
 		config = {
 			padding = {left = 10, top = 10, right = 10, bottom = 10},
-			semantic_size = {{type = .Fixed, amount = 2000}, {type = .Fixed, amount = 1000}},
+			size = {{type = .Fixed, amount = 2000}, {type = .Fixed, amount = 1000}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -653,7 +653,7 @@ test_nested_all_sizing_modes_chaos :: proc(t: ^testing.T) {
 	// Child 1: Percent
 	child_percent := app.Box{
 		config = {
-			semantic_size = {{type = .Percent, amount = 0.3}, {type = .Fixed, amount = 100}},
+			size = {{type = .Percent, amount = 0.3}, {type = .Fixed, amount = 100}},
 			padding = {left = 5, top = 5, right = 5, bottom = 5},
 			floating_type = .Not_Floating,
 		},
@@ -667,7 +667,7 @@ test_nested_all_sizing_modes_chaos :: proc(t: ^testing.T) {
 	// Child 2: Fit_Children
 	child_fit := app.Box{
 		config = {
-			semantic_size = {{type = .Fit_Children, amount = 0}, {type = .Fixed, amount = 100}},
+			size = {{type = .Fit_Children, amount = 0}, {type = .Fixed, amount = 100}},
 			padding = {left = 3, top = 3, right = 3, bottom = 3},
 			floating_type = .Not_Floating,
 		},
@@ -682,7 +682,7 @@ test_nested_all_sizing_modes_chaos :: proc(t: ^testing.T) {
 	child_grow := app.Box{
 		width = 100,
 		config = {
-			semantic_size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 100}},
+			size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 100}},
 			floating_type = .Not_Floating,
 		},
 		parent = &root,
@@ -693,7 +693,7 @@ test_nested_all_sizing_modes_chaos :: proc(t: ^testing.T) {
 		width = 75,
 		height = 50,
 		config = {
-			semantic_size = {{type = .Fixed, amount = 75}, {type = .Fixed, amount = 50}},
+			size = {{type = .Fixed, amount = 75}, {type = .Fixed, amount = 50}},
 			margin = {left = 2, top = 2, right = 2, bottom = 2},
 			floating_type = .Not_Floating,
 		},
@@ -737,7 +737,7 @@ test_children_larger_than_parent_space :: proc(t: ^testing.T) {
 		width = 100, // Small parent
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 100}, {type = .Fixed, amount = 100}},
+			size = {{type = .Fixed, amount = 100}, {type = .Fixed, amount = 100}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -752,7 +752,7 @@ test_children_larger_than_parent_space :: proc(t: ^testing.T) {
 		children[i] = app.Box{
 			width = 50,
 			config = {
-				semantic_size = {{type = .Fixed, amount = 50}, {type = .Fixed, amount = 50}},
+				size = {{type = .Fixed, amount = 50}, {type = .Fixed, amount = 50}},
 				floating_type = .Not_Floating,
 			},
 			parent = &parent,
@@ -779,14 +779,14 @@ test_zero_percent :: proc(t: ^testing.T) {
 		width = 1000,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 1000}, {type = .Fixed, amount = 100}},
+			size = {{type = .Fixed, amount = 1000}, {type = .Fixed, amount = 100}},
 		},
 		children = make([dynamic]^app.Box),
 	}
 
 	child := app.Box{
 		config = {
-			semantic_size = {{type = .Percent, amount = 0.0}, {type = .Fixed, amount = 100}},
+			size = {{type = .Percent, amount = 0.0}, {type = .Fixed, amount = 100}},
 			floating_type = .Not_Floating,
 		},
 		parent = &parent,
@@ -808,7 +808,7 @@ test_massive_gap_contribution :: proc(t: ^testing.T) {
 	parent := app.Box{
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
+			size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -824,7 +824,7 @@ test_massive_gap_contribution :: proc(t: ^testing.T) {
 			width = 1,
 			height = 1,
 			config = {
-				semantic_size = {{type = .Fixed, amount = 1}, {type = .Fixed, amount = 1}},
+				size = {{type = .Fixed, amount = 1}, {type = .Fixed, amount = 1}},
 				floating_type = .Not_Floating,
 			},
 			parent = &parent,

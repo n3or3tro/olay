@@ -13,6 +13,7 @@ import gl "vendor:OpenGL"
 import sdl "vendor:sdl2"
 import vmem "core:mem/virtual"
 
+EXPECTED_FRAME_TIME_SECONDS :: 0.00833333
 id :: fmt.tprintf
 
 // Short hand pre-defined semantic_size values that we commonly use.
@@ -83,8 +84,9 @@ UI_State :: struct {
 	dark_theme:               Token_To_Color_Map,
 	light_theme:              Token_To_Color_Map,
 	draggable_window_offsets: map[string][2]f32,
-	// Necessary shared state for animations.
-	// animation_items:        sarr.Small_Array(32, Animation_Item),
+	// Necessary shared state for animations. Could definitely live on a pool based allocator.
+	animations:          [N_MAX_ANIMATIONS]Animation_Item,
+	animations_stored:		  int,
 	undo_stack:               [dynamic]State_Change,
 	redo_stack:               [dynamic]State_Change,
 	// Whether or not a track's eq is showing.
@@ -94,7 +96,9 @@ UI_State :: struct {
 	file_browser_allocator: mem.Allocator,
 	browser_files: [dynamic]Browser_File,
 	browser_dirs:  [dynamic]Browser_Directory,
-	frames_since_sleep: 	i8
+	frames_since_sleep: 	i8,
+	event_wait_timeout: 	f64,
+	prev_frame_start_ms: 	f64,
 }
 
 // These are all the types of data that can be dropped on items that are drag-and-drop
@@ -330,8 +334,8 @@ create_ui :: proc() -> ^Box {
 
 	root := child_container(
 		{
-			semantic_size = {{.Fixed, f32(app.wx)}, {.Fixed, f32(app.wy)}},
-			// color = .Inactive,
+			size = {{.Fixed, f32(app.wx)}, {.Fixed, f32(app.wy)}},
+			color = .Inverse_On_Surface,
 		},
 		{direction = .Vertical},
 		id = "root",
@@ -342,14 +346,27 @@ create_ui :: proc() -> ^Box {
 
 	topbar()
 	if ui_state.tab_num == 0 {
+		// child_container(
+		// 	{size=Size_Fit_Children},
+		// 	{direction=.Horizontal}
+		// )
+		// num_column: {
+		// 	child_container(
+		// 		{
+		// 			size = { {.Fixed, 30}, {.Fixed, f32(app.wy - TOPBAR_HEIGHT)} },
+		// 		},
+		// 		{
+		// 			direction = .Vertical
+		// 		}
+		// 	)
+		// 	text_button("hey", {size={{.Fixed, 20}, {.Fixed, 50}}})
+		// 	text_button("there", {size={{.Fixed, 20}, {.Fixed, 50}}})
+		// 	text_button("mate", {size={{.Fixed, 20}, {.Fixed, 50}}})
+		// }
 		audio_tracks: {
-			num_column: {
-
-			}
-			
 			child_container(
 				{
-					semantic_size = {
+					size = {
 						{.Fit_Children, 1},
 						// We hardcode the height of the topbar otherwise the layout gets annoying.
 						{.Fixed, f32(app.wy - TOPBAR_HEIGHT)},
@@ -360,18 +377,37 @@ create_ui :: proc() -> ^Box {
 					gap_horizontal = 3,
 				},
 			)
-			
+			arena, scratch := arena_allocator_new()	
+			defer arena_allocator_destroy(arena, scratch)
+			step_containers := make([dynamic]^Box, scratch)
 			for track, i in app.audio.tracks {
-				audio_track(i, 190)
+				audio_track(i, 190, &step_containers)
+			}
+
+			// Ugliness to scroll container in sync.
+			scrolled_container : ^Box
+			for box in step_containers {
+				if box.signals.scrolled {
+					scrolled_container = box
+					break
+				}
+			}
+			if scrolled_container != nil {
+				for box in step_containers { 
+					box.signals.scrolled = true
+					box.signals.scrolled_up = scrolled_container.signals.scrolled_up
+					box.signals.scrolled_down = scrolled_container.signals.scrolled_down
+				}
 			}
 		}
+
 		if text_button(
 			"+",
 			{
 				floating_type = .Center_Right,
 				padding       = {10, 10, 10, 10},
 				border        = 2,
-				semantic_size = {{.Fit_Text, 1}, {.Fit_Text, 1}},
+				size = {{.Fit_Text, 1}, {.Fit_Text, 1}},
 				color         = .Warning,
 			},
   		).clicked
@@ -381,32 +417,20 @@ create_ui :: proc() -> ^Box {
 
 	}
 	else {
-		multi_button_set(
-			{semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}}},
-			{direction = .Vertical, gap_horizontal = 20, gap_vertical = 10},
-			false,
-			[]int{8, 2, 10, 14, 27, 4242, 23423, 123, 4747},
-			"test-radio-buttons",
-			{},
-			context.allocator,
-		)
 
-		{
-			child_container(
-				{
-					semantic_size = {{.Fixed, 500}, {.Fixed, 200}},
-					overflow_x = .Scroll,
-					overflow_y = .Scroll
-				},
-				{
-					gap_horizontal = 10,
-					direction = .Vertical,
-				},
-				box_flags = {.Draw, .Scrollable}
-			)
-			text_button("heya",  {semantic_size = {{.Fixed, 300}, {.Fixed, 250}}})
-			text_button("there", {semantic_size = {{.Fixed, 300}, {.Fixed, 250}}})
-			text_button("mate",  {semantic_size = {{.Fixed, 300}, {.Fixed, 250}}})
+		offset_x := f32(animation_get("ani_x", 200))
+		offset_y := f32(animation_get("ani_y", 60))
+		if text_button(
+			"animate me :)",
+			{
+				floating_type = .Absolute_Pixel,
+				floating_offset = {offset_x, offset_y},
+				size = {{.Fixed, offset_x}, {.Fixed, offset_y}},
+				color = .Warning
+			}
+		).clicked {
+			animation_start("ani_x", 20, 1)
+			animation_start("ani_y", 6, 1)
 		}
 	}
 
@@ -444,7 +468,7 @@ create_ui :: proc() -> ^Box {
 	{
 		child_container(
 			{
-				semantic_size       = Size_Fit_Children,
+				size       = Size_Fit_Children,
 				color               = .Surface_Variant,
 				floating_type       = .Relative_Parent,
 				floating_anchor_box = ui_state.root,
@@ -463,7 +487,7 @@ create_ui :: proc() -> ^Box {
 			{
 				color         = .Warning_Container,
 				text_justify  = {.Start, .Center},
-				semantic_size = Size_Fit_Text,
+				size = Size_Fit_Text,
 			},
 			"helper-text-1",
 		)
@@ -473,7 +497,7 @@ create_ui :: proc() -> ^Box {
 			{
 				color         = .Warning_Container,
 				text_justify  = {.Start, .Center},
-				semantic_size = Size_Fit_Text,
+				size = Size_Fit_Text,
 			},
 		)
 
@@ -483,7 +507,7 @@ create_ui :: proc() -> ^Box {
 				color         = .Warning_Container,
 				text_justify  = {.Start, .Center},
 				margin = {bottom = 5},
-				semantic_size = Size_Fit_Text,
+				size = Size_Fit_Text,
 			},
 			"helper-text-3",
 		)

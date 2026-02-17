@@ -25,7 +25,7 @@ test_grow_horizontal_with_margins :: proc(t: ^testing.T) {
 		config = {
 			margin = {left = 5, right = 5, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
-			semantic_size = {{type = .Fixed, amount = 100}, {type = .Fixed, amount = 50}},
+			size = {{type = .Fixed, amount = 100}, {type = .Fixed, amount = 50}},
 		},
 	}
 
@@ -35,7 +35,7 @@ test_grow_horizontal_with_margins :: proc(t: ^testing.T) {
 		config = {
 			margin = {left = 10, right = 10, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
-			semantic_size = {{type = .Grow, amount = 0}, {type = .Fixed, amount = 50}},
+			size = {{type = .Grow, amount = 0}, {type = .Fixed, amount = 50}},
 		},
 	}
 
@@ -87,7 +87,7 @@ test_grow_vertical_with_margins :: proc(t: ^testing.T) {
 		config = {
 			margin = {left = 0, top = 5, right = 0, bottom = 5},
 			floating_type = .Not_Floating,
-			semantic_size = {{type = .Fixed, amount = 50}, {type = .Fixed, amount = 100}},
+			size = {{type = .Fixed, amount = 50}, {type = .Fixed, amount = 100}},
 		},
 	}
 
@@ -97,7 +97,7 @@ test_grow_vertical_with_margins :: proc(t: ^testing.T) {
 		config = {
 			margin = {left = 0, top = 10, right = 0, bottom = 10},
 			floating_type = .Not_Floating,
-			semantic_size = {{type = .Fixed, amount = 50}, {type = .Grow, amount = 0}},
+			size = {{type = .Fixed, amount = 50}, {type = .Grow, amount = 0}},
 		},
 	}
 
@@ -138,7 +138,7 @@ test_multiple_grow_children_with_margins :: proc(t: ^testing.T) {
 		config = {
 			margin = {left = 5, right = 5, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
-			semantic_size = {{type = .Grow, amount = 0}, {type = .Fixed, amount = 50}},
+			size = {{type = .Grow, amount = 0}, {type = .Fixed, amount = 50}},
 		},
 	}
 
@@ -148,7 +148,7 @@ test_multiple_grow_children_with_margins :: proc(t: ^testing.T) {
 		config = {
 			margin = {left = 10, right = 10, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
-			semantic_size = {{type = .Grow, amount = 0}, {type = .Fixed, amount = 50}},
+			size = {{type = .Grow, amount = 0}, {type = .Fixed, amount = 50}},
 		},
 	}
 
@@ -195,7 +195,7 @@ test_cross_axis_grow_horizontal :: proc(t: ^testing.T) {
 		config = {
 			margin = {left = 20, right = 30, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
-			semantic_size = {{type = .Grow, amount = 0}, {type = .Fixed, amount = 50}},
+			size = {{type = .Grow, amount = 0}, {type = .Fixed, amount = 50}},
 		},
 	}
 
@@ -245,7 +245,7 @@ test_cross_axis_grow_vertical :: proc(t: ^testing.T) {
 		config = {
 			margin = {left = 0, top = 20, right = 0, bottom = 30},
 			floating_type = .Not_Floating,
-			semantic_size = {{type = .Fixed, amount = 50}, {type = .Grow, amount = 0}},
+			size = {{type = .Fixed, amount = 50}, {type = .Grow, amount = 0}},
 		},
 	}
 
@@ -291,7 +291,7 @@ test_fit_text_and_grow_with_margins :: proc(t: ^testing.T) {
 		config = {
 			margin = {left = 5, right = 5, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
-			semantic_size = {{type = .Fixed, amount = 100}, {type = .Fixed, amount = 50}},
+			size = {{type = .Fixed, amount = 100}, {type = .Fixed, amount = 50}},
 		},
 	}
 
@@ -301,7 +301,7 @@ test_fit_text_and_grow_with_margins :: proc(t: ^testing.T) {
 		config = {
 			margin = {left = 10, right = 15, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
-			semantic_size = {{type = .Fit_Text_And_Grow, amount = 0}, {type = .Fixed, amount = 50}},
+			size = {{type = .Fit_Text_And_Grow, amount = 0}, {type = .Fixed, amount = 50}},
 		},
 	}
 
@@ -341,7 +341,7 @@ test_fit_children_and_grow_with_margins :: proc(t: ^testing.T) {
 		config = {
 			margin = {left = 10, right = 10, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
-			semantic_size = {{type = .Fit_Children_And_Grow, amount = 0}, {type = .Fixed, amount = 50}},
+			size = {{type = .Fit_Children_And_Grow, amount = 0}, {type = .Fixed, amount = 50}},
 		},
 	}
 

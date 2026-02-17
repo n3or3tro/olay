@@ -1,4 +1,5 @@
 package app
+
 import "core:fmt"
 import "core:math"
 import "core:slice"
@@ -8,6 +9,7 @@ import "core:strconv"
 import str "core:strings"
 import "core:time"
 import ma "vendor:miniaudio"
+import "core:sys/windows"
 
 // At file scope
 @(private="file")
@@ -20,12 +22,13 @@ spectrum_analyzer_output_channels: [1]u32 = {2}
 spectrum_analyzer_vtable_initialized := false
 
 SAMPLE_RATE : f64 = 44_100
-AUDIO_SCHEDULING_HORIZON_MS :: 80
+AUDIO_SCHEDULING_HORIZON_MS :: 400
 
 N_TRACK_STEPS :: 128
 MAX_TRACKS :: 256
 MAX_TRACK_STEPS :: 256
 EQ_MAX_GAIN :f64: 24
+N_SOUND_COPIES :: 8
 
 Sampler_Slice :: struct {
 	// How far along into the sound is this.
@@ -99,7 +102,7 @@ EQ_Band_State :: struct {
 EQ_State :: struct { 
 	// Should be 1 list for each EQ and 1 EQ for each track.
 	bands : [dynamic]EQ_Band_State,
-	// Whether the UI should show this IQ, don't love having this in the audio state but
+	// Whether the UI should show this EQ widget, don't love having this in the audio state but
 	// it helps to keep single source of truth.
 	show: bool,
 	active_band: int,
@@ -107,7 +110,10 @@ EQ_State :: struct {
 }
 
 Track :: struct {
-	sound:          ^ma.sound,
+	// These all share the same datasource, but we need multiple copies to schedule 
+	// multiple steps into the future.
+	sounds:          [N_SOUND_COPIES]^ma.sound,
+	curr_sound_idx: int,
 	sound_path:		string, 
 	armed:          bool,
 	volume:         f32,
@@ -131,6 +137,7 @@ Track :: struct {
 	eq:		 EQ_State,
 	sampler: Sampler_State,
 	spectrum_analyzer: Spectrum_Analyzer_Node,
+	loop_at: int
 }
 
 Audio_State :: struct {
@@ -152,7 +159,9 @@ Audio_State :: struct {
 	exit_timing_thread: 		  bool,
 	last_playback_start_time_pcm: u64,
 	last_scheduled_step: 		  int,
-	last_ui_notified_step: 	  	  int
+	last_ui_notified_step: 	  	  int,
+	playing_cond: 				  sync.Cond,
+	playing_mutex: 				  sync.Mutex,
 }
 
 SOUND_FILE_LOAD_FLAGS: ma.sound_flags = {.DECODE, .NO_SPATIALIZATION}
@@ -270,12 +279,14 @@ Uninit just miniaudio related data. Neccessary when hot-reloading.
 audio_uninit_miniaudio :: proc() {
 	if app.audio != nil && app.audio.engine != nil { 
 		for &track in app.audio.tracks { 
-			if track.sound != nil { 
-				ma.sound_stop(track.sound)
-				ma.sound_uninit(track.sound)
-				// Might need to call the specific miniaudio free function.
-				free(track.sound)
-				track.sound = nil
+			for &sound in track.sounds {
+				if sound != nil { 
+					ma.sound_stop(sound)
+					ma.sound_uninit(sound)
+					// Might need to call the specific miniaudio free function.
+					free(sound)
+					sound = nil
+				}
 			}
 			// PCM data is probably fine to live across frames. Since we're going to reload
 			// the sounds of each track and therefore PCM data would be correct.
@@ -302,10 +313,10 @@ track_add_new :: proc(audio_state: ^Audio_State) {
 		track.volume 	= 50 
 		track.armed 	= true
 		track.n_steps 	= N_TRACK_STEPS
+		track.loop_at   = -1
 		for &volume in track.volumes { 
 			volume = 50
 		}
-
 		// Other step values are 0 by default.
 		// track.name = "Default name"
 		append(&audio_state.tracks, track)
@@ -314,15 +325,18 @@ track_add_new :: proc(audio_state: ^Audio_State) {
 track_set_sound :: proc(which: u32, path: cstring) {
 	track := &app.audio.tracks[which]
 	first_use := true
-	if track.sound != nil {
-		ma.sound_stop_with_fade_in_milliseconds(track.sound, 400)
-		ma.sound_uninit(track.sound)
+	// i.e. this track has had a sound loaded into it before.
+	if track.sounds[0] != nil {
+		for sound in track.sounds {
+			ma.sound_stop_with_fade_in_milliseconds(sound, 200)
+			ma.sound_uninit(sound)
+			// Deleting might be inefficient, could maybe use clear() or something. 
+			// But this happens quite infrequently, so should be okay.
+			free(sound)
+		}
 		delete(track.sound_path)
-		// Deleting might be inefficient, could maybe use clear() or something. 
-		// But this happens quite infrequently, so should be okay.
 		delete(track.pcm_data.left_channel)
 		delete(track.pcm_data.right_channel)
-		free(track.sound)
 		track.spectrum_analyzer.ring_buffer = {}
 		track.spectrum_analyzer.write_pos = 0
 		track.eq.frequency_spectrum_bins = {}
@@ -342,12 +356,19 @@ track_set_sound :: proc(which: u32, path: cstring) {
 	)
 	assert(res == .SUCCESS)
 
-	track.sound = new_sound
+	track.sounds[0] = new_sound
 	track.sound_path = str.clone_from_cstring(path)
 
 	left, right := sound_get_pcm_data(which)
 	track.pcm_data.left_channel  = left
 	track.pcm_data.right_channel = right
+
+	// Refer to Track :: struct {} to see why we need multiple sounds per track.
+	for i in 1..<len(track.sounds) {
+		track.sounds[i] = new(ma.sound)
+		res := ma.sound_init_copy(app.audio.engine, new_sound, {.NO_DEFAULT_ATTACHMENT, .NO_SPATIALIZATION}, nil, track.sounds[i])
+		assert(res == .SUCCESS)
+	}
 
 	// When a track is loaded with it's first sound, we need to wire up the EQ filters and spectrum analyzer
 	// nodes in the graph.
@@ -356,8 +377,10 @@ track_set_sound :: proc(which: u32, path: cstring) {
 
 		// Wire sound -> first eq band 
 		if len(eq_bands) < 1 do return 
-		res = ma.node_attach_output_bus(cast(^ma.node)(track.sound), 0, cast(^ma.node)(eq_bands[0].biquad_node), 0) 
-		assert(res == .SUCCESS, tprintf("{}", res))
+		for sound in track.sounds { 
+			res = ma.node_attach_output_bus(cast(^ma.node)(sound), 0, cast(^ma.node)(eq_bands[0].biquad_node), 0) 
+			assert(res == .SUCCESS, tprintf("{}", res))
+		}
 
 		// Wire the rest of the bands to each other.
 		for i in 1..<len(eq_bands) {
@@ -385,19 +408,6 @@ track_set_sound :: proc(which: u32, path: cstring) {
 		config.pInputChannels = &spectrum_analyzer_input_channels[0]
 		config.pOutputChannels = &spectrum_analyzer_output_channels[0]
 
-		// config := ma.node_config_init()
-		// config.vtable = new(ma.node_vtable)
-		// config.vtable.inputBusCount = 1
-		// config.vtable.outputBusCount = 1
-		// config.vtable.onProcess = spectrum_analyzer_node_process
-		// config.inputBusCount = 1
-		// config.outputBusCount = 1
-
-		// input_channels: [1]u32 = {2}
-		// output_channels: [1]u32 = {2}
-		// config.pInputChannels = &input_channels[0]
-		// config.pOutputChannels = &output_channels[0]
-
 		res = ma.node_init(ma.engine_get_node_graph(app.audio.engine), &config, nil, cast(^ma.node)&track.spectrum_analyzer)
 		assert(res == .SUCCESS, tprintf("{}", res))
 
@@ -414,6 +424,13 @@ track_set_sound :: proc(which: u32, path: cstring) {
 			0
 		)
 		assert(res == .SUCCESS, tprintf("{}", res))
+	} else {
+		eq_bands := track.eq.bands
+		if len(eq_bands) < 1 do return
+		for sound in track.sounds {
+			res = ma.node_attach_output_bus(cast(^ma.node)(sound), 0, cast(^ma.node)(eq_bands[0].biquad_node), 0)
+			assert(res == .SUCCESS, tprintf("{}", res))
+		}
 	}
 }
 
@@ -454,7 +471,7 @@ track_get_pcm_data :: proc(track: u32) -> (left_channel, right_channel: [dynamic
 }
 
 sound_get_pcm_data :: proc(track: u32, allocator:=context.allocator) -> (left_channel, right_channel: [dynamic]f32) {
-	sound := app.audio.tracks[track].sound
+	sound := app.audio.tracks[track].sounds[0]
 	n_frames: u64
 	res := ma.sound_get_length_in_pcm_frames(sound, &n_frames)
 	assert(res == .SUCCESS)
@@ -500,16 +517,10 @@ sound_set_volume :: proc(sound: ^ma.sound, volume: f32) {
 	ma.sound_set_volume(sound, volume)
 }
 
-audio_toggle_all_playing_state :: proc() {
-	for track in app.audio.tracks {
-		sound_toggle_playing(track.sound)
-	}
-}
-
 audio_stop_all :: proc() {
 	for track in app.audio.tracks {
-		if track.sound != nil { 
-			ma.sound_stop(track.sound)
+		for sound in track.sounds {
+			if sound != nil do ma.sound_stop(sound)
 		}
 	}
 }
@@ -528,7 +539,10 @@ audio_transport_play :: proc() {
     sync.atomic_store(&app.audio.last_scheduled_step, paused_step - 1)
     sync.atomic_store(&app.audio.paused_at_step, -1)
     // This goes last -- it's the gate that lets the timing thread start scheduling.
+	sync.mutex_lock(&app.audio.playing_mutex)
     sync.atomic_store(&app.audio.playing, true)
+	sync.cond_broadcast(&app.audio.playing_cond)
+	sync.mutex_unlock(&app.audio.playing_mutex)
 }
 
 audio_transport_pause :: proc() {
@@ -754,6 +768,8 @@ audio_thread_timing_proc :: proc() {
 	steps_per_bar :: 32
 	steps_per_beat := steps_per_bar / beats_per_bar
 	for {
+		audio_scheduling_horizon := (f64(N_SOUND_COPIES) - 2) * 60_000 / f64(app.audio.bpm) / f64(steps_per_beat)
+		printfln("heya frame_num: {}", sync.atomic_load(&ui_state.frame_num))
 		start := time.now()._nsec
 		if sync.atomic_load(&app.audio.exit_timing_thread) do return
 
@@ -761,40 +777,51 @@ audio_thread_timing_proc :: proc() {
 		if playing {
 			curr_time_pcm := ma.engine_get_time_in_pcm_frames(app.audio.engine)
 			step_time_pcm := (SAMPLE_RATE / N_TRACK_STEPS)
-			// Assumes 1/32 steps.
  
 			samples_per_step := SAMPLE_RATE * 60 / f64(app.audio.bpm) / f64(steps_per_beat)
 
-			// The only way to get sample accurate playback with the high level engine in miniaudio
-			// is to schedule a future time for a sound to start playing.
-			horizon_samples := SAMPLE_RATE * AUDIO_SCHEDULING_HORIZON_MS / 1000
+			horizon_samples := SAMPLE_RATE * audio_scheduling_horizon / 1000
 
 			last_playback_start_time := sync.atomic_load(&app.audio.last_playback_start_time_pcm)
 			last_scheduled_step := sync.atomic_load(&app.audio.last_scheduled_step)
-
 			// Calculate which step we're currently on and how far ahead to schedule.
 			elapsed_pcm  := curr_time_pcm - last_playback_start_time
 			current_step := int(f64(elapsed_pcm) / samples_per_step)
 
-			wrapped_step := current_step % N_TRACK_STEPS
-			last_ui_step := sync.atomic_load(&app.audio.last_ui_notified_step)
-			if wrapped_step != last_ui_step {
-				sync.atomic_store(&app.audio.last_ui_notified_step, wrapped_step)
-				event: sdl.Event
-				event.type = .USEREVENT
-				sdl.PushEvent(&event)
-			}
+			// wrapped_step := current_step % N_TRACK_STEPS
+			// last_ui_step := sync.atomic_load(&app.audio.last_ui_notified_step)
+			// if wrapped_step != last_ui_step {
+			// 	sync.atomic_store(&app.audio.last_ui_notified_step, wrapped_step)
+			// 	event: sdl.Event
+			// 	event.type = .USEREVENT
+			// 	sdl.PushEvent(&event)
+			// }
 			horizon_step := int((elapsed_pcm + u64(horizon_samples)) / u64(samples_per_step))
 
 			// Schedule next steps to be played.
 			for step := last_scheduled_step + 1; step <= horizon_step; step += 1 {
 				step_start_time_pcm := last_playback_start_time + u64(f64(step) * samples_per_step)
 				
-				for &track, track_num in app.audio.tracks {
-					step_in_pattern := track.loop_at == -1 ? u32(step) % track.n_steps : u32(step % track.loop_at)
-					
+				for &track in app.audio.tracks {
+					step_in_pattern := track.loop_at == -1 ? u32(step) % N_TRACK_STEPS : u32(step % track.loop_at)
+					// step_in_pattern := track.loop_at == -1 ? u32(step) % track.n_steps : u32(step % track.loop_at)
 					if track.armed && track.selected_steps[step_in_pattern] {
-						track_step_schedule(u32(track_num), step_in_pattern, step_start_time_pcm)
+						// Find next armed step
+						next_step := step + 1
+						step_end_time_pcm :u64 = 0 
+						for {
+							// printfln("looping, step is: {}  next_step is: {}", step, next_step)
+							next_step_in_pattern := track.loop_at == -1 ? u32(next_step) % N_TRACK_STEPS : u32(step % track.loop_at)
+							if track.selected_steps[next_step_in_pattern] {
+								distance := u64(next_step - step)
+								step_end_time_pcm = (distance * u64(samples_per_step)) + step_start_time_pcm
+								break
+							}
+							next_step += 1
+						}
+						assert(step_end_time_pcm != 0, "fucked up bad")
+						printfln("step {} is set to start at {} and end at {}", step, step_start_time_pcm, step_end_time_pcm)
+						track_step_schedule(&track, step_in_pattern, step_start_time_pcm, step_end_time_pcm)
 					}
 				}
 				sync.atomic_store(&app.audio.last_scheduled_step, step)
@@ -803,7 +830,11 @@ audio_thread_timing_proc :: proc() {
 		end := time.now()._nsec
 		elapsed_ms := f64(end - start) / 1_000_000
 		// Sleep to conserve energy.
-		time.accurate_sleep((time.Millisecond * 30) - time.Duration(int(elapsed_ms)))
+		// time.accurate_sleep((time.Millisecond * time.Duration(audio_scheduling_horizon) - 5) - time.Duration(int(elapsed_ms)))
+		sync.mutex_lock(&app.audio.playing_mutex)
+		sync.cond_wait_with_timeout(&app.audio.playing_cond, &app.audio.playing_mutex, (time.Millisecond * time.Duration(audio_scheduling_horizon) - 5) - time.Duration(int(elapsed_ms)))
+		sync.mutex_unlock(&app.audio.playing_mutex)
+		// time.accurate_sleep((time.Millisecond * time.Duration(audio_scheduling_horizon) - 5) - time.Duration(int(elapsed_ms)))
 	}
 }
 
@@ -812,7 +843,9 @@ audio_get_current_step :: proc() -> int {
 	if paused >= 0 {
 		return paused
 	}
-	curr_time_pcm 	 := ma.engine_get_time_in_pcm_frames(app.audio.engine)
+	device := ma.engine_get_device(app.audio.engine)
+	device_latency_pcm := device.playback.internalPeriodSizeInFrames * device.playback.internalPeriods
+	curr_time_pcm 	 := ma.engine_get_time_in_pcm_frames(app.audio.engine) - u64(device_latency_pcm)
     last_start_time  := sync.atomic_load(&app.audio.last_playback_start_time_pcm)
 	// Assumes 32 steps per beat.
     samples_per_step := u64(SAMPLE_RATE * 60 / f64(app.audio.bpm) / 8)
@@ -820,22 +853,73 @@ audio_get_current_step :: proc() -> int {
     return int(elapsed / samples_per_step) % N_TRACK_STEPS
 }
 
-track_step_schedule :: proc(which_track: u32, step_num: u32, start_time_pcm: u64) {
-    track := &app.audio.tracks[which_track]
-    sound := track.sound
-    if sound == nil do return
+track_step_schedule :: proc(track: ^Track, step_num: u32, start_time_pcm: u64, end_time_pcm: u64) {
+    next_sound := track.sounds[track.curr_sound_idx]
+    if next_sound == nil do panic("fuck")
 
     pitch 		 := f32(track.pitches[step_num])
     sound_volume := f32(track.volumes[step_num])
-    
-    ma.sound_set_pitch(sound, pitch / 12)
-    ma.sound_set_volume(sound, (sound_volume / 100) * track.volume / 100)
-    ma.sound_seek_to_pcm_frame(sound, 0)
-    ma.sound_set_start_time_in_pcm_frames(sound, start_time_pcm)
-	// Sound will start the exact moment the engine reaches start_time_pcm, even though we 
-	// called start already
-    ma.sound_start(sound)
+    ma.sound_set_pitch(next_sound, pitch / 12)
+    ma.sound_set_volume(next_sound, (sound_volume / 100) * track.volume / 100)
+    ma.sound_seek_to_pcm_frame(next_sound, 0)
+    ma.sound_set_start_time_in_pcm_frames(next_sound, start_time_pcm)
+	ma.sound_set_stop_time_in_pcm_frames(next_sound, end_time_pcm)
+    ma.sound_start(next_sound)
+	track.curr_sound_idx = (track.curr_sound_idx + 1) % N_SOUND_COPIES
 }
 
+// Used to continuously wake up the UI thread when audio is playing. Since audio thread has it's own timing that doesn't
+// run according to the UI thread.
+ui_refresh_thread_proc :: proc() { 
+	handle : windows.HANDLE
+	when ODIN_OS == .Windows { 
+		// 1. Create the High-Resolution Waitable Timer
+		// The '2' is the CREATE_WAITABLE_TIMER_HIGH_RESOLUTION flag.
+		// High-res timers MUST be anonymous (name is nil).
+		handle = windows.CreateWaitableTimerExW(nil, nil, 2, windows.TIMER_ALL_ACCESS)
+		if handle == nil do  panic("Failed to set timer")
+		// defer windows.CloseHandle(handle)
 
+		// 2. Set the timing parameters
+		// units are 100-nanosecond intervals. 
+		// Negative = relative time. 8.333ms = 83330 units.
+		due_time := windows.LARGE_INTEGER(-EXPECTED_FRAME_TIME_SECONDS * 10_000_000)
+		period_ms : i32 = 8 // The periodic restart in milliseconds
+
+		if !windows.SetWaitableTimerEx(handle, &due_time, period_ms, nil, nil, nil, 0) do panic("Failed to set timer")
+	}
+	
+
+	mutex    := &app.audio.playing_mutex
+	cond_var := &app.audio.playing_cond
+	for {
+		if sync.atomic_load(&app.audio.exit_timing_thread) do return
+		sync.mutex_lock(mutex)
+		for !sync.atomic_load(&app.audio.playing) { 
+			sync.cond_wait(cond_var, mutex)
+			if sync.atomic_load(&app.audio.exit_timing_thread) {
+				sync.mutex_unlock(mutex)
+				return
+			}
+		}
+		sync.mutex_unlock(&app.audio.playing_mutex)
+
+		// Trigger UI to restart in sync with framerate
+		for sync.atomic_load(&app.audio.playing) {
+			start_ms := f64(time.now()._nsec) / 1_000_000
+			if sync.atomic_load(&app.audio.exit_timing_thread) do return
+			event: sdl.Event
+			event.type = .USEREVENT
+            sdl.PushEvent(&event)
+			end_ms := f64(time.now()._nsec) / 1_000_000
+			expected_frame_time_ms := EXPECTED_FRAME_TIME_SECONDS * 1_000
+			// to_wait_ms := expected_frame_time_ms - (end_ms - start_ms)
+			when ODIN_OS == .Windows { 
+				windows.WaitForSingleObject(handle, windows.INFINITE)
+			} else {
+				time.accurate_sleep(time.Duration(expected_frame_time_ms * 1_000_000))
+			}
+		}
+	}
+}
 // ========================================= END PLAYBACK / TIMING STUFF ==============================================

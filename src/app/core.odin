@@ -1,17 +1,19 @@
 package app
 import "core:flags"
+import "core:math"
 import "core:math/rand"
 import "core:fmt"
 import str "core:strings"
 import "core:time"
 import gl "vendor:OpenGL"
 import sdl "vendor:sdl2"
-import sarr "core:container/small_array"
+import "core:slice"
 
 WINDOW_HEIGHT :: 1000
 WINDOW_WIDTH :: 500
 // Most children a box can have (created for alloc reasons, etc).
 MAX_CHILDREN :: 1024
+N_MAX_ANIMATIONS :: 128
 
 Vec2_i32 :: [2]i32
 Vec3_i32 :: [3]i32
@@ -79,7 +81,7 @@ Box_Config :: struct {
 	padding: 			Box_Padding,  
 	// External space that will put empty space around the outside of this box.
 	margin: 			Box_Padding,  
-	semantic_size:      [2]Box_Size,
+	size:      			[2]Box_Size,
 	max_size:           [2]int,
 	min_size:           [2]int,
 	// Lets you break out of the layout flow and position 'absolutely', relative
@@ -344,14 +346,14 @@ box_make :: proc(flags: Box_Flags, config: Box_Config, label := "", id := "", al
 		}
 	}
 
-	x_size_type := box.config.semantic_size.x.type 
-	y_size_type := box.config.semantic_size.y.type 
+	x_size_type := box.config.size.x.type 
+	y_size_type := box.config.size.y.type 
 
 	if x_size_type == .Fixed {
-		box.width = int(box.config.semantic_size.x.amount)
+		box.width = int(box.config.size.x.amount)
 	}
 	if y_size_type == .Fixed {
-		box.height = int(box.config.semantic_size.y.amount)
+		box.height = int(box.config.size.y.amount)
 	}
 
 	if x_size_type == .Fit_Text || x_size_type == .Fit_Text_And_Grow  {
@@ -414,8 +416,8 @@ box_from_cache :: proc(flags: Box_Flags, config: Box_Config, label := "", id := 
 
 		// Boxes with fixed sizing have their size set upon creation, so if we're retrieving a box from the cache
 		// we need to manually re-set it's sizing info for later layout calculations.
-		x_size_type := box.config.semantic_size.x.type 
-		y_size_type := box.config.semantic_size.y.type 
+		x_size_type := box.config.size.x.type 
+		y_size_type := box.config.size.y.type 
 		// Not sure if you even need to skip .Fixed sized boxes here... Need to double check.
 		// if x_size_type != .Fixed {
 		box.prev_width = box.width
@@ -426,8 +428,8 @@ box_from_cache :: proc(flags: Box_Flags, config: Box_Config, label := "", id := 
 		box.height = 0
 		// }
 
-		if x_size_type == .Fixed do box.width  = int(box.config.semantic_size.x.amount)
-		if y_size_type == .Fixed do box.height = int(box.config.semantic_size.y.amount)
+		if x_size_type == .Fixed do box.width  = int(box.config.size.x.amount)
+		if y_size_type == .Fixed do box.height = int(box.config.size.y.amount)
 
 		if x_size_type == .Fit_Text || x_size_type == .Fit_Text_And_Grow {
 			if .Edit_Text in box.flags {
@@ -502,7 +504,7 @@ box_floating_close_children :: proc(signals: Box_Signals, closed: bool) {
 // And all box creation functions return the signals for the box.
 box_regular_close_children :: proc(signals: Box_Signals) {
 	box := signals.box
-	size := box.config.semantic_size
+	size := box.config.size
 	assert(len(ui_state.parents_stack) > 0)
 	if size.x.type == .Fit_Children || size.x.type == .Fit_Children_And_Grow {
 		box.width = sizing_calc_fit_children_width(box^)
@@ -863,7 +865,6 @@ box_tree_to_list_complex :: proc(root: ^Box, allocator := context.allocator) -> 
 			overflowed_y =  children_tot_height > box.height 
 		}
 
-
 		if overflowed_x { 
 			hori_scroll_track := box_from_cache(
 				{.Draw, .Clickable, .Draggable, .Scrollable},
@@ -1067,12 +1068,12 @@ recalc_fit_children_sizing :: proc(box: ^Box) {
         recalc_fit_children_sizing(child)
     }
 
-	x_size_type := box.config.semantic_size.x.type
+	x_size_type := box.config.size.x.type
     if x_size_type == .Fit_Children || x_size_type == .Fit_Children_And_Grow {
         box.width = sizing_calc_fit_children_width(box^)
     }
 
-	y_size_type := box.config.semantic_size.y.type
+	y_size_type := box.config.size.y.type
     if y_size_type == .Fit_Children || y_size_type == .Fit_Children_And_Grow {
         box.height = sizing_calc_fit_children_height(box^)
     }
@@ -1121,7 +1122,7 @@ sizing_grow_growable_width :: proc(box: ^Box) {
 				continue
 			}
 			remaining_width -= child.width + box_get_margin_x_tot(child^)
-			size_type := child.config.semantic_size.x.type
+			size_type := child.config.size.x.type
 			if size_type == .Grow || size_type == .Fit_Text_And_Grow || size_type == .Fit_Children_And_Grow {
 				append(&growable_children, child)
 			}
@@ -1165,7 +1166,7 @@ sizing_grow_growable_width :: proc(box: ^Box) {
 			if child.config.floating_type != .Not_Floating {
 				continue
 			}
-			size_type := child.config.semantic_size.x.type
+			size_type := child.config.size.x.type
 			if size_type == .Grow || size_type == .Fit_Text_And_Grow  || size_type == .Fit_Children_And_Grow {
 				child.width += growable_amount - (child.width + box_get_margin_x_tot(child^))
 				box_clamp_to_constraints(child)
@@ -1189,7 +1190,7 @@ sizing_grow_growable_height :: proc(box: ^Box) {
 				continue
 			}
 			remaining_height -= child.height + box_get_margin_y_tot(child^)
-			size_type := child.config.semantic_size.y.type
+			size_type := child.config.size.y.type
 			if size_type == .Grow  || size_type == .Fit_Text_And_Grow || size_type == .Fit_Children_And_Grow {
 				append(&growable_children, child)
 			}
@@ -1214,15 +1215,15 @@ sizing_grow_growable_height :: proc(box: ^Box) {
 			if len(growable_children) == 0 {
 				// return <--- this was causing the recursion at the bottom of this function to not run
 							// that recursion HAS to run. 
-				return
-				// break
+				// return
+				break
 			}
 			height_increase = min(height_increase, remaining_height / len(growable_children))
 			if height_increase == 0 {
 				// return <--- this was causing the recursion at the bottom of this function to not run
 							// that recursion HAS to run. 
-				return
-				// break
+				// return
+				break
 			}
 			for child in growable_children {
 				child_tot_height := child.height + box_get_margin_y_tot(child^)
@@ -1243,7 +1244,7 @@ sizing_grow_growable_height :: proc(box: ^Box) {
 			if child.config.floating_type != .Not_Floating {
 				continue
 			}
-			size_type := child.config.semantic_size.y.type
+			size_type := child.config.size.y.type
 			if size_type == .Grow || size_type == .Fit_Text_And_Grow || size_type == .Fit_Children_And_Grow {
 				child.height += growable_amount - (child.height + box_get_margin_y_tot(child^))
 				box_clamp_to_constraints(child)
@@ -1260,7 +1261,7 @@ sizing_grow_growable_height :: proc(box: ^Box) {
 // or implement some constraints mechanism.
 sizing_calc_percent_width :: proc(box: ^Box) {
 	no_layout_conflict :: proc(box: ^Box) -> bool {
-		if box.parent.config.semantic_size.x.type == .Fit_Children {
+		if box.parent.config.size.x.type == .Fit_Children {
 			panic(
 				tprintf(
 					"A box with size type of .Fit cannot contain a child with size type of .Percent\nIn this case the parent box: {} has sizing type .Fit on it's x-axis and it has a child: {} with sizing type .Percent.",
@@ -1276,8 +1277,8 @@ sizing_calc_percent_width :: proc(box: ^Box) {
 
 	for child in box.children {
 		// if child.config.floating_type == .Not_Floating && child.config.semantic_size.x.type == .Percent && no_layout_conflict(child) {
-		if child.config.semantic_size.x.type == .Percent && no_layout_conflict(child) {
-			child.width = int(child.config.semantic_size.x.amount * f32(available_width))
+		if child.config.size.x.type == .Percent && no_layout_conflict(child) {
+			child.width = int(child.config.size.x.amount * f32(available_width))
 			box_clamp_to_constraints(child)
 		}
 	}
@@ -1288,7 +1289,7 @@ sizing_calc_percent_width :: proc(box: ^Box) {
 
 sizing_calc_percent_height :: proc(box: ^Box) {
 	no_layout_conflict :: proc(box: ^Box) -> bool {
-		if box.parent.config.semantic_size.y.type == .Fit_Children {
+		if box.parent.config.size.y.type == .Fit_Children {
 			panic(
 				tprintf(
 					"A box with size type of .Fit cannot contain a child with size type of .Percent\nIn this case the parent box: {} has sizing type .Fit on it's y-axis and it has a child: {} with sizing type .Percent.",
@@ -1303,8 +1304,8 @@ sizing_calc_percent_height :: proc(box: ^Box) {
 	available_height := box.height - (box.config.padding.top + box.config.padding.bottom)
 	for child in box.children {
 		// if child.config.floating_type == .Not_Floating && child.config.semantic_size.y.type == .Percent && no_layout_conflict(child) {
-		if child.config.semantic_size.y.type == .Percent && no_layout_conflict(child) {
-			child.height = int(child.config.semantic_size.y.amount * f32(available_height))
+		if child.config.size.y.type == .Percent && no_layout_conflict(child) {
+			child.height = int(child.config.size.y.amount * f32(available_height))
 			box_clamp_to_constraints(child)
 		}
 	}
@@ -1625,7 +1626,7 @@ position_boxes :: proc(root: ^Box) {
 			child.prev_top_left     = child.top_left
 		}
 
-		if root.id == "root@root" {
+		if root.id == "root" {
 			root.top_left = {0, 0}
 			root.bottom_right = {app.wx, app.wy}
 		}
@@ -1715,24 +1716,67 @@ ANIMATION_MAX_ITEMS :: 64
 
 Animation_Item :: struct { 
 	id: 		string,
-	progress:	f32, 
-	time:		f32, 
-	initial:	f32, 
+	progress:	f64, 
+	time:		f64, 
+	initial:	f64, 
 	// The last returned value from when animation_get was called.
-	prev:		f32,
+	prev:		f64,
 }
 
-// animation_update_all :: proc(dt: f32) { 
-// 	items := ui_state.animation_items
-// 	#reverse for &item, i in sarr.slice(&items) { 
-// 		item.progress += dt / item.time
-// 		if item.progress >= 1 { 
-// 			// remove this item from the array.
-// 		}
-// 	}
-// }
+animation_update_all :: proc(dt: f64) { 
+	for i := ui_state.animations_stored - 1; i >= 0; i -= 1 { 
+		animation := &ui_state.animations[i]
+		animation.progress += dt / animation.time
+		// If animation is finished, remove it from list.
+		if animation.progress >= 1 {
+			// This is a nifty little trick to place the current finished item, out
+			// past beyond the range of the current for loop by swapping it with the next
+			// element to be processed. This works because the order in which we process animations
+			// in this loop doesn't matter.
+			ui_state.animations_stored -= 1
+			animation^ = ui_state.animations[ui_state.animations_stored]
+		}
+	}
+	if ui_state.animations_stored > 0 {
+		ui_state.event_wait_timeout = EXPECTED_FRAME_TIME_SECONDS
+	}
+}
 
-animation_start :: proc(id: string, initial, time: f32) { 
+animation_start :: proc(id: string, initial, time: f64) { 
+	// Re-use existing animation entry if it's in the list.
+	for &animation in ui_state.animations[:ui_state.animations_stored] {
+		if animation.id == id { 
+			animation.initial = animation.prev	
+			animation.time = time
+			animation.progress = 0
+			return
+		}
+	}
+
+	// If not, push new entry if we have space.
+	if ui_state.animations_stored < N_MAX_ANIMATIONS { 
+		ui_state.animations[ui_state.animations_stored] = Animation_Item {
+			id = id,
+			initial = initial, 
+			prev = initial, 
+			time = time
+		}
+		ui_state.animations_stored += 1
+	}
+}
+
+animation_get :: proc(id: string, target: f64) -> f64 {
+	for &animation in ui_state.animations[:ui_state.animations_stored] { 
+		if animation.id == id { 
+			prog := animation.progress
+			prog = 1 - (1 - prog) * (1 - prog) // apply easing
+			animation.prev = animation.initial + prog * (target - animation.initial)
+			return animation.prev
+		}
+	}
+	// If no id matches an existing animation, we just return the target the user asked for
+	// immediately, might be more sensible to panic.
+	return target
 }
 /* ============================ END ANIMATION CODE ============================== */
 

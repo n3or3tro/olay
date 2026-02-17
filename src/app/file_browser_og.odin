@@ -58,7 +58,7 @@ package app
 // 		load := text_button("Add Files@browser-options-folder-button", btn_config)
 // 		sort_files := text_button("Sort@browser-options-sort-button", btn_config)
 // 		flip := text_button("Flip@browser-options-flip-button", btn_config)
-// 		box_from_cache("@filler-hehe-mwahaha", {},  {semantic_size = Size_Grow})
+// 		box_from_cache("@filler-hehe-mwahaha", {},  {size = Size_Grow})
 // 		add_folder := text_button("Add Folder@browser-options-add-folder", btn_config)
 
 // 		if load.clicked {
@@ -104,7 +104,7 @@ package app
 // 		child_container(
 // 			"@browser-subdirs-container",
 // 			{
-// 				semantic_size = Size_Fit_Children, 
+// 				size = Size_Fit_Children, 
 // 				color = .Surface,
 // 				padding = {5,5,5,0}
 // 			},
@@ -121,7 +121,7 @@ package app
 // 				child_container(
 // 					id("@{}-dispaly-container", dir.name),
 // 					{
-// 						semantic_size = Size_Fit_Children_And_Grow,
+// 						size = Size_Fit_Children_And_Grow,
 // 						padding = {left = 5 * level}
 // 					},
 // 					{
@@ -136,7 +136,7 @@ package app
 // 				arrow_box := text_button(
 // 					id("{}@{}-arrow_box", arrow_name, dir.name),
 // 					{ 
-// 						semantic_size = {{.Fit_Text, 1}, {.Fit_Text_And_Grow, 1}},
+// 						size = {{.Fit_Text, 1}, {.Fit_Text_And_Grow, 1}},
 // 						color = app.browser_selected_dir != dir ? .Secondary_Container : .Warning,
 // 						text_justify = {.Start, .Center},
 // 						padding = padding(5),
@@ -151,7 +151,7 @@ package app
 // 					{
 // 						border = 1,
 // 						color = app.browser_selected_dir != dir ? .Secondary_Container : .Warning,
-// 						semantic_size = Size_Fit_Text_And_Grow,
+// 						size = Size_Fit_Text_And_Grow,
 // 						text_justify = {.Start, .Center},
 // 						padding = padding(5),
 // 					},
@@ -213,7 +213,7 @@ package app
 // 						id("{}@browser-file-{}-{}", file.name, i, file.name),
 // 						{.Clickable, .Draw, .Hot_Animation,.Drag_Drop_Source, .Draw_Text},
 // 						{
-// 							semantic_size = Size_Fit_Text_And_Grow,
+// 							size = Size_Fit_Text_And_Grow,
 // 							padding = padding(5),
 // 							margin = {left = 5 * (level + 1)},
 // 							corner_radius = 4,

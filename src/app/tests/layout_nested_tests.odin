@@ -13,7 +13,7 @@ test_nested_horizontal_in_vertical :: proc(t: ^testing.T) {
 		height = 600,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 500}, {type = .Fixed, amount = 600}},
+			size = {{type = .Fixed, amount = 500}, {type = .Fixed, amount = 600}},
 		},
 		child_layout = {
 			direction = .Vertical,
@@ -26,7 +26,7 @@ test_nested_horizontal_in_vertical :: proc(t: ^testing.T) {
 	parent := app.Box{
 		config = {
 			padding = {left = 10, top = 0, right = 10, bottom = 0},
-			semantic_size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
+			size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
 			floating_type = .Not_Floating,
 		},
 		child_layout = {
@@ -41,7 +41,7 @@ test_nested_horizontal_in_vertical :: proc(t: ^testing.T) {
 		width = 100,
 		height = 50,
 		config = {
-			semantic_size = {{type = .Fixed, amount = 100}, {type = .Fixed, amount = 50}},
+			size = {{type = .Fixed, amount = 100}, {type = .Fixed, amount = 50}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -52,7 +52,7 @@ test_nested_horizontal_in_vertical :: proc(t: ^testing.T) {
 		width = 150,
 		height = 50,
 		config = {
-			semantic_size = {{type = .Fixed, amount = 150}, {type = .Fixed, amount = 50}},
+			size = {{type = .Fixed, amount = 150}, {type = .Fixed, amount = 50}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -86,7 +86,7 @@ test_three_level_nested_fit_children :: proc(t: ^testing.T) {
 	root := app.Box{
 		config = {
 			padding = {left = 5, top = 5, right = 5, bottom = 5},
-			semantic_size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
+			size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
 		},
 		child_layout = {
 			direction = .Vertical,
@@ -98,7 +98,7 @@ test_three_level_nested_fit_children :: proc(t: ^testing.T) {
 	level1 := app.Box{
 		config = {
 			padding = {left = 10, top = 10, right = 10, bottom = 10},
-			semantic_size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
+			size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
 			floating_type = .Not_Floating,
 		},
 		child_layout = {
@@ -112,7 +112,7 @@ test_three_level_nested_fit_children :: proc(t: ^testing.T) {
 	level2 := app.Box{
 		config = {
 			padding = {left = 15, top = 15, right = 15, bottom = 15},
-			semantic_size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
+			size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
 			floating_type = .Not_Floating,
 		},
 		child_layout = {
@@ -127,7 +127,7 @@ test_three_level_nested_fit_children :: proc(t: ^testing.T) {
 		width = 100,
 		height = 80,
 		config = {
-			semantic_size = {{type = .Fixed, amount = 100}, {type = .Fixed, amount = 80}},
+			size = {{type = .Fixed, amount = 100}, {type = .Fixed, amount = 80}},
 			margin = {left = 0, right = 0, top = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -178,7 +178,7 @@ test_nested_margins_propagation :: proc(t: ^testing.T) {
 	parent := app.Box{
 		config = {
 			padding = {left = 10, top = 10, right = 10, bottom = 10},
-			semantic_size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
+			size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -191,7 +191,7 @@ test_nested_margins_propagation :: proc(t: ^testing.T) {
 		config = {
 			padding = {left = 5, top = 5, right = 5, bottom = 5},
 			margin = {left = 8, right = 12, top = 0, bottom = 0},
-			semantic_size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
+			size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
 			floating_type = .Not_Floating,
 		},
 		child_layout = {
@@ -206,7 +206,7 @@ test_nested_margins_propagation :: proc(t: ^testing.T) {
 		width = 50,
 		height = 30,
 		config = {
-			semantic_size = {{type = .Fixed, amount = 50}, {type = .Fixed, amount = 30}},
+			size = {{type = .Fixed, amount = 50}, {type = .Fixed, amount = 30}},
 			margin = {left = 3, right = 7, top = 2, bottom = 4},
 			floating_type = .Not_Floating,
 		},
@@ -251,7 +251,7 @@ test_nested_percent :: proc(t: ^testing.T) {
 		height = 500,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 1000}, {type = .Fixed, amount = 500}},
+			size = {{type = .Fixed, amount = 1000}, {type = .Fixed, amount = 500}},
 		},
 		children = make([dynamic]^app.Box),
 	}
@@ -259,7 +259,7 @@ test_nested_percent :: proc(t: ^testing.T) {
 	// Parent is 50% of grandparent
 	parent := app.Box{
 		config = {
-			semantic_size = {{type = .Percent, amount = 0.5}, {type = .Percent, amount = 0.5}},
+			size = {{type = .Percent, amount = 0.5}, {type = .Percent, amount = 0.5}},
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -270,7 +270,7 @@ test_nested_percent :: proc(t: ^testing.T) {
 	// Child is 50% of parent
 	child := app.Box{
 		config = {
-			semantic_size = {{type = .Percent, amount = 0.5}, {type = .Percent, amount = 0.5}},
+			size = {{type = .Percent, amount = 0.5}, {type = .Percent, amount = 0.5}},
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
 			floating_type = .Not_Floating,
 		},
@@ -311,7 +311,7 @@ test_nested_grow_in_fit_children :: proc(t: ^testing.T) {
 		height = 200,
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fixed, amount = 800}, {type = .Fixed, amount = 200}},
+			size = {{type = .Fixed, amount = 800}, {type = .Fixed, amount = 200}},
 		},
 		child_layout = {
 			direction = .Vertical,
@@ -323,7 +323,7 @@ test_nested_grow_in_fit_children :: proc(t: ^testing.T) {
 	parent := app.Box{
 		width = 800, // Will be set by grandparent
 		config = {
-			semantic_size = {{type = .Percent, amount = 1.0}, {type = .Fit_Children, amount = 0}},
+			size = {{type = .Percent, amount = 1.0}, {type = .Fit_Children, amount = 0}},
 			padding = {left = 10, top = 10, right = 10, bottom = 10},
 			floating_type = .Not_Floating,
 		},
@@ -339,7 +339,7 @@ test_nested_grow_in_fit_children :: proc(t: ^testing.T) {
 		width = 200,
 		height = 100,
 		config = {
-			semantic_size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 100}},
+			size = {{type = .Fixed, amount = 200}, {type = .Fixed, amount = 100}},
 			floating_type = .Not_Floating,
 		},
 		parent = &parent,
@@ -349,7 +349,7 @@ test_nested_grow_in_fit_children :: proc(t: ^testing.T) {
 		width = 100, // Initial
 		height = 100,
 		config = {
-			semantic_size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 100}},
+			size = {{type = .Grow, amount = 1.0}, {type = .Fixed, amount = 100}},
 			floating_type = .Not_Floating,
 		},
 		parent = &parent,
@@ -394,7 +394,7 @@ test_alternating_directions :: proc(t: ^testing.T) {
 	root := app.Box{
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
+			size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
 		},
 		child_layout = {
 			direction = .Horizontal,
@@ -406,7 +406,7 @@ test_alternating_directions :: proc(t: ^testing.T) {
 	vertical_container := app.Box{
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
+			size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
 			floating_type = .Not_Floating,
 		},
 		child_layout = {
@@ -420,7 +420,7 @@ test_alternating_directions :: proc(t: ^testing.T) {
 	horizontal_container := app.Box{
 		config = {
 			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			semantic_size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
+			size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
 			floating_type = .Not_Floating,
 		},
 		child_layout = {
@@ -435,7 +435,7 @@ test_alternating_directions :: proc(t: ^testing.T) {
 		width = 30,
 		height = 20,
 		config = {
-			semantic_size = {{type = .Fixed, amount = 30}, {type = .Fixed, amount = 20}},
+			size = {{type = .Fixed, amount = 30}, {type = .Fixed, amount = 20}},
 			floating_type = .Not_Floating,
 		},
 		parent = &horizontal_container,
@@ -445,7 +445,7 @@ test_alternating_directions :: proc(t: ^testing.T) {
 		width = 40,
 		height = 20,
 		config = {
-			semantic_size = {{type = .Fixed, amount = 40}, {type = .Fixed, amount = 20}},
+			size = {{type = .Fixed, amount = 40}, {type = .Fixed, amount = 20}},
 			floating_type = .Not_Floating,
 		},
 		parent = &horizontal_container,

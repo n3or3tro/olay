@@ -99,7 +99,7 @@ add_dirs_to_browser :: proc(parent: ^Browser_Directory, dirs: []string) {
 file_browser_menu :: proc(allocator: mem.Allocator) {
 	child_container(
 		{
-			semantic_size = {{.Fit_Children, 1}, {.Fit_Children, 1}},
+			size = {{.Fit_Children, 1}, {.Fit_Children, 1}},
 			color = .Primary_Container,
 			padding = {bottom = 5},
 			z_index = 10,
@@ -116,7 +116,7 @@ file_browser_menu :: proc(allocator: mem.Allocator) {
 	top_menu: {
 		child_container(
 			{
-				semantic_size = Size_Fit_Children_And_Grow, 
+				size = Size_Fit_Children_And_Grow, 
 				padding = padding(10), 
 				color = .Tertiary
 			},
@@ -128,7 +128,7 @@ file_browser_menu :: proc(allocator: mem.Allocator) {
 		)
 		search_bar := edit_text_box(
 			{
-				semantic_size = {{.Grow, 1}, {.Fixed, 30}}, 
+				size = {{.Grow, 1}, {.Fixed, 30}}, 
 				padding = {left = 4, right = 4},
 				border = 1
 			},
@@ -140,7 +140,7 @@ file_browser_menu :: proc(allocator: mem.Allocator) {
 		if search_bar.box.data == nil {
 			search_term = ""
 		} else {
-			if val, ok := search_bar.box.data.(string); !ok {
+			if val, ok := search_bar.box.data.(string); ok {
 				search_term = val
 			} else {
 				search_term = ""	
@@ -148,14 +148,14 @@ file_browser_menu :: proc(allocator: mem.Allocator) {
 		}
 		hori: {
 			child_container(
-				{semantic_size = Size_Fit_Children},
+				{size = Size_Fit_Children},
 				{direction = .Horizontal},
 			)
 			btn_config := Box_Config {
 				color         = .Secondary,
 				border        = 3,
 				padding       = {10, 10, 10, 10},
-				semantic_size = {{.Fit_Text, 1}, {.Fit_Text_And_Grow, 1}},
+				size = {{.Fit_Text, 1}, {.Fit_Text_And_Grow, 1}},
 				corner_radius = 0,
 			}
 			add_folder := text_button("Add Folder", btn_config)
@@ -191,13 +191,13 @@ file_browser_menu :: proc(allocator: mem.Allocator) {
 		create_subdirs_files :: proc(dir: ^Browser_Directory, level: int, search_term: string) {
 			{
 				child_container(
-					{semantic_size = Size_Fit_Children_And_Grow, padding = {left = 15 * level}},
+					{size = Size_Fit_Children_And_Grow, padding = {left = 15 * level}},
 					{gap_horizontal = 1},
 				)
 				arrow_box := text_button(
 					dir.collapsed ? ">" : "v",
 					{
-						semantic_size = {{.Fit_Text, 1}, {.Fit_Text_And_Grow, 1}},
+						size = {{.Fit_Text, 1}, {.Fit_Text_And_Grow, 1}},
 						color = app.browser_selected_dir != dir ? .Secondary_Container : .Warning,
 						text_justify = {.Start, .Center},
 						padding = padding(5),
@@ -214,7 +214,7 @@ file_browser_menu :: proc(allocator: mem.Allocator) {
 					{
 						border = 1,
 						color = app.browser_selected_dir != dir ? .Secondary_Container : .Warning,
-						semantic_size = Size_Fit_Text_And_Grow,
+						size = Size_Fit_Text_And_Grow,
 						text_justify = {.Start, .Center},
 						padding = padding(5),
 					},
@@ -235,7 +235,7 @@ file_browser_menu :: proc(allocator: mem.Allocator) {
 					f := box_from_cache(
 						{.Clickable, .Draw, .Hot_Animation, .Drag_Drop_Source, .Draw_Text},
 						{
-							semantic_size = Size_Fit_Text_And_Grow,
+							size = Size_Fit_Text_And_Grow,
 							padding = padding(5),
 							margin = {left = 15 * (level + 1)},
 							corner_radius = 4,
@@ -271,7 +271,7 @@ file_browser_menu :: proc(allocator: mem.Allocator) {
 			{
 				overflow_y = .Scroll,
 				overflow_x = .Scroll,
-				// semantic_size = {{.Percent, 1}, {.Percent, 1}},
+				// size = {{.Percent, 1}, {.Percent, 1}},
 				max_size = {800, app.wy - 250},
 				color = .Warning,
 			},

@@ -407,7 +407,7 @@ add_waveform_rendering_data :: proc(
 	pcm_frames: [dynamic]f32,
 	rendering_data: ^[dynamic]Rect_Render_Data,
 ) {
-	sound := track.sound
+	sound := track.sounds[0]
 	if sound == nil {
 		return
 	}
