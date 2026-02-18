@@ -8,7 +8,8 @@
       "WebFetch(domain:pkg.odin-lang.org)",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:miniaud.io)",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(wc:*)"
     ]
   }
 }

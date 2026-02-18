@@ -53,6 +53,9 @@ topbar :: proc() {
 		if text_button("redo", btn_config, "top-bar-redo").clicked {
 			redo()
 		}
+		if text_button("render wav", btn_config, "top-bar-render").clicked {
+			audio_export_to_wav()
+		}
 	}
 
 	middle_container: {

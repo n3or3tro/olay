@@ -184,7 +184,7 @@ app_init :: proc(first_run := true) -> ^App {
 @(export)
 app_init_window :: proc() {
 	sdl.Init({.EVENTS})
-	window_flags := sdl.WINDOW_OPENGL | sdl.WINDOW_RESIZABLE | sdl.WINDOW_ALLOW_HIGHDPI | sdl.WINDOW_UTILITY
+	window_flags := sdl.WINDOW_OPENGL | sdl.WINDOW_RESIZABLE | sdl.WINDOW_ALLOW_HIGHDPI | sdl.WINDOW_UTILITY | sdl.WINDOW_BORDERLESS
 	app.window = sdl.CreateWindow(
 		"n3or3tro-tracker",
 		sdl.WINDOWPOS_UNDEFINED,

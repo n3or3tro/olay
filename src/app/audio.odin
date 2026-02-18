@@ -366,7 +366,7 @@ track_set_sound :: proc(which: u32, path: cstring) {
 	// Refer to Track :: struct {} to see why we need multiple sounds per track.
 	for i in 1..<len(track.sounds) {
 		track.sounds[i] = new(ma.sound)
-		res := ma.sound_init_copy(app.audio.engine, new_sound, {.NO_DEFAULT_ATTACHMENT, .NO_SPATIALIZATION}, nil, track.sounds[i])
+		res := ma.sound_init_copy(app.audio.engine, new_sound, SOUND_FILE_LOAD_FLAGS + {.NO_DEFAULT_ATTACHMENT}, nil, track.sounds[i])
 		assert(res == .SUCCESS)
 	}
 
@@ -697,6 +697,7 @@ help swap to and fro.
 pitch_get_from_note :: proc(pitch: string) -> int{ 
 	return int(pitch_difference("C3", pitch))
 }
+
 pitch_set_from_note :: proc(track, step: int, pitch: string) { 
 	app.audio.tracks[track].pitches[step] = int(pitch_difference("C3", pitch))
 }
@@ -737,14 +738,15 @@ eq_add_band::proc(track_num: int, how_far:f32, band_type: EQ_Band_Type) {
 	append(&eq.bands, new_band)
 }
 
-eq_init_band :: proc(track: Track, band: ^EQ_Band_State, node_graph: ^ma.node_graph) {
+eq_init_band :: proc(track: Track, band: ^EQ_Band_State, node_graph: ^ma.node_graph, allocator := context.allocator) -> ^ma.biquad_node{
 	coeffs := compute_biquad_coefficients(band.freq_hz, band.q, band.gain_db, SAMPLE_RATE, band.type)
 	using coeffs
 	config := ma.biquad_node_config_init(2, f32(b0), f32(b1), f32(b2), 1, f32(a1), f32(a2))
-	node := new(ma.biquad_node)
+	node := new(ma.biquad_node, allocator)
 	res := ma.biquad_node_init(node_graph, &config, nil, node)
 	assert(res == .SUCCESS)
 	band.biquad_node = node
+	return node
 }
 
 eq_reinit_band :: proc(band: EQ_Band_State) {
@@ -923,3 +925,133 @@ ui_refresh_thread_proc :: proc() {
 	}
 }
 // ========================================= END PLAYBACK / TIMING STUFF ==============================================
+
+/*
+Set's up offline engine. Very similar to the normal playback scheduling, but since it's not connected to a phsyical device, we can
+basically spin the engine as fast as the CPU allows and pull out the .wav file at the end. Should allow for pretty fast
+rendering of .wav files.
+*/
+audio_export_to_wav :: proc() { 
+	println("exporting to wav")
+	beats_per_bar :: 4
+	steps_per_bar :: 32
+	steps_per_beat := steps_per_bar / beats_per_bar
+
+	arena, scratch := arena_allocator_new()
+	defer arena_allocator_destroy(arena, scratch)
+
+	config := ma.engine_config_init()
+	config.noDevice = true
+	config.channels = 2
+	config.sampleRate = u32(SAMPLE_RATE)
+
+	engine : ma.engine
+	ma.engine_init(&config, &engine)
+	defer ma.engine_uninit(&engine)
+
+	node_graph := ma.engine_get_node_graph(&engine)
+	track_sounds := make([dynamic][dynamic]^ma.sound, scratch)
+
+	samples_per_step := SAMPLE_RATE * 60.0 / f64(app.audio.bpm) / f64(steps_per_beat)
+	total_frames := u64(N_TRACK_STEPS * samples_per_step)
+
+	for track in app.audio.tracks { 
+		if track.sounds[0] == nil do continue
+
+		sounds := make([dynamic]^ma.sound, scratch)
+
+		new_sound := new(ma.sound, scratch)
+		if ma.sound_init_from_file(
+			&engine, 
+			str.clone_to_cstring(track.sound_path, scratch), 
+			{.DECODE, .NO_SPATIALIZATION}, 
+			nil, 
+			nil, 
+			new_sound
+		) != .SUCCESS { panic("fuck") }
+
+
+		// To make things easier, we'll make each step it's own sound. 
+		/* Note! This doesn't handle looping or different length patterns yet !!!!*/
+		for i in 0 ..< N_TRACK_STEPS {
+			if track.selected_steps[i] {
+				sound_copy := new(ma.sound, scratch)
+				ma.sound_init_copy(&engine, new_sound, {}, nil, sound_copy)
+				start_time_pcm := u64(i) * u64(samples_per_step)
+				ma.sound_set_start_time_in_pcm_frames(sound_copy, start_time_pcm)
+				ma.sound_start(sound_copy)
+
+				end_time_pcm :u64 = 0 
+				for next_step := i + 1; next_step < N_TRACK_STEPS; next_step += 1{
+					if track.selected_steps[next_step] {
+						end_time_pcm = u64(next_step) * u64(samples_per_step)
+						break
+					}
+				}
+				// Either we fucked up, or it's the last scheduled step.
+				if end_time_pcm == 0  do end_time_pcm = total_frames
+				ma.sound_set_stop_time_in_pcm_frames(sound_copy, end_time_pcm)
+
+				append(&sounds, sound_copy)
+			}
+		}
+		// re-init eq.
+		eq_bands := track.eq.bands
+
+		// Wire sound -> first eq band 
+		if len(eq_bands) < 1 do continue 
+		// Create EQ nodes again, since I'm not sure I can re-use the ones from the engine-propper.
+		// ma.biquad_node_config_init()
+		biquad_nodes := make([dynamic]^ma.biquad_node, scratch)
+		for &band in eq_bands {
+			eq_state_copy := band
+			node := eq_init_band(track, &eq_state_copy, node_graph, scratch)
+			append(&biquad_nodes, node)
+		}
+		for sound in sounds {
+			res := ma.node_attach_output_bus(
+				cast(^ma.node)(sound), 
+				0, 
+				cast(^ma.node)(biquad_nodes[0]), 
+				0
+			) 
+			if res != .SUCCESS  do panic("fuck")
+		}
+
+		// Wire the rest of the bands to each other.
+		for i in 1..<len(biquad_nodes) {
+			res := ma.node_attach_output_bus(
+				cast(^ma.node)(biquad_nodes[i-1]), 
+				0, 
+				cast(^ma.node)(biquad_nodes[i]), 
+				0
+			) 
+			if res != .SUCCESS do panic("")
+		}
+		// Wire last filter node to engine.
+		ma.node_attach_output_bus(
+			cast(^ma.node)(biquad_nodes[len(biquad_nodes)-1]),
+			0,
+			ma.engine_get_endpoint(&engine),
+			0,
+		)
+	}
+
+	encoder_config := ma.encoder_config_init(.wav, .f32, 2, u32(SAMPLE_RATE))
+	encoder : ma.encoder
+	if ma.encoder_init_file("exported.wav", &encoder_config, &encoder) != .SUCCESS do panic("shiet")
+	defer ma.encoder_uninit(&encoder)
+
+	frames_drained : u64 = 0
+	for frames_drained < total_frames {
+		println("puling chunk")
+		buf: [4096 * 2]f32
+		actually_read: u64
+		ma.engine_read_pcm_frames(&engine, &buf, 4096, &actually_read)
+		actually_written: u64
+		ma.encoder_write_pcm_frames(&encoder, &buf, 4096, &actually_written)
+		frames_drained += actually_read
+		if actually_read == 0 || actually_read < 4096 do break
+	}
+	println("done")
+}
