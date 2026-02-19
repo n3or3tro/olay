@@ -1,7 +1,7 @@
 package app
 import test "core:testing"
 import "core:log"
-import os "core:os/os2"
+import "core:os"
 import "../app"
 import "core:encoding/json"
 

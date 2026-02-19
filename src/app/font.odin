@@ -8,6 +8,7 @@ TODO / Improvments.:
 	- Check if there's any significant inefficiencies with storing 
 */
 
+import "core:io"
 import ft "../third-party/freetype"
 import "core:fmt"
 import "core:mem"
@@ -75,8 +76,8 @@ font_init :: proc(state: ^Font_State, font_size: u32, allocator := context.alloc
 	if font_path == "panic" {
 		panic("Need to set font path for non Windows systems.")
 	}
-	font_file_data, ok := os.read_entire_file_from_filename(font_path, context.temp_allocator)
-	assert(ok, fmt.tprintf("Failed to open and read .otf file at: {}", font_path))
+	font_file_data, f_err := os.read_entire_file_from_path(font_path, context.temp_allocator)
+	assert(f_err != io.Error.None, fmt.tprintf("Failed to open and read .otf file at: {}", font_path))
 
 	font, kb_err := kb.FontFromMemory(font_file_data, allocator)
 	assert(

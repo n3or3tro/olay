@@ -1,3 +1,5 @@
+#+feature using-stmt
+
 package app
 
 import "base:runtime"
@@ -6,7 +8,7 @@ import "core:fmt"
 import "core:io"
 import "core:math"
 import "core:mem"
-import os "core:os/os2"
+import "core:os"
 import "core:reflect"
 import "core:slice"
 import "core:strconv"
@@ -902,7 +904,9 @@ ui_refresh_thread_proc :: proc() {
 		// 2. Set the timing parameters
 		// units are 100-nanosecond intervals.
 		// Negative = relative time. 8.333ms = 83330 units.
-		due_time := windows.LARGE_INTEGER(-EXPECTED_FRAME_TIME_SECONDS * 10_000_000)
+		lol := f64(-EXPECTED_FRAME_TIME_SECONDS) * 10_000_000.0
+		hehe := i64(lol)
+		due_time := windows.LARGE_INTEGER(hehe)
 		period_ms: i32 = 8 // The periodic restart in milliseconds
 
 		if !windows.SetWaitableTimerEx(handle, &due_time, period_ms, nil, nil, nil, 0) do panic("Failed to set timer")
@@ -1142,10 +1146,16 @@ serialize :: proc(data: any, out_buf: ^[dynamic]byte, s_id := -1) {
 		assert(s_id != -1)
 		append_elems(out_buf, ..to_bytes(s_id))
 		s := (cast(^string)data.data)^
-		append_elems(out_buf, ..to_bytes(len(s) * 4))
+		// append_elems(out_buf, ..to_bytes(len(s) * 4))
+		// utf8 / runes / bytes fuckery.
+		n_runes := 0
+		for _ in s { n_runes += 1 }
+		append_elems(out_buf, ..to_bytes(n_runes * size_of(rune)))
 		for ch in s {
 			append_elems(out_buf, ..to_bytes(ch))
 		}
+
+
 	case runtime.Type_Info_Array:
 		assert(s_id != -1)
 		append_elems(out_buf, ..to_bytes(s_id))
@@ -1304,7 +1314,10 @@ deserialize :: proc(data: any, in_buf: []byte, cursor: ^int, end := -1) {
 		} else {
 			total_bytes := effective_end - cursor^
 			ptr, _ := mem.alloc(total_bytes)
-			mem.copy(ptr, &in_buf[cursor^], total_bytes)
+			if total_bytes > 0 {
+				mem.copy(ptr, &in_buf[cursor^], total_bytes)
+			}
+			// mem.copy(ptr, &in_buf[cursor^], total_bytes)
 			raw.data = ptr
 			raw.len = total_bytes / v.elem_size
 			raw.cap = raw.len

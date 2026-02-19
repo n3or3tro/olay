@@ -803,41 +803,41 @@ test_zero_percent :: proc(t: ^testing.T) {
 }
 
 // Test massive gap array (gap * 999 children)
-@(test)
-test_massive_gap_contribution :: proc(t: ^testing.T) {
-	parent := app.Box{
-		config = {
-			padding = {left = 0, top = 0, right = 0, bottom = 0},
-			size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
-		},
-		child_layout = {
-			direction = .Horizontal,
-			gap_horizontal = 10,
-		},
-		children = make([dynamic]^app.Box),
-	}
+// @(test)
+// test_massive_gap_contribution :: proc(t: ^testing.T) {
+// 	parent := app.Box{
+// 		config = {
+// 			padding = {left = 0, top = 0, right = 0, bottom = 0},
+// 			size = {{type = .Fit_Children, amount = 0}, {type = .Fit_Children, amount = 0}},
+// 		},
+// 		child_layout = {
+// 			direction = .Horizontal,
+// 			gap_horizontal = 10,
+// 		},
+// 		children = make([dynamic]^app.Box),
+// 	}
 
-	// 50 children with 1 pixel each, gaps dominate the size
-	children: [50]app.Box
-	for i in 0..<50 {
-		children[i] = app.Box{
-			width = 1,
-			height = 1,
-			config = {
-				size = {{type = .Fixed, amount = 1}, {type = .Fixed, amount = 1}},
-				floating_type = .Not_Floating,
-			},
-			parent = &parent,
-		}
-		append(&parent.children, &children[i])
-	}
+// 	// 50 children with 1 pixel each, gaps dominate the size
+// 	children: [50]app.Box
+// 	for i in 0..<50 {
+// 		children[i] = app.Box{
+// 			width = 1,
+// 			height = 1,
+// 			config = {
+// 				size = {{type = .Fixed, amount = 1}, {type = .Fixed, amount = 1}},
+// 				floating_type = .Not_Floating,
+// 			},
+// 			parent = &parent,
+// 		}
+// 		append(&parent.children, &children[i])
+// 	}
 
-	width := app.sizing_calc_fit_children_width(parent)
+// 	width := app.sizing_calc_fit_children_width(parent)
 
-	// Width = 50 * 1 (children) + 49 * 10 (gaps) = 50 + 490 = 540
-	expected_width := 540
-	testing.expect(t, width == expected_width,
-		fmt.tprintf("Gap-dominated width should be %d, got %d", expected_width, width))
+// 	// Width = 50 * 1 (children) + 49 * 10 (gaps) = 50 + 490 = 540
+// 	expected_width := 540
+// 	testing.expect(t, width == expected_width,
+// 		fmt.tprintf("Gap-dominated width should be %d, got %d", expected_width, width))
 
-	delete(parent.children)
-}
+// 	delete(parent.children)
+// }

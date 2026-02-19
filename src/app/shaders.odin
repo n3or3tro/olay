@@ -1,16 +1,15 @@
 // Basic abstraction to make working with OpenGL shaders easier.
 package app
 import "core:fmt"
+import "core:io"
 import alg "core:math/linalg"
 import "core:os"
 import "core:strings"
 import gl "vendor:OpenGL"
 
 shader_as_cstring :: proc(path: string) -> string {
-	data, ok := os.read_entire_file_from_filename(path)
-	if !ok {
-		panic("Failed to read file: ")
-	}
+	data, err := os.read_entire_file_from_path(path, context.temp_allocator)
+	assert(err == io.Error.None, "Failed to read file: ")
 	return strings.clone_from_bytes(data)
 }
 

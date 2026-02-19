@@ -10,7 +10,7 @@
     "enable_references": true,
     "enable_auto_import": true,
     "enable_document_highlights": true,
-    "enable_format": true,
+    "enable_format": false,
     "enable_semantic_tokens": true,
     "enable_procedure_context": true,
     "checker_args": "-ignore-warnings",

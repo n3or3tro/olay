@@ -295,7 +295,7 @@ audio_track :: proc(track_num: int, track_width: f32, step_containers: ^[dynamic
 		#partial switch val in drop_data {
 			case Browser_File:
 				// full_path := tprintf("/{}/{}", val.parent.path, val.name)
-				full_path := filepath.join({val.parent.path, val.name}, context.temp_allocator)
+				full_path, err := filepath.join({val.parent.path, val.name}, context.temp_allocator)
 				cpath = str.clone_to_cstring(full_path)
 				printfln("dropped {} onto track", full_path)
 				// printfln("dropped {} onto track", val.name)
