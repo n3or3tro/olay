@@ -68,7 +68,9 @@ app_update :: proc() -> (all_good: bool) {
 	reset_mouse_state()
 	show_context_menu, exit := ui_state.context_menu.active, false
 	// Sleep until an event arrives and unblocks us.
-	if ui_state.frames_since_sleep == 0 && sdl.WaitEventTimeout(&event, i32(ui_state.event_wait_timeout * 1_000))  {
+	if (ui_state.frames_since_sleep == 0 && sdl.WaitEventTimeout(&event, i32(ui_state.event_wait_timeout * 1_000))) || 
+	ui_state.frame_num < 5 
+	{
 		exit, show_context_menu = handle_input(event)
 		if exit {
 			return false

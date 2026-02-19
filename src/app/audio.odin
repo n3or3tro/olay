@@ -1,167 +1,179 @@
 package app
 
+import "base:runtime"
+import "core:bytes"
 import "core:fmt"
+import "core:io"
 import "core:math"
+import "core:mem"
+import os "core:os/os2"
+import "core:reflect"
 import "core:slice"
-import "core:sync"
-import sdl "vendor:sdl2"
 import "core:strconv"
 import str "core:strings"
+import "core:sync"
+import "core:sys/windows"
 import "core:time"
 import ma "vendor:miniaudio"
-import "core:sys/windows"
+import sdl "vendor:sdl2"
 
 // At file scope
-@(private="file")
+@(private = "file")
 spectrum_analyzer_vtable: ma.node_vtable
-@(private="file")
+@(private = "file")
 spectrum_analyzer_input_channels: [1]u32 = {2}
-@(private="file")
+@(private = "file")
 spectrum_analyzer_output_channels: [1]u32 = {2}
-@(private="file")
+@(private = "file")
 spectrum_analyzer_vtable_initialized := false
 
-SAMPLE_RATE : f64 = 44_100
+SAMPLE_RATE: f64 = 44_100
 AUDIO_SCHEDULING_HORIZON_MS :: 400
 
 N_TRACK_STEPS :: 128
 MAX_TRACKS :: 256
 MAX_TRACK_STEPS :: 256
-EQ_MAX_GAIN :f64: 24
+EQ_MAX_GAIN: f64 : 24
 N_SOUND_COPIES :: 8
 
 Sampler_Slice :: struct {
 	// How far along into the sound is this.
-	how_far: f32,
+	how_far: f32 `s_id:1`,
 	// Which slice is this. NOT the same as it's order along the x-axis.
 	// This is included because I was getting weird issues upon re-ordering the existing
 	// slices in sampler.slices.
-	which:   u32,
+	which:   u32 `s_id:2`,
 }
 
-Waveform_Sample_Render_Info :: struct { 
+Waveform_Sample_Render_Info :: struct {
 	x_pos, y_top, y_bottom: f32,
 	// This is basically the last pcm_frame in the pixel chunk. Let's us know
 	// if this pixel should be colored or not depending on where the playhead
 	// of the sample is.
-	end_pcm_frame: u64,
+	end_pcm_frame:          u64,
 }
 
 Sampler_State :: struct {
-	n_slices:         u32,
-	mode:             enum {
+	n_slices:              u32 `s_id:1`,
+	mode:                  enum {
 		slice,
 		warp,
 		one_shot,
-	},
+	} `s_id:2`,
 	// Store how far along the length of the container the marker goes: [0-1].
-	slices:           [128]Sampler_Slice,
+	slices:                [128]Sampler_Slice `s_id:3`,
 	// How zoomed in the view of the wav data is.
-	zoom_amount:      f32,
-	// Used as a cache key
-	prev_zoom_amount: f32,
+	zoom_amount:           f32 `s_id:4`,
+	// Used as a cache key — not serialized, derived on load.
+	prev_zoom_amount:      f32,
 	// Where the zoom occurs 'around'. This changes as you move the mouse.
 	// Doesn't change when you're zooming as it's relevant to the rect, not the wave.
-	zoom_point:       f32,
+	zoom_point:            f32 `s_id:5`,
 	// To help avoid double actions on 'clicked' when dragging a slice.
-	dragging_a_slice: bool,
-	// Identify which slice is being dragged. Had issues with mouse going ahead of dragged box,
-	// so trying to implement 'sticky stateful' dragging.
-	dragged_slice:    u32,
+	// Not serialized — transient interaction state.
+	dragging_a_slice:      bool,
+	// Identify which slice is being dragged.
+	// Not serialized — transient interaction state.
+	dragged_slice:         u32,
 	// Whether to hide or show the sampler in the UI.
-	show: 			  bool,
+	show:                  bool `s_id:6`,
 	// (x, y) of previously calculated waveform samples.
-	cached_sample_heights: [dynamic]Waveform_Sample_Render_Info // {x_pos, y_top, y_bottom}
+	// Not serialized — render cache, rebuilt on load.
+	cached_sample_heights: [dynamic]Waveform_Sample_Render_Info, // {x_pos, y_top, y_bottom}
 }
 
-EQ_Band_Type :: enum { 
+EQ_Band_Type :: enum {
 	Bell,
 	High_Cut,
 	Low_Cut,
 	High_Shelf,
 	Low_Shelf,
-	Band_Pass, 
+	Band_Pass,
 	Notch,
 }
 
-EQ_Band_State :: struct { 
-	// Not sure whether to store their frequency loation or position inside parent.
-	// Either way I imagine we'll have to convert back and forth.
-	freq_hz:	f64, // 20hz - 20_000 hz
-	gain_db:	f64,
-	q:			f64,
-	bypass: 	bool,
-	type: 		EQ_Band_Type,
-	coefficients: struct { 
+EQ_Band_State :: struct {
+	freq_hz:      f64 `s_id:1`, // 20hz - 20_000 hz
+	gain_db:      f64 `s_id:2`,
+	q:            f64 `s_id:3`,
+	bypass:       bool `s_id:4`,
+	type:         EQ_Band_Type `s_id:5`,
+	// Not serialized — recomputed from freq_hz, q, gain_db on load.
+	coefficients: struct {
 		b0, b1, b2, a0, a1, a2: f64,
 	},
+	// Not serialized — runtime miniaudio node pointer.
 	// biquad_node: Biquad_Node
-	biquad_node: ^ma.biquad_node
+	biquad_node:  ^ma.biquad_node,
 }
 
-EQ_State :: struct { 
-	// Should be 1 list for each EQ and 1 EQ for each track.
-	bands : [dynamic]EQ_Band_State,
-	// Whether the UI should show this EQ widget, don't love having this in the audio state but
-	// it helps to keep single source of truth.
-	show: bool,
-	active_band: int,
-	frequency_spectrum_bins: [FFT_N_SPECTRUM_BINS]f32
+EQ_State :: struct {
+	bands:                   [dynamic]EQ_Band_State `s_id:1`,
+	show:                    bool `s_id:2`,
+	active_band:             int `s_id:3`,
+	// Not serialized — live FFT output, rebuilt during playback.
+	frequency_spectrum_bins: [FFT_N_SPECTRUM_BINS]f32,
 }
 
 Track :: struct {
-	// These all share the same datasource, but we need multiple copies to schedule 
-	// multiple steps into the future.
-	sounds:          [N_SOUND_COPIES]^ma.sound,
-	curr_sound_idx: int,
-	sound_path:		string, 
-	armed:          bool,
-	volume:         f32,
-	// PCM data is used only for rendering waveforms atm.
-	pcm_data:       struct {
+	// These all share the same datasource, but we need multiple copies to schedule multiple steps into the future.
+	// Not serialized — runtime miniaudio sound handles.
+	sounds:            [N_SOUND_COPIES]^ma.sound,
+	// Not serialized — runtime round-robin index.
+	curr_sound_idx:    int,
+	sound_path:        string `s_id:1`,
+	armed:             bool `s_id:2`,
+	volume:            f32 `s_id:3`,
+	// Not serialized — derived from sound_path on load.
+	pcm_data:          struct {
 		left_channel:  [dynamic]f32,
 		right_channel: [dynamic]f32,
 	},
-	name: 			string,	// Name / label of this track.
-	track_num: 		int, // Number ID of this track
+	name:              string `s_id:4`, // Name / label of this track.
+	track_num:         int `s_id:5`, // Number ID of this track
 	// curr_step:      u32,
 	// Actual amount of steps in the track.
-	n_steps:        u32,
+	n_steps:           u32 `s_id:6`,
 	// Could make this dynamic, but for now we'll just limit the max amount of steps.
-	pitches:   [MAX_TRACK_STEPS]int, // 1 = C#3, 2 = D3, 0 = C3, -1 = B3, -2 = A#3, etc
+	pitches:           [MAX_TRACK_STEPS]int `s_id:7`, // 1 = C#3, 2 = D3, 0 = C3, -1 = B3, -2 = A#3, etc
 	// Not sure if these should be floats or ints....
-	volumes: 	[MAX_TRACK_STEPS]int,
-	send1: 	[MAX_TRACK_STEPS]int,
-	send2: 	[MAX_TRACK_STEPS]int,
-	selected_steps: [MAX_TRACK_STEPS]bool,
-	eq:		 EQ_State,
-	sampler: Sampler_State,
+	volumes:           [MAX_TRACK_STEPS]int `s_id:8`,
+	send1:             [MAX_TRACK_STEPS]int `s_id:9`,
+	send2:             [MAX_TRACK_STEPS]int `s_id:10`,
+	selected_steps:    [MAX_TRACK_STEPS]bool `s_id:11`,
+	eq:                EQ_State `s_id:12`,
+	sampler:           Sampler_State `s_id:13`,
+	// Not serialized — runtime audio graph node.
 	spectrum_analyzer: Spectrum_Analyzer_Node,
-	loop_at: int
+	loop_at:           int `s_id:14`,
 }
 
 Audio_State :: struct {
-	playing:             bool,
-	bpm:                 u16,
-	tracks:              [dynamic]Track,
-	engine:              ^ma.engine,
+	// Not serialized — transient playback state, always starts stopped.
+	playing:                      bool,
+	bpm:                          u16 `s_id:1`,
+	tracks:                       [dynamic]Track `s_id:2`,
+	// Not serialized — runtime miniaudio engine handle.
+	engine:                       ^ma.engine,
 	// For some reason this thing needs to be globally accessible (at least according to the docs),
 	// Perhaps we can localize it later.
 	// delay:               ma.delay_node,
 	// for now there will be a fixed amount of channels, but irl this will be dynamic.
 	// channels are a miniaudio idea of basically audio processing groups. need to dive deeper into this
 	// as it probably will help in designging the audio processing stuff.
-	audio_groups:        [N_AUDIO_GROUPS]^ma.sound_group,
-	paused_at_step: int,
+	// Not serialized — runtime miniaudio sound group handles.
+	audio_groups:                 [N_AUDIO_GROUPS]^ma.sound_group,
+	paused_at_step:               int `s_id:3`,
 	// Basically in a hot reload situation, I need a way to indicate to the timing thread that it
 	// should stop looping and exit when we hot reload the dll. It will be restarted once the new
 	// dll is loaded.
-	exit_timing_thread: 		  bool,
+	// Not serialized — runtime thread control flags and timing state.
+	exit_timing_thread:           bool,
 	last_playback_start_time_pcm: u64,
-	last_scheduled_step: 		  int,
-	last_ui_notified_step: 	  	  int,
-	playing_cond: 				  sync.Cond,
-	playing_mutex: 				  sync.Mutex,
+	last_scheduled_step:          int,
+	last_ui_notified_step:        int,
+	playing_cond:                 sync.Cond,
+	playing_mutex:                sync.Mutex,
 }
 
 SOUND_FILE_LOAD_FLAGS: ma.sound_flags = {.DECODE, .NO_SPATIALIZATION}
@@ -172,7 +184,7 @@ We need to free and nil out all pointers in our Odin code that pointed into Mini
 when we hot reload, this data is no longer valid. Any state related to our app, we can keep and
 re-use once hot reload is complete.
 */
-audio_hot_reload :: proc(old_state: ^Audio_State) { 
+audio_hot_reload :: proc(old_state: ^Audio_State) {
 	app.audio.playing = false
 	audio_uninit_miniaudio()
 	audio_init_miniaudio(old_state)
@@ -189,34 +201,34 @@ audio_init :: proc() -> ^Audio_State {
 	}
 
 	// For testing, add an eq for each track, with 4 points equally distributed across the frequency.
-	
-	for &track in audio_state.tracks { 
+
+	for &track in audio_state.tracks {
 		eq := new(EQ_State)
-		for i in 0..< 4 { 
+		for i in 0 ..< 4 {
 			band := EQ_Band_State {
 				gain_db = 0,
-				q = 0.7,
+				q       = 0.7,
 			}
 			if i == 0 {
 				band.type = .Low_Cut
 				band.freq_hz = 100
 				band.q = 0.707
 			}
-			if i == 3 { 
+			if i == 3 {
 				band.type = .High_Cut
-				band.freq_hz = 15000 
+				band.freq_hz = 15000
 				band.q = 0.707
 			}
-			if i == 1 { 
+			if i == 1 {
 				band.type = .Bell
-				band.freq_hz = 3_000 
+				band.freq_hz = 3_000
 			}
-			if i == 2 { 
+			if i == 2 {
 				band.type = .Bell
-				band.freq_hz = 4_000 
+				band.freq_hz = 4_000
 			}
 			append(&eq.bands, band)
-			
+
 		}
 		track.eq = eq^
 	}
@@ -234,7 +246,7 @@ audio_init :: proc() -> ^Audio_State {
 /*
 Only call when you want to completely destroy all audio state and start anew.
 */
-audio_uninit :: proc() { 
+audio_uninit :: proc() {
 	audio_uninit_miniaudio()
 	delete(app.audio.tracks)
 	free(app.audio)
@@ -244,7 +256,7 @@ audio_uninit :: proc() {
 Init just the miniaudio related things, this is seperated since we must re-init miniaudio when we
 hot reload, where as our own audio state for tracks and stuff, can persist.
 */
-audio_init_miniaudio :: proc(audio_state: ^Audio_State) { 
+audio_init_miniaudio :: proc(audio_state: ^Audio_State) {
 	println("initing mini audio")
 
 	engine_config := ma.engine_config_init()
@@ -265,8 +277,8 @@ audio_init_miniaudio :: proc(audio_state: ^Audio_State) {
 	// Init each tracks EQ state.
 	node_graph := ma.engine_get_node_graph(engine)
 	for track in audio_state.tracks {
-		for &band, i in track.eq.bands { 
-			eq_init_band(track, &band, node_graph)		
+		for &band, i in track.eq.bands {
+			eq_init_band(track, &band, node_graph)
 		}
 	}
 	app.audio = audio_state
@@ -277,10 +289,10 @@ audio_init_miniaudio :: proc(audio_state: ^Audio_State) {
 Uninit just miniaudio related data. Neccessary when hot-reloading.
 */
 audio_uninit_miniaudio :: proc() {
-	if app.audio != nil && app.audio.engine != nil { 
-		for &track in app.audio.tracks { 
+	if app.audio != nil && app.audio.engine != nil {
+		for &track in app.audio.tracks {
 			for &sound in track.sounds {
-				if sound != nil { 
+				if sound != nil {
 					ma.sound_stop(sound)
 					ma.sound_uninit(sound)
 					// Might need to call the specific miniaudio free function.
@@ -293,7 +305,7 @@ audio_uninit_miniaudio :: proc() {
 			// delete(track.pcm_data.left_channel)
 			// delete(track.pcm_data.right_channel)
 		}
-		for group, i in app.audio.audio_groups { 
+		for group, i in app.audio.audio_groups {
 			if group != nil {
 				ma.sound_group_stop(group)
 				ma.sound_group_uninit(group)
@@ -308,18 +320,18 @@ audio_uninit_miniaudio :: proc() {
 	}
 }
 
-track_add_new :: proc(audio_state: ^Audio_State) { 
-		track : Track
-		track.volume 	= 50 
-		track.armed 	= true
-		track.n_steps 	= N_TRACK_STEPS
-		track.loop_at   = -1
-		for &volume in track.volumes { 
-			volume = 50
-		}
-		// Other step values are 0 by default.
-		// track.name = "Default name"
-		append(&audio_state.tracks, track)
+track_add_new :: proc(audio_state: ^Audio_State) {
+	track: Track
+	track.volume = 50
+	track.armed = true
+	track.n_steps = N_TRACK_STEPS
+	track.loop_at = -1
+	for &volume in track.volumes {
+		volume = 50
+	}
+	// Other step values are 0 by default.
+	// track.name = "Default name"
+	append(&audio_state.tracks, track)
 }
 
 track_set_sound :: proc(which: u32, path: cstring) {
@@ -330,7 +342,7 @@ track_set_sound :: proc(which: u32, path: cstring) {
 		for sound in track.sounds {
 			ma.sound_stop_with_fade_in_milliseconds(sound, 200)
 			ma.sound_uninit(sound)
-			// Deleting might be inefficient, could maybe use clear() or something. 
+			// Deleting might be inefficient, could maybe use clear() or something.
 			// But this happens quite infrequently, so should be okay.
 			free(sound)
 		}
@@ -344,29 +356,28 @@ track_set_sound :: proc(which: u32, path: cstring) {
 	}
 
 	new_sound := new(ma.sound)
-	
+
 	// Need to connect sound into node graph.
-	res := ma.sound_init_from_file(
-		app.audio.engine,
-		path,
-		SOUND_FILE_LOAD_FLAGS,
-		nil,
-		nil,
-		new_sound,
-	)
+	res := ma.sound_init_from_file(app.audio.engine, path, SOUND_FILE_LOAD_FLAGS, nil, nil, new_sound)
 	assert(res == .SUCCESS)
 
 	track.sounds[0] = new_sound
 	track.sound_path = str.clone_from_cstring(path)
 
 	left, right := sound_get_pcm_data(which)
-	track.pcm_data.left_channel  = left
+	track.pcm_data.left_channel = left
 	track.pcm_data.right_channel = right
 
 	// Refer to Track :: struct {} to see why we need multiple sounds per track.
-	for i in 1..<len(track.sounds) {
+	for i in 1 ..< len(track.sounds) {
 		track.sounds[i] = new(ma.sound)
-		res := ma.sound_init_copy(app.audio.engine, new_sound, SOUND_FILE_LOAD_FLAGS + {.NO_DEFAULT_ATTACHMENT}, nil, track.sounds[i])
+		res := ma.sound_init_copy(
+			app.audio.engine,
+			new_sound,
+			SOUND_FILE_LOAD_FLAGS + {.NO_DEFAULT_ATTACHMENT},
+			nil,
+			track.sounds[i],
+		)
 		assert(res == .SUCCESS)
 	}
 
@@ -375,20 +386,20 @@ track_set_sound :: proc(which: u32, path: cstring) {
 	if first_use {
 		eq_bands := track.eq.bands
 
-		// Wire sound -> first eq band 
-		if len(eq_bands) < 1 do return 
-		for sound in track.sounds { 
-			res = ma.node_attach_output_bus(cast(^ma.node)(sound), 0, cast(^ma.node)(eq_bands[0].biquad_node), 0) 
+		// Wire sound -> first eq band
+		if len(eq_bands) < 1 do return
+		for sound in track.sounds {
+			res = ma.node_attach_output_bus(cast(^ma.node)(sound), 0, cast(^ma.node)(eq_bands[0].biquad_node), 0)
 			assert(res == .SUCCESS, tprintf("{}", res))
 		}
 
 		// Wire the rest of the bands to each other.
-		for i in 1..<len(eq_bands) {
+		for i in 1 ..< len(eq_bands) {
 			res = ma.node_attach_output_bus(
-				cast(^ma.node)(eq_bands[i-1].biquad_node), 
-				0, 
-				cast(^ma.node)(eq_bands[i].biquad_node), 
-				0
+				cast(^ma.node)(eq_bands[i - 1].biquad_node),
+				0,
+				cast(^ma.node)(eq_bands[i].biquad_node),
+				0,
 			)
 			assert(res == .SUCCESS, tprintf("{}", res))
 		}
@@ -408,20 +419,30 @@ track_set_sound :: proc(which: u32, path: cstring) {
 		config.pInputChannels = &spectrum_analyzer_input_channels[0]
 		config.pOutputChannels = &spectrum_analyzer_output_channels[0]
 
-		res = ma.node_init(ma.engine_get_node_graph(app.audio.engine), &config, nil, cast(^ma.node)&track.spectrum_analyzer)
+		res = ma.node_init(
+			ma.engine_get_node_graph(app.audio.engine),
+			&config,
+			nil,
+			cast(^ma.node)&track.spectrum_analyzer,
+		)
 		assert(res == .SUCCESS, tprintf("{}", res))
 
-		last_eq_band := &eq_bands[len(track.eq.bands)-1]
+		last_eq_band := &eq_bands[len(track.eq.bands) - 1]
 
-		res = ma.node_attach_output_bus(cast(^ma.node)last_eq_band.biquad_node, 0, cast(^ma.node)&track.spectrum_analyzer, 0)
+		res = ma.node_attach_output_bus(
+			cast(^ma.node)last_eq_band.biquad_node,
+			0,
+			cast(^ma.node)&track.spectrum_analyzer,
+			0,
+		)
 		assert(res == .SUCCESS, tprintf("{}", res))
 
 		// Wire spectrum analyzer node to -> output
 		res = ma.node_attach_output_bus(
-			cast(^ma.node)&track.spectrum_analyzer, 
-			0, 
-			ma.engine_get_endpoint(app.audio.engine), 
-			0
+			cast(^ma.node)&track.spectrum_analyzer,
+			0,
+			ma.engine_get_endpoint(app.audio.engine),
+			0,
 		)
 		assert(res == .SUCCESS, tprintf("{}", res))
 	} else {
@@ -439,8 +460,8 @@ This function will turn on step <starting_step> for track <track_num>,
 and then <every_nth> step after that.
 */
 track_turn_on_steps :: proc(track_num, starting_step, every_nth: int) {
-	track := &app.audio.tracks[track_num]	
-	for i := starting_step; i < int(track.n_steps); i += every_nth { 
+	track := &app.audio.tracks[track_num]
+	for i := starting_step; i < int(track.n_steps); i += every_nth {
 		track.selected_steps[i] = true
 	}
 }
@@ -449,8 +470,8 @@ track_turn_on_steps :: proc(track_num, starting_step, every_nth: int) {
 As above, but it turns steps off.
 */
 track_turn_off_steps :: proc(track_num, starting_step, every_nth: int) {
-	track := &app.audio.tracks[track_num]	
-	for i := starting_step; i < int(track.n_steps); i += every_nth { 
+	track := &app.audio.tracks[track_num]
+	for i := starting_step; i < int(track.n_steps); i += every_nth {
 		track.selected_steps[i] = false
 	}
 }
@@ -459,7 +480,7 @@ track_toggle_step :: proc(track_num, step: int) {
 	app.audio.tracks[track_num].selected_steps[step] = !app.audio.tracks[track_num].selected_steps[step]
 }
 
-track_delete :: proc(track_num: int) { 
+track_delete :: proc(track_num: int) {
 	printfln("removing track {}", track_num)
 	ordered_remove(&app.audio.tracks, track_num)
 }
@@ -470,7 +491,7 @@ track_get_pcm_data :: proc(track: u32) -> (left_channel, right_channel: [dynamic
 	return app.audio.tracks[track].pcm_data.left_channel, app.audio.tracks[track].pcm_data.right_channel
 }
 
-sound_get_pcm_data :: proc(track: u32, allocator:=context.allocator) -> (left_channel, right_channel: [dynamic]f32) {
+sound_get_pcm_data :: proc(track: u32, allocator := context.allocator) -> (left_channel, right_channel: [dynamic]f32) {
 	sound := app.audio.tracks[track].sounds[0]
 	n_frames: u64
 	res := ma.sound_get_length_in_pcm_frames(sound, &n_frames)
@@ -484,7 +505,7 @@ sound_get_pcm_data :: proc(track: u32, allocator:=context.allocator) -> (left_ch
 	res = ma.data_source_read_pcm_frames(data_source, raw_data(buf), n_frames, &frames_read)
 	assert(res == .SUCCESS || res == .AT_END)
 
-	left_channel  = make([dynamic]f32, frames_read, allocator)
+	left_channel = make([dynamic]f32, frames_read, allocator)
 	right_channel = make([dynamic]f32, frames_read, allocator)
 	lc_pointer: u64 = 0
 	rc_pointer: u64 = 1
@@ -526,49 +547,48 @@ audio_stop_all :: proc() {
 }
 
 audio_transport_play :: proc() {
-    paused_step := sync.atomic_load(&app.audio.paused_at_step)
-    if paused_step < 0 do paused_step = 0
+	paused_step := sync.atomic_load(&app.audio.paused_at_step)
+	if paused_step < 0 do paused_step = 0
 
-    samples_per_step := u64(SAMPLE_RATE * 60 / f64(app.audio.bpm) / 8)
-    engine_now := ma.engine_get_time_in_pcm_frames(app.audio.engine)
+	samples_per_step := u64(SAMPLE_RATE * 60 / f64(app.audio.bpm) / 8)
+	engine_now := ma.engine_get_time_in_pcm_frames(app.audio.engine)
 
-    // Set scheduling state BEFORE setting playing = true,
-    // so the timing thread sees consistent state when it wakes up.
-    sync.atomic_store(&app.audio.last_playback_start_time_pcm,
-        engine_now - u64(paused_step) * samples_per_step)
-    sync.atomic_store(&app.audio.last_scheduled_step, paused_step - 1)
-    sync.atomic_store(&app.audio.paused_at_step, -1)
-    // This goes last -- it's the gate that lets the timing thread start scheduling.
+	// Set scheduling state BEFORE setting playing = true,
+	// so the timing thread sees consistent state when it wakes up.
+	sync.atomic_store(&app.audio.last_playback_start_time_pcm, engine_now - u64(paused_step) * samples_per_step)
+	sync.atomic_store(&app.audio.last_scheduled_step, paused_step - 1)
+	sync.atomic_store(&app.audio.paused_at_step, -1)
+	// This goes last -- it's the gate that lets the timing thread start scheduling.
 	sync.mutex_lock(&app.audio.playing_mutex)
-    sync.atomic_store(&app.audio.playing, true)
+	sync.atomic_store(&app.audio.playing, true)
 	sync.cond_broadcast(&app.audio.playing_cond)
 	sync.mutex_unlock(&app.audio.playing_mutex)
 }
 
 audio_transport_pause :: proc() {
-    // Read current step before stopping, while engine time is still meaningful.
-    step := audio_get_current_step()
-    // Disable scheduling first so timing thread stops.
-    sync.atomic_store(&app.audio.playing, false)
-    audio_stop_all()
-    sync.atomic_store(&app.audio.paused_at_step, step)
+	// Read current step before stopping, while engine time is still meaningful.
+	step := audio_get_current_step()
+	// Disable scheduling first so timing thread stops.
+	sync.atomic_store(&app.audio.playing, false)
+	audio_stop_all()
+	sync.atomic_store(&app.audio.paused_at_step, step)
 }
 
 audio_transport_reset :: proc() {
-    was_playing := sync.atomic_load(&app.audio.playing)
+	was_playing := sync.atomic_load(&app.audio.playing)
 
-    // Stop scheduling and sounds.
-    sync.atomic_store(&app.audio.playing, false)
-    audio_stop_all()
+	// Stop scheduling and sounds.
+	sync.atomic_store(&app.audio.playing, false)
+	audio_stop_all()
 
-    // Reset timeline to step 0.
-    sync.atomic_store(&app.audio.last_scheduled_step, -1)
-    sync.atomic_store(&app.audio.paused_at_step, 0)
+	// Reset timeline to step 0.
+	sync.atomic_store(&app.audio.last_scheduled_step, -1)
+	sync.atomic_store(&app.audio.paused_at_step, 0)
 
-    // If we were playing, resume from step 0.
-    if was_playing {
-        audio_transport_play()
-    }
+	// If we were playing, resume from step 0.
+	if was_playing {
+		audio_transport_play()
+	}
 }
 
 // returns number of semitones between 2 notes.
@@ -660,33 +680,31 @@ pitch_down_one_semitone :: proc(curr_note: string) -> string {
 	return new_value
 }
 
-pitch_valid :: proc(s: string) -> bool { 
+pitch_valid :: proc(s: string) -> bool {
 	s_len := len(s)
 
 	if s_len != 2 && s_len != 3 {
 		return false
-	} 
-	else if s_len == 2 { 
-		if !str.contains("ABCDEFGabcdefg", s[0:1]) { 
+	} else if s_len == 2 {
+		if !str.contains("ABCDEFGabcdefg", s[0:1]) {
 			return false
 		}
-		if !str.contains("0123456789", s[1:2]) { 
+		if !str.contains("0123456789", s[1:2]) {
+			return false
+		}
+		return true
+	} else if s_len == 3 {
+		if !str.contains("ABCDEFGabcdefg", s[0:1]) {
+			return false
+		}
+		if s[1] != '#' {
+			return false
+		}
+		if !str.contains("0123456789", s[2:3]) {
 			return false
 		}
 		return true
 	}
-	else if s_len == 3 {
-		if !str.contains("ABCDEFGabcdefg", s[0:1]) { 
-			return false
-		}
-		if s[1] != '#' { 
-			return false
-		}
-		if !str.contains("0123456789", s[2:3]) { 
-			return false
-		}
-		return true
-	} 
 	return false
 }
 
@@ -694,51 +712,54 @@ pitch_valid :: proc(s: string) -> bool {
 Pitches are stored as ints, but represented and edited throughout the UI as strings. So These 2 functions below
 help swap to and fro.
 */
-pitch_get_from_note :: proc(pitch: string) -> int{ 
+pitch_get_from_note :: proc(pitch: string) -> int {
 	return int(pitch_difference("C3", pitch))
 }
 
-pitch_set_from_note :: proc(track, step: int, pitch: string) { 
+pitch_set_from_note :: proc(track, step: int, pitch: string) {
 	app.audio.tracks[track].pitches[step] = int(pitch_difference("C3", pitch))
 }
 
-get_note_from_num :: proc(pitch: int) -> string{ 
-	if pitch > 0 { 
+get_note_from_num :: proc(pitch: int) -> string {
+	if pitch > 0 {
 		// We're up from C3
 		curr_note := "C3"
-		for i in 0 ..< pitch { 
+		for i in 0 ..< pitch {
 			curr_note = pitch_up_one_semitone(curr_note)
 		}
 		return curr_note
-	}
-	else if pitch < 0 { 
+	} else if pitch < 0 {
 		// We're down from C3
 		curr_note := "C3"
-		for i in 0 ..< -1*pitch { 
+		for i in 0 ..< -1 * pitch {
 			curr_note = pitch_down_one_semitone(curr_note)
 		}
 		return curr_note
-	}
-	else {
+	} else {
 		return "C3"
 	}
 }
 
 
 // ========================================= EQ STUFF ==============================================
-eq_add_band::proc(track_num: int, how_far:f32, band_type: EQ_Band_Type) {
+eq_add_band :: proc(track_num: int, how_far: f32, band_type: EQ_Band_Type) {
 	eq := &app.audio.tracks[track_num].eq
 	new_band := EQ_Band_State {
-		bypass = false,
+		bypass  = false,
 		gain_db = 0,
 		freq_hz = map_range(0.0, 1.0, 20.0, 20_000.0, f64(how_far)),
-		q = 0.7,
-		type = band_type
+		q       = 0.7,
+		type    = band_type,
 	}
 	append(&eq.bands, new_band)
 }
 
-eq_init_band :: proc(track: Track, band: ^EQ_Band_State, node_graph: ^ma.node_graph, allocator := context.allocator) -> ^ma.biquad_node{
+eq_init_band :: proc(
+	track: Track,
+	band: ^EQ_Band_State,
+	node_graph: ^ma.node_graph,
+	allocator := context.allocator,
+) -> ^ma.biquad_node {
 	coeffs := compute_biquad_coefficients(band.freq_hz, band.q, band.gain_db, SAMPLE_RATE, band.type)
 	using coeffs
 	config := ma.biquad_node_config_init(2, f32(b0), f32(b1), f32(b2), 1, f32(a1), f32(a2))
@@ -779,7 +800,7 @@ audio_thread_timing_proc :: proc() {
 		if playing {
 			curr_time_pcm := ma.engine_get_time_in_pcm_frames(app.audio.engine)
 			step_time_pcm := (SAMPLE_RATE / N_TRACK_STEPS)
- 
+
 			samples_per_step := SAMPLE_RATE * 60 / f64(app.audio.bpm) / f64(steps_per_beat)
 
 			horizon_samples := SAMPLE_RATE * audio_scheduling_horizon / 1000
@@ -787,33 +808,23 @@ audio_thread_timing_proc :: proc() {
 			last_playback_start_time := sync.atomic_load(&app.audio.last_playback_start_time_pcm)
 			last_scheduled_step := sync.atomic_load(&app.audio.last_scheduled_step)
 			// Calculate which step we're currently on and how far ahead to schedule.
-			elapsed_pcm  := curr_time_pcm - last_playback_start_time
+			elapsed_pcm := curr_time_pcm - last_playback_start_time
 			current_step := int(f64(elapsed_pcm) / samples_per_step)
-
-			// wrapped_step := current_step % N_TRACK_STEPS
-			// last_ui_step := sync.atomic_load(&app.audio.last_ui_notified_step)
-			// if wrapped_step != last_ui_step {
-			// 	sync.atomic_store(&app.audio.last_ui_notified_step, wrapped_step)
-			// 	event: sdl.Event
-			// 	event.type = .USEREVENT
-			// 	sdl.PushEvent(&event)
-			// }
 			horizon_step := int((elapsed_pcm + u64(horizon_samples)) / u64(samples_per_step))
 
 			// Schedule next steps to be played.
 			for step := last_scheduled_step + 1; step <= horizon_step; step += 1 {
 				step_start_time_pcm := last_playback_start_time + u64(f64(step) * samples_per_step)
-				
+
 				for &track in app.audio.tracks {
 					step_in_pattern := track.loop_at == -1 ? u32(step) % N_TRACK_STEPS : u32(step % track.loop_at)
-					// step_in_pattern := track.loop_at == -1 ? u32(step) % track.n_steps : u32(step % track.loop_at)
 					if track.armed && track.selected_steps[step_in_pattern] {
-						// Find next armed step
+						// Find next armed step to figure out end_time_pcm.
 						next_step := step + 1
-						step_end_time_pcm :u64 = 0 
+						step_end_time_pcm: u64 = 0
 						for {
-							// printfln("looping, step is: {}  next_step is: {}", step, next_step)
-							next_step_in_pattern := track.loop_at == -1 ? u32(next_step) % N_TRACK_STEPS : u32(step % track.loop_at)
+							next_step_in_pattern :=
+								track.loop_at == -1 ? u32(next_step) % N_TRACK_STEPS : u32(step % track.loop_at)
 							if track.selected_steps[next_step_in_pattern] {
 								distance := u64(next_step - step)
 								step_end_time_pcm = (distance * u64(samples_per_step)) + step_start_time_pcm
@@ -822,82 +833,88 @@ audio_thread_timing_proc :: proc() {
 							next_step += 1
 						}
 						assert(step_end_time_pcm != 0, "fucked up bad")
-						printfln("step {} is set to start at {} and end at {}", step, step_start_time_pcm, step_end_time_pcm)
+						printfln(
+							"step {} is set to start at {} and end at {}",
+							step,
+							step_start_time_pcm,
+							step_end_time_pcm,
+						)
 						track_step_schedule(&track, step_in_pattern, step_start_time_pcm, step_end_time_pcm)
 					}
 				}
 				sync.atomic_store(&app.audio.last_scheduled_step, step)
 			}
-		} 
+		}
 		end := time.now()._nsec
 		elapsed_ms := f64(end - start) / 1_000_000
-		// Sleep to conserve energy.
-		// time.accurate_sleep((time.Millisecond * time.Duration(audio_scheduling_horizon) - 5) - time.Duration(int(elapsed_ms)))
 		sync.mutex_lock(&app.audio.playing_mutex)
-		sync.cond_wait_with_timeout(&app.audio.playing_cond, &app.audio.playing_mutex, (time.Millisecond * time.Duration(audio_scheduling_horizon) - 5) - time.Duration(int(elapsed_ms)))
+		sync.cond_wait_with_timeout(
+			&app.audio.playing_cond,
+			&app.audio.playing_mutex,
+			(time.Millisecond * time.Duration(audio_scheduling_horizon) - 5) - time.Duration(int(elapsed_ms)),
+		)
 		sync.mutex_unlock(&app.audio.playing_mutex)
-		// time.accurate_sleep((time.Millisecond * time.Duration(audio_scheduling_horizon) - 5) - time.Duration(int(elapsed_ms)))
 	}
 }
 
 audio_get_current_step :: proc() -> int {
-	paused := sync.atomic_load(&app.audio.paused_at_step) 
+	paused := sync.atomic_load(&app.audio.paused_at_step)
 	if paused >= 0 {
 		return paused
 	}
 	device := ma.engine_get_device(app.audio.engine)
 	device_latency_pcm := device.playback.internalPeriodSizeInFrames * device.playback.internalPeriods
-	curr_time_pcm 	 := ma.engine_get_time_in_pcm_frames(app.audio.engine) - u64(device_latency_pcm)
-    last_start_time  := sync.atomic_load(&app.audio.last_playback_start_time_pcm)
+	curr_time_pcm := ma.engine_get_time_in_pcm_frames(app.audio.engine) - u64(device_latency_pcm)
+	last_start_time := sync.atomic_load(&app.audio.last_playback_start_time_pcm)
 	// Assumes 32 steps per beat.
-    samples_per_step := u64(SAMPLE_RATE * 60 / f64(app.audio.bpm) / 8)
-    elapsed 		 := curr_time_pcm - last_start_time
-    return int(elapsed / samples_per_step) % N_TRACK_STEPS
+	samples_per_step := u64(SAMPLE_RATE * 60 / f64(app.audio.bpm) / 8)
+	elapsed := curr_time_pcm - last_start_time
+	return int(elapsed / samples_per_step) % N_TRACK_STEPS
 }
 
 track_step_schedule :: proc(track: ^Track, step_num: u32, start_time_pcm: u64, end_time_pcm: u64) {
-    next_sound := track.sounds[track.curr_sound_idx]
-    if next_sound == nil do panic("fuck")
+	next_sound := track.sounds[track.curr_sound_idx]
+	if next_sound == nil do panic("fuck")
 
-    pitch 		 := f32(track.pitches[step_num])
-    sound_volume := f32(track.volumes[step_num])
-    ma.sound_set_pitch(next_sound, pitch / 12)
-    ma.sound_set_volume(next_sound, (sound_volume / 100) * track.volume / 100)
-    ma.sound_seek_to_pcm_frame(next_sound, 0)
-    ma.sound_set_start_time_in_pcm_frames(next_sound, start_time_pcm)
+	pitch := f32(track.pitches[step_num])
+	sound_volume := f32(track.volumes[step_num])
+	ma.sound_set_pitch(next_sound, pitch / 12)
+	ma.sound_set_volume(next_sound, (sound_volume / 100) * track.volume / 100)
+	ma.sound_seek_to_pcm_frame(next_sound, 0)
+	ma.sound_set_start_time_in_pcm_frames(next_sound, start_time_pcm)
 	ma.sound_set_stop_time_in_pcm_frames(next_sound, end_time_pcm)
-    ma.sound_start(next_sound)
+	ma.sound_start(next_sound)
 	track.curr_sound_idx = (track.curr_sound_idx + 1) % N_SOUND_COPIES
 }
 
 // Used to continuously wake up the UI thread when audio is playing. Since audio thread has it's own timing that doesn't
 // run according to the UI thread.
-ui_refresh_thread_proc :: proc() { 
-	handle : windows.HANDLE
-	when ODIN_OS == .Windows { 
+ui_refresh_thread_proc :: proc() {
+	handle: windows.HANDLE
+	when ODIN_OS == .Windows {
 		// 1. Create the High-Resolution Waitable Timer
 		// The '2' is the CREATE_WAITABLE_TIMER_HIGH_RESOLUTION flag.
 		// High-res timers MUST be anonymous (name is nil).
 		handle = windows.CreateWaitableTimerExW(nil, nil, 2, windows.TIMER_ALL_ACCESS)
-		if handle == nil do  panic("Failed to set timer")
+		if handle == nil do panic("Failed to set timer")
 		// defer windows.CloseHandle(handle)
 
 		// 2. Set the timing parameters
-		// units are 100-nanosecond intervals. 
+		// units are 100-nanosecond intervals.
 		// Negative = relative time. 8.333ms = 83330 units.
 		due_time := windows.LARGE_INTEGER(-EXPECTED_FRAME_TIME_SECONDS * 10_000_000)
-		period_ms : i32 = 8 // The periodic restart in milliseconds
+		period_ms: i32 = 8 // The periodic restart in milliseconds
 
 		if !windows.SetWaitableTimerEx(handle, &due_time, period_ms, nil, nil, nil, 0) do panic("Failed to set timer")
 	}
-	
 
-	mutex    := &app.audio.playing_mutex
+
+	mutex := &app.audio.playing_mutex
 	cond_var := &app.audio.playing_cond
 	for {
 		if sync.atomic_load(&app.audio.exit_timing_thread) do return
 		sync.mutex_lock(mutex)
-		for !sync.atomic_load(&app.audio.playing) { 
+		for !sync.atomic_load(&app.audio.playing) {
 			sync.cond_wait(cond_var, mutex)
 			if sync.atomic_load(&app.audio.exit_timing_thread) {
 				sync.mutex_unlock(mutex)
@@ -912,11 +929,11 @@ ui_refresh_thread_proc :: proc() {
 			if sync.atomic_load(&app.audio.exit_timing_thread) do return
 			event: sdl.Event
 			event.type = .USEREVENT
-            sdl.PushEvent(&event)
+			sdl.PushEvent(&event)
 			end_ms := f64(time.now()._nsec) / 1_000_000
 			expected_frame_time_ms := EXPECTED_FRAME_TIME_SECONDS * 1_000
 			// to_wait_ms := expected_frame_time_ms - (end_ms - start_ms)
-			when ODIN_OS == .Windows { 
+			when ODIN_OS == .Windows {
 				windows.WaitForSingleObject(handle, windows.INFINITE)
 			} else {
 				time.accurate_sleep(time.Duration(expected_frame_time_ms * 1_000_000))
@@ -931,7 +948,7 @@ Set's up offline engine. Very similar to the normal playback scheduling, but sin
 basically spin the engine as fast as the CPU allows and pull out the .wav file at the end. Should allow for pretty fast
 rendering of .wav files.
 */
-audio_export_to_wav :: proc() { 
+audio_export_to_wav :: proc() {
 	println("exporting to wav")
 	beats_per_bar :: 4
 	steps_per_bar :: 32
@@ -945,7 +962,7 @@ audio_export_to_wav :: proc() {
 	config.channels = 2
 	config.sampleRate = u32(SAMPLE_RATE)
 
-	engine : ma.engine
+	engine: ma.engine
 	ma.engine_init(&config, &engine)
 	defer ma.engine_uninit(&engine)
 
@@ -955,23 +972,24 @@ audio_export_to_wav :: proc() {
 	samples_per_step := SAMPLE_RATE * 60.0 / f64(app.audio.bpm) / f64(steps_per_beat)
 	total_frames := u64(N_TRACK_STEPS * samples_per_step)
 
-	for track in app.audio.tracks { 
+	for track in app.audio.tracks {
 		if track.sounds[0] == nil do continue
 
 		sounds := make([dynamic]^ma.sound, scratch)
 
 		new_sound := new(ma.sound, scratch)
 		if ma.sound_init_from_file(
-			&engine, 
-			str.clone_to_cstring(track.sound_path, scratch), 
-			{.DECODE, .NO_SPATIALIZATION}, 
-			nil, 
-			nil, 
-			new_sound
-		) != .SUCCESS { panic("fuck") }
+			   &engine,
+			   str.clone_to_cstring(track.sound_path, scratch),
+			   {.DECODE, .NO_SPATIALIZATION},
+			   nil,
+			   nil,
+			   new_sound,
+		   ) !=
+		   .SUCCESS {panic("fuck")}
 
 
-		// To make things easier, we'll make each step it's own sound. 
+		// To make things easier, we'll make each step it's own sound.
 		/* Note! This doesn't handle looping or different length patterns yet !!!!*/
 		for i in 0 ..< N_TRACK_STEPS {
 			if track.selected_steps[i] {
@@ -981,15 +999,15 @@ audio_export_to_wav :: proc() {
 				ma.sound_set_start_time_in_pcm_frames(sound_copy, start_time_pcm)
 				ma.sound_start(sound_copy)
 
-				end_time_pcm :u64 = 0 
-				for next_step := i + 1; next_step < N_TRACK_STEPS; next_step += 1{
+				end_time_pcm: u64 = 0
+				for next_step := i + 1; next_step < N_TRACK_STEPS; next_step += 1 {
 					if track.selected_steps[next_step] {
 						end_time_pcm = u64(next_step) * u64(samples_per_step)
 						break
 					}
 				}
 				// Either we fucked up, or it's the last scheduled step.
-				if end_time_pcm == 0  do end_time_pcm = total_frames
+				if end_time_pcm == 0 do end_time_pcm = total_frames
 				ma.sound_set_stop_time_in_pcm_frames(sound_copy, end_time_pcm)
 
 				append(&sounds, sound_copy)
@@ -998,8 +1016,8 @@ audio_export_to_wav :: proc() {
 		// re-init eq.
 		eq_bands := track.eq.bands
 
-		// Wire sound -> first eq band 
-		if len(eq_bands) < 1 do continue 
+		// Wire sound -> first eq band
+		if len(eq_bands) < 1 do continue
 		// Create EQ nodes again, since I'm not sure I can re-use the ones from the engine-propper.
 		// ma.biquad_node_config_init()
 		biquad_nodes := make([dynamic]^ma.biquad_node, scratch)
@@ -1009,28 +1027,23 @@ audio_export_to_wav :: proc() {
 			append(&biquad_nodes, node)
 		}
 		for sound in sounds {
-			res := ma.node_attach_output_bus(
-				cast(^ma.node)(sound), 
-				0, 
-				cast(^ma.node)(biquad_nodes[0]), 
-				0
-			) 
-			if res != .SUCCESS  do panic("fuck")
+			res := ma.node_attach_output_bus(cast(^ma.node)(sound), 0, cast(^ma.node)(biquad_nodes[0]), 0)
+			if res != .SUCCESS do panic("fuck")
 		}
 
 		// Wire the rest of the bands to each other.
-		for i in 1..<len(biquad_nodes) {
+		for i in 1 ..< len(biquad_nodes) {
 			res := ma.node_attach_output_bus(
-				cast(^ma.node)(biquad_nodes[i-1]), 
-				0, 
-				cast(^ma.node)(biquad_nodes[i]), 
-				0
-			) 
+				cast(^ma.node)(biquad_nodes[i - 1]),
+				0,
+				cast(^ma.node)(biquad_nodes[i]),
+				0,
+			)
 			if res != .SUCCESS do panic("")
 		}
 		// Wire last filter node to engine.
 		ma.node_attach_output_bus(
-			cast(^ma.node)(biquad_nodes[len(biquad_nodes)-1]),
+			cast(^ma.node)(biquad_nodes[len(biquad_nodes) - 1]),
 			0,
 			ma.engine_get_endpoint(&engine),
 			0,
@@ -1038,11 +1051,11 @@ audio_export_to_wav :: proc() {
 	}
 
 	encoder_config := ma.encoder_config_init(.wav, .f32, 2, u32(SAMPLE_RATE))
-	encoder : ma.encoder
+	encoder: ma.encoder
 	if ma.encoder_init_file("exported.wav", &encoder_config, &encoder) != .SUCCESS do panic("shiet")
 	defer ma.encoder_uninit(&encoder)
 
-	frames_drained : u64 = 0
+	frames_drained: u64 = 0
 	for frames_drained < total_frames {
 		println("puling chunk")
 		buf: [4096 * 2]f32
@@ -1054,4 +1067,253 @@ audio_export_to_wav :: proc() {
 		if actually_read == 0 || actually_read < 4096 do break
 	}
 	println("done")
+}
+
+Serial_Record :: struct {
+	tag:  [16]rune,
+	size: u32,
+	data: [dynamic]byte,
+}
+
+// Write all tagged struct fields from the audio state to a file. Non tagged fields are those
+// which are to be computed at runtime.
+audio_state_write_to_disk :: proc(path: string) {
+	fp, err := os.open(path, {.Create, .Write}, {.Read_User, .Write_User})
+	assert(err != io.Error.None)
+	defer os.close(fp)
+	out_buf := make([dynamic]byte, context.temp_allocator)
+	serialize(app.audio, &out_buf)
+	print(out_buf[:])
+}
+
+/*
+Uses Odin's runtime type info capabilites to parse out our audio state and serialize it to disk. There is some metadata
+attached to each part of the actual data, which is the serialize_id tag that we tag each field of any audio state which is to be
+serialized, as well as the size of the data we just wrote, so the deserializer can safely read the data back out.
+*/
+serialize :: proc(data: any, out_buf: ^[dynamic]byte, s_id := -1) {
+	to_bytes :: mem.any_to_bytes
+	parse_sid :: proc(full_s_id: string) -> int {
+		tokens := str.split(full_s_id, "s_id:")
+		assert(len(tokens) == 2, "shiet")
+		id, ok := strconv.parse_int(tokens[1], 10)
+		assert(ok, "shiet")
+		return id
+	}
+	info := type_info_of(data.id)
+	info = runtime.type_info_base(info)
+	#partial switch v in info.variant {
+	case runtime.Type_Info_Struct:
+		// This means a struct was found deeper inside the state traversal, it's size has been
+		// written and then serialize was recursively called, in this case we write a placeholder 0 size,
+		// seriailze the rest of the struct and then when we return we figure out the actual size and
+		// and patch our placeholder size.
+		if s_id != -1 {
+			append(out_buf, ..to_bytes(s_id))
+			size_offset := len(out_buf^)
+			append(out_buf, ..to_bytes(int(0)))
+			initial_size := len(out_buf^)
+			serialize(data, out_buf)
+			bytes_written := len(out_buf^) - initial_size
+			// patch placeholder size.
+			for b, i in to_bytes(bytes_written) {
+				out_buf[size_offset + i] = b
+			}
+		} else {
+			for field_idx in 0 ..< v.field_count {
+				if str.contains(v.tags[field_idx], "s_id") {
+					field_ptr := rawptr(uintptr(data.data) + v.offsets[field_idx])
+					subfield := any {
+						data = field_ptr,
+						id   = v.types[field_idx].id,
+					}
+					s_id := parse_sid(v.tags[field_idx])
+					serialize(subfield, out_buf, s_id)
+				}
+			}
+		}
+	case runtime.Type_Info_Float, runtime.Type_Info_Boolean, runtime.Type_Info_Integer:
+		assert(s_id != -1)
+		bytes := to_bytes(data)
+		append_elems(out_buf, ..to_bytes(s_id))
+		append_elems(out_buf, ..to_bytes(len(bytes)))
+		append_elems(out_buf, ..bytes)
+	case runtime.Type_Info_String:
+		assert(s_id != -1)
+		append_elems(out_buf, ..to_bytes(s_id))
+		s := (cast(^string)data.data)^
+		append_elems(out_buf, ..to_bytes(len(s) * 4))
+		for ch in s {
+			append_elems(out_buf, ..to_bytes(ch))
+		}
+	case runtime.Type_Info_Array:
+		assert(s_id != -1)
+		append_elems(out_buf, ..to_bytes(s_id))
+		elem_base := runtime.type_info_base(v.elem)
+		_, is_struct := elem_base.variant.(runtime.Type_Info_Struct)
+		if is_struct {
+			blob_size_pos := len(out_buf^)
+			append_elems(out_buf, ..to_bytes(int(0))) // total blob size placeholder
+			content_start := len(out_buf^)
+			append_elems(out_buf, ..to_bytes(v.count))
+			for i in 0 ..< v.count {
+				elem_ptr := rawptr(uintptr(data.data) + uintptr(i) * uintptr(v.elem_size))
+				elem := any {
+					data = elem_ptr,
+					id   = v.elem.id,
+				}
+				elem_size_pos := len(out_buf^)
+				append_elems(out_buf, ..to_bytes(int(0))) // per-element size placeholder
+				elem_content_start := len(out_buf^)
+				serialize(elem, out_buf)
+				(cast(^int)&out_buf^[elem_size_pos])^ = len(out_buf^) - elem_content_start
+			}
+			(cast(^int)&out_buf^[blob_size_pos])^ = len(out_buf^) - content_start
+		} else {
+			total_bytes := v.count * v.elem_size
+			append_elems(out_buf, ..to_bytes(total_bytes))
+			append_elems(out_buf, ..([^]byte)(data.data)[:total_bytes])
+		}
+	case runtime.Type_Info_Dynamic_Array:
+		assert(s_id != -1)
+		raw := cast(^runtime.Raw_Dynamic_Array)data.data
+		elem_base := runtime.type_info_base(v.elem)
+		_, is_struct := elem_base.variant.(runtime.Type_Info_Struct)
+		append_elems(out_buf, ..to_bytes(s_id))
+		if is_struct {
+			blob_size_pos := len(out_buf^)
+			append_elems(out_buf, ..to_bytes(int(0))) // total blob size placeholder
+			content_start := len(out_buf^)
+			append_elems(out_buf, ..to_bytes(raw.len))
+			for i in 0 ..< raw.len {
+				elem_ptr := rawptr(uintptr(raw.data) + uintptr(i) * uintptr(v.elem_size))
+				elem := any {
+					data = elem_ptr,
+					id   = v.elem.id,
+				}
+				elem_size_pos := len(out_buf^)
+				append_elems(out_buf, ..to_bytes(int(0))) // per-element size placeholder
+				elem_content_start := len(out_buf^)
+				serialize(elem, out_buf)
+				(cast(^int)&out_buf^[elem_size_pos])^ = len(out_buf^) - elem_content_start
+			}
+			(cast(^int)&out_buf^[blob_size_pos])^ = len(out_buf^) - content_start
+		} else {
+			total_bytes := raw.len * v.elem_size
+			append_elems(out_buf, ..to_bytes(total_bytes))
+			append_elems(out_buf, ..([^]byte)(raw.data)[:total_bytes])
+		}
+	case runtime.Type_Info_Enum:
+		assert(s_id != -1)
+		append_elems(out_buf, ..to_bytes(s_id))
+		size := info.size
+		append_elems(out_buf, ..to_bytes(size))
+		append_elems(out_buf, ..([^]byte)(data.data)[:size])
+	}
+}
+
+deserialize :: proc(data: any, in_buf: []byte, cursor: ^int, end := -1) {
+	read_int :: proc(buf: []byte, cursor: ^int) -> int {
+		v: int
+		mem.copy(&v, &buf[cursor^], size_of(int))
+		cursor^ += size_of(int)
+		return v
+	}
+	parse_sid :: proc(full_s_id: string) -> int {
+		tokens := str.split(full_s_id, "s_id:")
+		id, _ := strconv.parse_int(tokens[1], 10)
+		return id
+	}
+
+	effective_end := end if end != -1 else len(in_buf)
+	info := type_info_of(data.id)
+	info = runtime.type_info_base(info)
+
+	#partial switch v in info.variant {
+	case runtime.Type_Info_Struct:
+		for cursor^ < effective_end {
+			chunk_s_id := read_int(in_buf, cursor)
+			chunk_size := read_int(in_buf, cursor)
+			chunk_end := cursor^ + chunk_size
+			for fi in 0 ..< v.field_count {
+				if str.contains(v.tags[fi], "s_id") && parse_sid(v.tags[fi]) == chunk_s_id {
+					field_ptr := rawptr(uintptr(data.data) + v.offsets[fi])
+					subfield := any {
+						data = field_ptr,
+						id   = v.types[fi].id,
+					}
+					deserialize(subfield, in_buf, cursor, chunk_end)
+					break
+				}
+			}
+			cursor^ = chunk_end // advances past chunk whether known or skipped
+		}
+
+	case runtime.Type_Info_Float, runtime.Type_Info_Boolean, runtime.Type_Info_Integer:
+		mem.copy(data.data, &in_buf[cursor^], info.size)
+		cursor^ += info.size
+
+	case runtime.Type_Info_String:
+		n_runes := (effective_end - cursor^) / size_of(rune)
+		b := str.builder_make()
+		for _ in 0 ..< n_runes {
+			r: rune
+			mem.copy(&r, &in_buf[cursor^], size_of(rune))
+			cursor^ += size_of(rune)
+			str.write_rune(&b, r)
+		}
+		(cast(^string)data.data)^ = str.to_string(b)
+
+	case runtime.Type_Info_Array:
+		elem_base := runtime.type_info_base(v.elem)
+		_, is_struct := elem_base.variant.(runtime.Type_Info_Struct)
+		if is_struct {
+			count := read_int(in_buf, cursor)
+			for i in 0 ..< min(count, v.count) {
+				elem_size := read_int(in_buf, cursor)
+				elem_end := cursor^ + elem_size
+				elem_ptr := rawptr(uintptr(data.data) + uintptr(i) * uintptr(v.elem_size))
+				deserialize(any{data = elem_ptr, id = v.elem.id}, in_buf, cursor, elem_end)
+				cursor^ = elem_end
+			}
+		} else {
+			bytes_to_copy := min(effective_end - cursor^, v.count * v.elem_size)
+			mem.copy(data.data, &in_buf[cursor^], bytes_to_copy)
+			cursor^ = effective_end
+		}
+
+	case runtime.Type_Info_Dynamic_Array:
+		raw := cast(^runtime.Raw_Dynamic_Array)data.data
+		elem_base := runtime.type_info_base(v.elem)
+		_, is_struct := elem_base.variant.(runtime.Type_Info_Struct)
+		if is_struct {
+			count := read_int(in_buf, cursor)
+			ptr, _ := mem.alloc(count * v.elem_size)
+			mem.zero(ptr, count * v.elem_size)
+			raw.data = ptr
+			raw.len = count
+			raw.cap = count
+			raw.allocator = context.allocator
+			for i in 0 ..< count {
+				elem_size := read_int(in_buf, cursor)
+				elem_end := cursor^ + elem_size
+				elem_ptr := rawptr(uintptr(raw.data) + uintptr(i) * uintptr(v.elem_size))
+				deserialize(any{data = elem_ptr, id = v.elem.id}, in_buf, cursor, elem_end)
+				cursor^ = elem_end
+			}
+		} else {
+			total_bytes := effective_end - cursor^
+			ptr, _ := mem.alloc(total_bytes)
+			mem.copy(ptr, &in_buf[cursor^], total_bytes)
+			raw.data = ptr
+			raw.len = total_bytes / v.elem_size
+			raw.cap = raw.len
+			raw.allocator = context.allocator
+			cursor^ = effective_end
+		}
+
+	case runtime.Type_Info_Enum:
+		mem.copy(data.data, &in_buf[cursor^], info.size)
+		cursor^ += info.size
+	}
 }
