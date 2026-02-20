@@ -85,7 +85,7 @@ UI_State :: struct {
 	light_theme:              Token_To_Color_Map,
 	draggable_window_offsets: map[string][2]f32,
 	// Necessary shared state for animations. Could definitely live on a pool based allocator.
-	animations:          [N_MAX_ANIMATIONS]Animation_Item,
+	animations:               [N_MAX_ANIMATIONS]Animation_Item,
 	animations_stored:		  int,
 	undo_stack:               [dynamic]State_Change,
 	redo_stack:               [dynamic]State_Change,
@@ -99,6 +99,7 @@ UI_State :: struct {
 	frames_since_sleep: 	i8,
 	event_wait_timeout: 	f64,
 	prev_frame_start_ms: 	f64,
+	show_mixer: bool,
 }
 
 // These are all the types of data that can be dropped on items that are drag-and-drop
@@ -226,7 +227,7 @@ init_ui_state :: proc() -> ^UI_State {
 	ui_state.color_stack = make([dynamic]Color_RGBA)
 	ui_state.box_cache = make(map[string]^Box)
 	ui_state.frame_signals = make(map[string]Box_Signals)
-	ui_state.sidebar_shown = true
+	// ui_state.sidebar_shown = true
 	// ui_state.clipping_stack = make([dynamic]^Rect)
 
 	// Fine to leave this dangling since it has the same lifetime as the whole program.

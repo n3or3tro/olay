@@ -125,6 +125,7 @@ Track :: struct {
 	curr_sound_idx:    int,
 	sound_path:        string `s_id:1`,
 	armed:             bool `s_id:2`,
+	soloed: 		   bool `s_id:15`,
 	volume:            f32 `s_id:3`,
 	// Not serialized — derived from sound_path on load.
 	pcm_data:          struct {
@@ -336,8 +337,7 @@ track_add_new :: proc(audio_state: ^Audio_State) {
 	append(&audio_state.tracks, track)
 }
 
-track_set_sound :: proc(which: u32, path: cstring) {
-	track := &app.audio.tracks[which]
+track_set_sound :: proc(track: ^Track, path: cstring) {
 	first_use := true
 	// i.e. this track has had a sound loaded into it before.
 	if track.sounds[0] != nil {
@@ -361,13 +361,13 @@ track_set_sound :: proc(which: u32, path: cstring) {
 
 	// Need to connect sound into node graph.
 	res := ma.sound_init_from_file(app.audio.engine, path, SOUND_FILE_LOAD_FLAGS, nil, nil, new_sound)
-	assert(res == .SUCCESS)
+	assert(res == .SUCCESS, tprintf("{}", res))
 
 	track.sounds[0] = new_sound
 	track.sound_path = str.clone_from_cstring(path)
 
-	left, right := sound_get_pcm_data(which)
-	track.pcm_data.left_channel = left
+	left, right := sound_get_pcm_data(track^)
+	track.pcm_data.left_channel  = left
 	track.pcm_data.right_channel = right
 
 	// Refer to Track :: struct {} to see why we need multiple sounds per track.
@@ -493,8 +493,8 @@ track_get_pcm_data :: proc(track: u32) -> (left_channel, right_channel: [dynamic
 	return app.audio.tracks[track].pcm_data.left_channel, app.audio.tracks[track].pcm_data.right_channel
 }
 
-sound_get_pcm_data :: proc(track: u32, allocator := context.allocator) -> (left_channel, right_channel: [dynamic]f32) {
-	sound := app.audio.tracks[track].sounds[0]
+sound_get_pcm_data :: proc(track: Track, allocator := context.allocator) -> (left_channel, right_channel: [dynamic]f32) {
+	sound := track.sounds[0]
 	n_frames: u64
 	res := ma.sound_get_length_in_pcm_frames(sound, &n_frames)
 	assert(res == .SUCCESS)
@@ -553,7 +553,11 @@ audio_transport_play :: proc() {
 	if paused_step < 0 do paused_step = 0
 
 	samples_per_step := u64(SAMPLE_RATE * 60 / f64(app.audio.bpm) / 8)
-	engine_now := ma.engine_get_time_in_pcm_frames(app.audio.engine)
+	// engine_now := ma.engine_get_time_in_pcm_frames(app.audio.engine)
+	device := ma.engine_get_device(app.audio.engine)
+	device_latency_pcm := u64(device.playback.internalPeriodSizeInFrames * device.playback.internalPeriods)
+	engine_now := ma.engine_get_time_in_pcm_frames(app.audio.engine) - device_latency_pcm
+
 
 	// Set scheduling state BEFORE setting playing = true,
 	// so the timing thread sees consistent state when it wakes up.
@@ -820,7 +824,7 @@ audio_thread_timing_proc :: proc() {
 
 				for &track in app.audio.tracks {
 					step_in_pattern := track.loop_at == -1 ? u32(step) % N_TRACK_STEPS : u32(step % track.loop_at)
-					if track.armed && track.selected_steps[step_in_pattern] {
+					if track.armed && track.selected_steps[step_in_pattern] && track.sounds[0] != nil {
 						// Find next armed step to figure out end_time_pcm.
 						next_step := step + 1
 						step_end_time_pcm: u64 = 0
@@ -877,7 +881,6 @@ audio_get_current_step :: proc() -> int {
 track_step_schedule :: proc(track: ^Track, step_num: u32, start_time_pcm: u64, end_time_pcm: u64) {
 	next_sound := track.sounds[track.curr_sound_idx]
 	if next_sound == nil do panic("fuck")
-
 	pitch := f32(track.pitches[step_num])
 	sound_volume := f32(track.volumes[step_num])
 	ma.sound_set_pitch(next_sound, pitch / 12)
@@ -1083,11 +1086,30 @@ Serial_Record :: struct {
 // which are to be computed at runtime.
 audio_state_write_to_disk :: proc(path: string) {
 	fp, err := os.open(path, {.Create, .Write}, {.Read_User, .Write_User})
-	assert(err != io.Error.None)
+	assert(err == io.Error.None)
 	defer os.close(fp)
 	out_buf := make([dynamic]byte, context.temp_allocator)
-	serialize(app.audio, &out_buf)
-	print(out_buf[:])
+	serialize(app.audio^, &out_buf)
+	written, write_err := os.write(fp, out_buf[:])
+	assert(written == len(out_buf))
+	assert(write_err == io.Error.None)
+}
+
+audio_state_load_from_disk :: proc(path: string) { 
+	data, err := os.read_entire_file_from_path(path, context.temp_allocator)
+	assert(err == io.Error.None)
+
+	cursor := 0
+	deserialize(app.audio^, data, &cursor)
+
+	// Re-init stuff that couldn't be serialized.
+	audio_init_miniaudio(app.audio)
+	for &track in app.audio.tracks { 
+		if len(track.sound_path) == 0 do continue
+		track_set_sound(&track, str.clone_to_cstring(track.sound_path, context.temp_allocator))
+	}
+	app.audio.playing = false
+	app.audio.paused_at_step = 0
 }
 
 /*

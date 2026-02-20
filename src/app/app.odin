@@ -85,6 +85,8 @@ app_update :: proc() -> (all_good: bool) {
 		}
 	}
 
+	// Handle keybaord shortcuts
+	handle_keyboard_shortcuts()
 	root := create_ui()
 
 	if show_context_menu {
@@ -186,7 +188,7 @@ app_init :: proc(first_run := true) -> ^App {
 @(export)
 app_init_window :: proc() {
 	sdl.Init({.EVENTS})
-	window_flags := sdl.WINDOW_OPENGL | sdl.WINDOW_RESIZABLE | sdl.WINDOW_ALLOW_HIGHDPI | sdl.WINDOW_UTILITY | sdl.WINDOW_BORDERLESS
+	window_flags := sdl.WINDOW_OPENGL | sdl.WINDOW_RESIZABLE | sdl.WINDOW_ALLOW_HIGHDPI | sdl.WINDOW_UTILITY 
 	app.window = sdl.CreateWindow(
 		"n3or3tro-tracker",
 		sdl.WINDOWPOS_UNDEFINED,
@@ -363,4 +365,28 @@ app_shutdown :: proc() {
 	free(app)
 	// free_all(context.allocator)
 	free_all(context.temp_allocator)
+}
+
+// This must be called after we create teh UI and give widgets the chance to consume key events.
+handle_keyboard_shortcuts :: proc() {
+	n_handled :u32= 0
+	for i in 0 ..< app.curr_chars_stored {
+		curr_ch := app.char_queue[i]
+		#partial switch curr_ch {
+		case .SPACE:
+			if app.audio.playing {
+				audio_transport_pause()
+			} else {
+				audio_transport_play()
+			}
+			n_handled += 1
+		case .ESCAPE:
+			ui_state.context_menu.active = false
+		case .R:
+			audio_transport_reset()
+		case .M:
+			ui_state.show_mixer = !ui_state.show_mixer
+		}
+	}
+	app.curr_chars_stored -= n_handled
 }

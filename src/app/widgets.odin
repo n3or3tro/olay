@@ -18,6 +18,24 @@ import str "core:strings"
 import ma"vendor:miniaudio"
 
 
+actual_topbar :: proc() { 
+	child_container(
+		{
+			size = {{.Percent, 1}, {.Fit_Children, 1}}
+		},
+		{
+			alignment_horizontal = .Start
+		}
+	)
+	// text_button(
+	// 	"file",
+	// 	{size=Size_Fit_Text}
+	// )
+	// text_button(
+	// 	"edit",
+	// 	{size=Size_Fit_Text}
+	// )
+}
 topbar :: proc() {
 	child_container(
 		{
@@ -47,18 +65,40 @@ topbar :: proc() {
 			{gap_horizontal = 3},
 			"top-bar-left-container",
 		)
-		if text_button("undo", btn_config, "top-bar-undo").clicked {
-			undo()
-		}
-		if text_button("redo", btn_config, "top-bar-redo").clicked {
-			redo()
-		}
-		if text_button("render wav", btn_config, "top-bar-render").clicked {
+		// if text_button("undo", btn_config).clicked {
+		// 	undo()
+		// }
+		// if text_button("redo", btn_config).clicked {
+		// 	redo()
+		// }
+		if text_button("render wav", btn_config).clicked {
 			audio_export_to_wav()
+		}
+		if text_button("save project", btn_config).clicked {
+			audio_state_write_to_disk("saved.bin")
+		}
+		if text_button("load project", btn_config).clicked {
+			audio_state_load_from_disk("saved.bin")
 		}
 	}
 
 	middle_container: {
+		// {
+		// 	child_container(
+		// 		{size=Size_Fit_Children},
+		// 		{}
+		// 	)
+		// 	text("BPM: ", {size={{.Fit_Text, 1}, {.Fit_Text, 1}}, text_justify = {.Center, .Center}})
+		// 	edit_number_box(
+		// 		{
+		// 			size = {{.Fixed, 80}, {.Grow, 1}}
+		// 		},
+		// 		20,
+		// 		600,
+		// 		id = "bpm_input_text_box",
+		// 	)
+		// }
+
 		child_container(
 			{size = {{.Fit_Children, 1}, {.Fit_Children_And_Grow, 1}}},
 			{gap_horizontal = 3},
@@ -76,6 +116,8 @@ topbar :: proc() {
 				audio_transport_play()
 			} 
 		}
+
+		
 	}
 
 	right_container: {
@@ -169,7 +211,8 @@ audio_track :: proc(track_num: int, track_width: f32, step_containers: ^[dynamic
 
 		loop_back_step := track.loop_at
 		for i in 0 ..< N_TRACK_STEPS {
-			child_container({size = {{.Fixed, track_width + 30}, {.Percent, 1.0/32.0}}}, {})
+			step_height := f32(ui_state.show_mixer ? 1.0 / 54.0 : 1.0 / 80.0)
+			child_container({size = {{.Fixed, track_width + 30}, {.Percent, step_height}}}, {})
 			text(tprintf("{}", i), {size={{.Fixed, 30}, {.Percent, 1}}, text_justify={.Center, .Center}, color = .Surface})
 			step_row_container := child_container(
 				{size = {{.Fixed, track_width - 30}, {.Percent, 1}}},
@@ -213,7 +256,7 @@ audio_track :: proc(track_num: int, track_width: f32, step_containers: ^[dynamic
 					step  = i,
 					type  = .Volume,
 				},
-				extra_flags =substep_extra_flags,
+				extra_flags = substep_extra_flags,
 			)
 
 			send1_box := edit_number_box(
@@ -303,7 +346,7 @@ audio_track :: proc(track_num: int, track_width: f32, step_containers: ^[dynamic
 			case:
 				println("Cant drop this onto a track")
 		}
-		track_set_sound(u32(track_num), cpath)
+		track_set_sound(track, cpath)
 	}
 
 	sample_label: {
@@ -328,58 +371,68 @@ audio_track :: proc(track_num: int, track_width: f32, step_containers: ^[dynamic
 		)
 	}
 
-	controls: {
-		controls_container := child_container(
-			{
-				size = {{.Fixed, track_width}, {.Percent, 0.3}},
-				color = .Surface_Bright,
-			},
-			{
-				direction = .Horizontal,
-				alignment_horizontal = .Start,
-				alignment_vertical = .End
-			},
-			id("track-{}-controls-container", track_num),
-			{.Draw, .Drag_Drop_Source},
-		)
-		arm_label := app.audio.tracks[track_num].armed ? "unarm" : "arm"
-		arm_button := text_button(
-			arm_label,
-			{
-				size = {{.Percent, 0.333}, {.Fixed, 30}},
-				color = .Secondary,
-				corner_radius = 3,
+	if ui_state.show_mixer {
+		controls: {
+			controls_container := child_container(
+				{
+					size = {{.Fixed, track_width}, {.Percent, 0.3}},
+					color = .Surface_Bright,
+				},
+				{
+					direction = .Horizontal,
+					alignment_horizontal = .Start,
+					alignment_vertical = .End
+				},
+				id("track-{}-controls-container", track_num),
+				{.Draw, .Drag_Drop_Source},
+			)
+			arm_label := app.audio.tracks[track_num].armed ? "unarm" : "arm"
+			arm_button := text_button(
+				arm_label,
+				{
+					size = {{.Percent, 0.333}, {.Fixed, 30}},
+					color = .Secondary,
+					corner_radius = 3,
 
-			},
-			id("{}track-{}-arm-button", arm_label, track_num),
-			{.Ignore_Parent_Disabled},
-		)
-		volume_slider := vertical_slider(
-			{size = {{.Percent, 0.333}, {.Grow, 30}}},
-			&track.volume,
-			0,
-			100,
-			id("heytrack-{}-volume-slider", track_num),
-		)
-		load_sound_button := text_button(
-			"load",
-			{
-				size = {{.Percent, 0.333}, {.Fixed, 30}},
-				color = .Secondary,
-				corner_radius = 3,
-			},
-			id("loadtrack-{}-load-sound-button", track_num),
-		)
-		if arm_button.clicked { 
-			app.audio.tracks[track_num].armed = !app.audio.tracks[track_num].armed 
-		}
-		if load_sound_button.clicked {
-			paths, ok := file_dialog(false)
-			if ok { 
-				path := paths[0]
-				track_set_sound(u32(track_num), path)
-			} else { 
-				println("Opening the file dialog ended in NOT returning a file path")
+				},
+				id("{}track-{}-arm-button", arm_label, track_num),
+				{.Ignore_Parent_Disabled},
+			)
+			volume_slider := vertical_slider(
+				{size = {{.Percent, 0.333}, {.Grow, 30}}},
+				&track.volume,
+				0,
+				100,
+				id("heytrack-{}-volume-slider", track_num),
+			)
+			solo_track_button := text_button(
+				"solo",
+				{
+					size = {{.Percent, 0.333}, {.Fixed, 30}},
+					color = .Secondary,
+					corner_radius = 3,
+				},
+				id("loadtrack-{}-load-sound-button", track_num),
+			)
+			if arm_button.clicked { 
+				app.audio.tracks[track_num].armed = !app.audio.tracks[track_num].armed 
+			}
+			if solo_track_button.clicked {
+				track.soloed = !track.soloed
+				if track.soloed {
+					for &other_track in app.audio.tracks { 
+						if &other_track != track { 
+							other_track.armed = false
+						}
+					}
+				// Don't really re-arm all tracks, but it's a compromise for now.
+				} else { 
+					for &other_track in app.audio.tracks { 
+						if &other_track != track { 
+							other_track.armed = true
+						}
+					}
+				}
 			}
 		}
 	}
@@ -903,7 +956,12 @@ sampler :: proc(track_num: int, id_string: string) {
 			if drag_handle.box == ui_state.dragged_box {
 				drag_delta := get_drag_delta()
 				change_as_prct := f32(drag_delta.x) / f32(waveform_parent.box.prev_width)
-				sampler.slices[i].how_far += change_as_prct * 1.001
+				sampler.slices[i].how_far -= change_as_prct * 1.001
+			}
+			if drag_handle.double_clicked {
+				sampler.n_slices -= 1
+				sampler.n_slices -= 1
+				// sampler.slices[i], sampler_slices
 			}
 		}
 
