@@ -9,8 +9,7 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:miniaud.io)",
       "Bash(dir:*)",
-      "Bash(wc:*)",
-      "Bash(ls:*)"
+      "Bash(wc:*)"
     ]
   }
 }
