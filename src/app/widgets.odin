@@ -116,8 +116,9 @@ topbar :: proc() {
 				audio_transport_play()
 			} 
 		}
-
-		
+		hehe := btn_config
+		hehe.color = .Primary_Container
+		icon(Icon_Play, "play", hehe)
 	}
 
 	right_container: {

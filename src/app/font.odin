@@ -18,6 +18,23 @@ import "core:unicode/utf8"
 import gl "vendor:OpenGL"
 import kb "vendor:kb_text_shape"
 
+Icon_Open_Folder 	:: rune(0xE000)
+Icon_Save  			:: rune(0xE001)
+Icon_Redo  			:: rune(0xE002)
+Icon_Undo  			:: rune(0xE003)
+Icon_Pause 			:: rune(0xE004)
+Icon_Play  			:: rune(0xE005)
+Icon_Restart 		:: rune(0xE006)
+Icon_Closed_Folder 	:: rune(0xE007)
+Icon_File 			:: rune(0xE008)
+
+when ODIN_OS == .Windows {
+	font_path :: "C:\\Windows\\Fonts\\segoeui.ttf"
+	icon_path :: "C:\\Users\\n3or3tro\\MySoftware\\my-projects\\olay\\resources\\icons.ttf"
+} else {
+	font_path :: "panic"
+}
+
 // We create this struct since the library returns the x,y co-ord of the glyph instead of
 // storing it inside the glyph.
 Glyph :: struct {
@@ -65,12 +82,19 @@ Font_State :: struct {
 	},
 }
 
-when ODIN_OS == .Windows {
-	font_path :: "C:\\Windows\\Fonts\\segoeui.ttf"
-} else {
-	font_path :: "panic"
+// Must init the font before you call this function.
+icons_init :: proc(state: ^Font_State, font_size: u32, allocator := context.allocator) {
+	if icon_path == "panic" {
+		panic("Need to set icons path for non Windows systems.")
+	}
+
+	err := ft.new_face(ui_state.font_state.freetype.lib, str.clone_to_cstring(icon_path), 0, &state.freetype.face)
+	assert(err == .Ok, tprintf("{}  - icon_path: {}", err, icon_path))
+
+	// Width is set to 0 to maintain the aspect ratio.
+	err = ft.set_pixel_sizes(state.freetype.face, 0, font_size)
+	assert(err == .Ok)
 }
-// font_state: Font_State
 
 font_init :: proc(state: ^Font_State, font_size: u32, allocator := context.allocator) {
 	if font_path == "panic" {
@@ -250,17 +274,21 @@ font_add_shaped_run :: proc(
 	If any glyph has been seen before, it's retrieved from the cache, if not, it's put into the cache.
 */
 font_get_render_info :: proc(
-	glyph_buffer: [dynamic]Glyph,
+	glyph_buffer: []Glyph,
+	override_face:  ft.Face = nil,
+	override_cache: ^map[u16]Glyph_Cache_Record = nil,
 	allocator := context.allocator,
 ) -> [dynamic]Glyph_Render_Info {
 	state := &ui_state.font_state
 	lib := state.freetype.lib
-	face := state.freetype.face
+
+	face  := override_face  != nil ? override_face  : state.freetype.face
+	cache := override_cache != nil ? override_cache : &state.rendered_glyph_cache
 
 	load_flags := ft.Load_Flags{.Render}
 	result := make([dynamic]Glyph_Render_Info, len(glyph_buffer), allocator)
 	for glyph, i in glyph_buffer {
-		if existing_record, ok := state.rendered_glyph_cache[glyph.glyph.Id]; ok {
+		if existing_record, ok := cache[glyph.glyph.Id]; ok {
 			glyph_render_info := Glyph_Render_Info {
 				cache_record = existing_record,
 				pos          = glyph.pos,
@@ -293,7 +321,6 @@ font_get_render_info :: proc(
 			mem.copy(dst, src, int(this_glyphs_bitmap.width))
 		}
 
-
 		// Metrics from FreeType.
 		// We >> 6 here because FreeType uses the least-sig 6 bits as metadata
 		// for subpixel rendering stuff, which we aren't implementing *yet*.
@@ -325,7 +352,7 @@ font_get_render_info :: proc(
 		}
 
 		result[i] = new_glyph_render_info
-		state.rendered_glyph_cache[glyph.glyph.Id] = new_glyph_cache_record
+		cache[glyph.glyph.Id] = new_glyph_cache_record
 
 		// Upload new rendered glyph to bitmap atlas.
 		gl.BindTexture(gl.TEXTURE_2D, ui_state.font_atlas_texture_id)
@@ -357,13 +384,13 @@ Takes a string, performs all the transforms neccessary to get a glyph_render_inf
 calculates the length of that string if those glyphs were rendered.
 */
 font_get_strings_rendered_len :: proc(text: string) -> int {
-
 	runes := utf8.string_to_runes(text, context.temp_allocator)
 	shaped_runes := font_segment_and_shape_text(&ui_state.font_state.kb.font, runes)
-	rendered_glyps := font_get_render_info(shaped_runes, context.temp_allocator)
+	rendered_glyps := font_get_render_info(shaped_runes[:], nil, nil, context.temp_allocator)
 	length := font_get_glyphs_rendered_len(rendered_glyps[:])
 	return length
 }
+
 font_get_glyphs_rendered_len :: proc(text: []Glyph_Render_Info) -> int {
 	tot := 0
 	for record in text {
@@ -379,7 +406,7 @@ of the glyph.
 font_get_strings_rendered_height :: proc(text: string) -> int {
 	runes := utf8.string_to_runes(text, context.temp_allocator)
 	shaped_runes := font_segment_and_shape_text(&ui_state.font_state.kb.font, runes)
-	rendered_glyphs := font_get_render_info(shaped_runes, context.temp_allocator)
+	rendered_glyphs := font_get_render_info(shaped_runes[:], nil, nil, context.temp_allocator)
 	return font_get_glyphs_tallest_glyph(rendered_glyphs[:])
 }
 

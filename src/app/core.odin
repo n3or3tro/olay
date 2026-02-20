@@ -203,6 +203,7 @@ Box_Flag :: enum {
 	// Whether this box is a line.
 	Line, 
 	Draw_Text,
+	Draw_Icon,
 	Text_Center,
 	Text_Left,
 	Text_Right,
@@ -237,6 +238,7 @@ Box :: struct {
 	fresh:  	  bool,
 	id:           string,
 	label: 		  string,
+	icon_rune:    rune, 
 	// Current thing being hovered over this frame, only 1 can exist at the end of each frame.
 	hot:          bool,
 	// Current thing being clicked on this frame, only 1 can exist at the end of each frame.
@@ -319,7 +321,15 @@ ui_pixel_shader_data :: #load("shaders/box_pixel_shader.glsl")
 /* ======================= Start Core Box Code ========================= */
 
 @(private="file")
-box_make :: proc(flags: Box_Flags, config: Box_Config, label := "", id := "", allocator := context.allocator) -> ^Box {
+box_make :: proc(
+flags: Box_Flags,
+config: Box_Config,
+label := "",
+id := "",
+allocator := context.allocator,
+icon_rune := '0',
+) -> ^Box 
+{
 	// box := new(Box, context.allocator)
 	box := new(Box, allocator)
 
@@ -327,6 +337,7 @@ box_make :: proc(flags: Box_Flags, config: Box_Config, label := "", id := "", al
 	assert(err == .None)
 	box.id = persistant_id
 	box.label = label
+	box.icon_rune = icon_rune
 
 	box.flags = flags
 	box.config = config
@@ -384,7 +395,14 @@ box_make :: proc(flags: Box_Flags, config: Box_Config, label := "", id := "", al
 	return box
 }
 
-box_from_cache :: proc(flags: Box_Flags, config: Box_Config, label := "", id := "", metadata := Box_Metadata{}) -> ^Box {
+box_from_cache :: proc(flags: Box_Flags,
+config: Box_Config,
+label := "",
+id := "",
+metadata := Box_Metadata{},
+icon_rune :rune = '0'
+) -> ^Box 
+{
 	box: ^Box
 	is_new: bool
 	is_anon: bool
@@ -411,6 +429,7 @@ box_from_cache :: proc(flags: Box_Flags, config: Box_Config, label := "", id := 
 		box.flags = flags
 		box.config = config
 		box.z_index = config.z_index
+		box.icon_rune = icon_rune
 		// Label is recreated each frame, so it's temp allocated.
 		box.label = label
 
@@ -456,7 +475,7 @@ box_from_cache :: proc(flags: Box_Flags, config: Box_Config, label := "", id := 
 		box_clamp_to_constraints(box)
 	} else {
 		is_new = true
-		new_box := box_make(flags, config, label, key)
+		new_box := box_make(flags, config, label, key, icon_rune=icon_rune)
 		ui_state.box_cache[new_box.id] = new_box
 		box = new_box
 	}

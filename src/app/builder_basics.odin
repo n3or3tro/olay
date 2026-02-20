@@ -32,6 +32,28 @@ text :: proc(label: string, config: Box_Config, id := "", extra_flags := Box_Fla
 	return box_signals(b)
 }
 
+icon :: proc(code_glyph: rune, hover_text: string, config: Box_Config, id := "", extra_flags := Box_Flags{}) -> Box_Signals {
+	b := box_from_cache({.Draw_Icon, .Text_Center} + extra_flags, config, hover_text, id, icon_rune=code_glyph)
+	signals := box_signals(b)
+	if signals.hovering { 
+		text(
+			hover_text, 
+			{
+				size = Size_Fit_Text, 
+				text_justify = {.Center, .Center},
+				floating_type = .Relative_Other,
+				floating_anchor_box = b,
+				// floating_offset = vec2_f32([2]int{b.prev_bottom_right.x, b.prev_top_left.y}),
+				floating_offset = {0.5, 2.5},
+				color = config.color,
+				z_index = 500,
+			}, 
+			extra_flags = {.Draw},
+	)
+	}
+	return signals
+}
+
 text_button :: proc(label: string, config: Box_Config, id := "", extra_flags := Box_Flags{}) -> Box_Signals {
 	box := box_from_cache({.Clickable, .Hot_Animation, .Active_Animation, .Draw, .Text_Center, .Draw_Text} + extra_flags, config, label, id)
 	return box_signals(box)

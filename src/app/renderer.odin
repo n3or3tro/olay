@@ -8,7 +8,7 @@ import "core:unicode/utf8"
 import gl "vendor:OpenGL"
 import ma "vendor:miniaudio"
 import "core:simd"
-import "core:math/rand"
+import ft "../third-party/freetype"
 
 
 PI :: math.PI
@@ -546,7 +546,10 @@ add_waveform_rendering_data :: proc(
 }
 
 collect_render_data_from_ui_tree :: proc(render_data: ^[dynamic]Rect_Render_Data) {
-	box_list := box_tree_to_list_complex(ui_state.root, context.temp_allocator)
+	arena, scratch := arena_allocator_new()
+	defer arena_allocator_destroy(arena, scratch)
+
+	box_list := box_tree_to_list_complex(ui_state.root, scratch)
 	sort.merge_sort_proc(box_list[:], proc(a, b: ^Box) -> int {
 		if a.z_index < b.z_index {
 			return -1
@@ -558,8 +561,7 @@ collect_render_data_from_ui_tree :: proc(render_data: ^[dynamic]Rect_Render_Data
 	})
 
 	for box in box_list {
-		boxes_render_data := get_boxes_rendering_data(box^, context.temp_allocator)
-
+		boxes_render_data := get_boxes_rendering_data(box^, scratch)
 		if shadow, ok := boxes_render_data.outer_shadow.(Rect_Render_Data); ok {
 			append(render_data, shadow)
 		}
@@ -568,7 +570,6 @@ collect_render_data_from_ui_tree :: proc(render_data: ^[dynamic]Rect_Render_Data
 		// Hence the conditional.
 		if box_data, ok := boxes_render_data.box.(Rect_Render_Data); ok {
 			append(render_data, box_data)
-			
 		}
 
 		for data in boxes_render_data.additional_data {
@@ -585,7 +586,7 @@ collect_render_data_from_ui_tree :: proc(render_data: ^[dynamic]Rect_Render_Data
 			// gl.BindTexture(gl.TEXTURE_2D, ui_state.font_atlas_texture_id)
 			text_to_render: string
 			if .Edit_Text in box.flags {
-				text_to_render = box_data_as_string(box.data, context.temp_allocator)
+				text_to_render = box_data_as_string(box.data, scratch)
 			} else {
 				text_to_render = box.label
 			}
@@ -594,12 +595,27 @@ collect_render_data_from_ui_tree :: proc(render_data: ^[dynamic]Rect_Render_Data
 					break draw_text
 				}
 			}
-			text := utf8.string_to_runes(text_to_render, context.temp_allocator)
+			text := utf8.string_to_runes(text_to_render, scratch)
 			shaped_glyphs := font_segment_and_shape_text(&ui_state.font_state.kb.font, text)
-			glyph_render_info := font_get_render_info(shaped_glyphs, context.temp_allocator)
-			glyph_rects := get_text_quads(box^, glyph_render_info[:], context.temp_allocator)
+			glyph_render_info := font_get_render_info(shaped_glyphs[:], nil, nil, scratch)
+			glyph_rects := get_text_quads(box^, glyph_render_info[:], scratch)
 			for rect in glyph_rects {
-				append_elem(render_data, rect)
+				append(render_data, rect)
+			}
+		}
+
+		draw_icon: if .Draw_Icon in box.flags { 
+			glyph_index := ft.get_char_index(ui_state.icon_state.freetype.face, u32(box.icon_rune))
+			buf := [1]Glyph{Glyph{glyph = {Id = u16(glyph_index)}, pos= {0, 0}}}
+			render_info := font_get_render_info(
+				buf[:],
+				ui_state.icon_state.freetype.face, 
+				&ui_state.icon_state.rendered_glyph_cache, 
+				context.temp_allocator
+			)
+			rects := get_text_quads(box^, render_info[:], context.temp_allocator)
+			for rect in rects { 
+				append(render_data, rect)
 			}
 		}
 
@@ -614,7 +630,6 @@ collect_render_data_from_ui_tree :: proc(render_data: ^[dynamic]Rect_Render_Data
 		if overlay, ok := boxes_render_data.overlay.(Rect_Render_Data); ok {
 			append(render_data, overlay)
 		}
-
 	}
 }
 

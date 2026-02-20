@@ -129,7 +129,8 @@ arena_allocator_new :: proc() -> (^vmem.Arena, mem.Allocator) {
 }
 
 arena_allocator_destroy :: proc(arena: ^vmem.Arena, allocator: mem.Allocator) {
-	free_all(allocator)
+	// free_all(allocator)
+	vmem.arena_destroy(arena)
 	free(arena)
 }
 

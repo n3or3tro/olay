@@ -66,6 +66,7 @@ UI_State :: struct {
 		show_remove_step_menu: bool,
 	},
 	font_state:               Font_State,
+	icon_state: 			  Font_State,
 	tab_num:                  int,
 	// Indicates whether we triggered anything that would cause us to swap UI screens
 	// and therefore we need to clear the box cache.
@@ -248,7 +249,8 @@ init_ui_state :: proc() -> ^UI_State {
 	// Generate and store color theme:
 	ui_state.dark_theme = parse_json_token_color_mapping("util/dark-theme.json")
 
-	font_init(&ui_state.font_state, 18)
+	font_init(&ui_state.font_state,  18)
+	icons_init(&ui_state.icon_state, 24)
 
 	gl.GenVertexArrays(1, ui_state.quad_vabuffer)
 	create_vbuffer(ui_state.quad_vbuffer, nil, 3_000_000)
@@ -279,15 +281,15 @@ init_ui_state :: proc() -> ^UI_State {
 	gl.BindTexture(gl.TEXTURE_2D, atlas_texture_id)
 
 	gl.TexImage2D(
-		gl.TEXTURE_2D, // target
-		0, // level (mipmap)
-		gl.R8, // internal format (8 bit red channel is most efficient apparently)
-		1024, // width
-		1024, // height
-		0, // border
-		gl.RED, // format of pixel data, i.e. where it looks to find the pixel info.
-		gl.UNSIGNED_BYTE, // type of pixel data.
-		nil, // data -> nil as it's empty until we start rendering text.
+		gl.TEXTURE_2D,  	// target
+		0, 					// level (mipmap)
+		gl.R8,  			// internal format (8 bit red channel is most efficient apparently)
+		1024,   			// width
+		1024,   			// height
+		0, 	    			// border
+		gl.RED, 			// format of pixel data, i.e. where it looks to find the pixel info.
+		gl.UNSIGNED_BYTE,   // type of pixel data.
+		nil, 				// data -> nil as it's empty until we start rendering text.
 	)
 	ui_state.font_atlas_texture_id = atlas_texture_id
 
