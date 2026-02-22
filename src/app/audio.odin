@@ -1168,8 +1168,6 @@ serialize :: proc(data: any, out_buf: ^[dynamic]byte, s_id := -1) {
 		assert(s_id != -1)
 		append_elems(out_buf, ..to_bytes(s_id))
 		s := (cast(^string)data.data)^
-		// append_elems(out_buf, ..to_bytes(len(s) * 4))
-		// utf8 / runes / bytes fuckery.
 		n_runes := 0
 		for _ in s { n_runes += 1 }
 		append_elems(out_buf, ..to_bytes(n_runes * size_of(rune)))

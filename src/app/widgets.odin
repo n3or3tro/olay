@@ -41,7 +41,6 @@ topbar :: proc() {
 		{
 			size    = {{.Fixed, f32(app.wx)}, {.Fixed, TOPBAR_HEIGHT}},
 			color = .Secondary,
-			padding = {top = 3, bottom = 3}
 		},
 		{
 			direction = .Horizontal,
@@ -60,29 +59,36 @@ topbar :: proc() {
 	}
 
 	left_container: {
+		btn_config := btn_config
+		btn_config.color = .Primary_Container
+		btn_config.size = {{.Fixed, 40}, {.Grow, 20}}
+
 		child_container(
 			{size = {{.Fit_Children, 1}, {.Fit_Children_And_Grow, 1}}},
 			{gap_horizontal = 3},
 			"top-bar-left-container",
 		)
-		// if text_button("undo", btn_config).clicked {
-		// 	undo()
-		// }
-		// if text_button("redo", btn_config).clicked {
-		// 	redo()
-		// }
-		if text_button("render wav", btn_config).clicked {
-			audio_export_to_wav()
+		if icon_button(Icon_Undo, "undo", btn_config).clicked {
+			undo()
 		}
-		if text_button("save project", btn_config).clicked {
+		if icon_button(Icon_Redo,"redo", btn_config).clicked {
+			redo()
+		}
+		// if text_button("render wav", btn_config).clicked {
+		// 	audio_export_to_wav()
+		// }
+		if icon_button(Icon_Save,"save project", btn_config).clicked {
 			audio_state_write_to_disk("saved.bin")
 		}
-		if text_button("load project", btn_config).clicked {
+		if icon_button(Icon_File, "load project", btn_config).clicked {
 			audio_state_load_from_disk("saved.bin")
 		}
 	}
 
 	middle_container: {
+		btn_config := btn_config
+		btn_config.color = .Primary_Container
+		btn_config.size = {{.Fixed, 40}, {.Grow, 20}}
 		// {
 		// 	child_container(
 		// 		{size=Size_Fit_Children},
@@ -104,41 +110,49 @@ topbar :: proc() {
 			{gap_horizontal = 3},
 			"top-bar-middle-container",
 		)
-		if text_button("Reset", btn_config).clicked {
+
+
+		if icon_button(Icon_Restart, "Restart", btn_config).clicked { 
 			audio_transport_reset()
 		} 
 
-		label := app.audio.playing ? "Pause" : "Play"
-		if text_button(label, btn_config).clicked {
-			if app.audio.playing  {
+		if app.audio.playing { 
+			if icon_button(Icon_Pause, "Pause", btn_config).clicked { 
 				audio_transport_pause()
-			} else {
+			}
+		} else { 
+			if icon_button(Icon_Play, "Play", btn_config).clicked { 
 				audio_transport_play()
-			} 
+			}
 		}
-		hehe := btn_config
-		hehe.color = .Primary_Container
-		icon(Icon_Play, "play", hehe)
 	}
 
 	right_container: {
+		btn_config := btn_config
+		btn_config.color = .Primary_Container
+		btn_config.size = {{.Fixed, 40}, {.Grow, 20}}
 		child_container(
 			{size = {{.Fit_Children, 1}, {.Fit_Children_And_Grow, 1}}},
 			{gap_horizontal = 3},
 			"top-bar-right-container",
 		)
-		if text_button("Default layout", btn_config, "top-bar-default").clicked {
-			ui_state.tab_num = 0
-			ui_state.changed_ui_screen = true
-		}
-		if text_button("Test layout", btn_config, "top-bar-test").clicked {
-			ui_state.tab_num = 1
-			ui_state.changed_ui_screen = true
-		}
+		// if text_button("Default layout", btn_config, "top-bar-default").clicked {
+		// 	ui_state.tab_num = 0
+		// 	ui_state.changed_ui_screen = true
+		// }
+		// if text_button("Test layout", btn_config, "top-bar-test").clicked {
+		// 	ui_state.tab_num = 1
+		// 	ui_state.changed_ui_screen = true
+		// }
 		sidebar_label := ui_state.sidebar_shown ? "Close sidebar" : "Open sidebar"
-		sidebar_id := ui_state.sidebar_shown ? "top-bar-sidebar-close" : "top-bar-sidebar-open"
-		if text_button(sidebar_label, btn_config, sidebar_id).clicked {
-			ui_state.sidebar_shown = !ui_state.sidebar_shown
+		if ui_state.sidebar_shown {
+			if icon_button(Icon_Closed_Folder, sidebar_label, btn_config).clicked {
+				ui_state.sidebar_shown = false
+			}
+		} else { 
+			if icon_button(Icon_Open_Folder, sidebar_label, btn_config).clicked {
+				ui_state.sidebar_shown = true
+			}
 		}
 	}
 }
@@ -212,7 +226,7 @@ audio_track :: proc(track_num: int, track_width: f32, step_containers: ^[dynamic
 
 		loop_back_step := track.loop_at
 		for i in 0 ..< N_TRACK_STEPS {
-			step_height := f32(ui_state.show_mixer ? 1.0 / 54.0 : 1.0 / 80.0)
+			step_height := f32(ui_state.show_mixer ? 1.0 / (54.0 * 0.7) : 1.0 / (80.0 * 0.7))
 			child_container({size = {{.Fixed, track_width + 30}, {.Percent, step_height}}}, {})
 			text(tprintf("{}", i), {size={{.Fixed, 30}, {.Percent, 1}}, text_justify={.Center, .Center}, color = .Surface})
 			step_row_container := child_container(

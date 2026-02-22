@@ -140,9 +140,9 @@ app_update :: proc() -> (all_good: bool) {
 	frame_time := f64(time.now()._nsec - start)
 	time_to_wait := time.Duration(max_frame_time_ns - frame_time)
 
-	// end := time.now()._nsec
-	// total_frame_time_ns := f64(end - start)
-	// printfln("app_update() took {} ms", total_frame_time_ns / 1_000_000)
+	end := time.now()._nsec
+	total_frame_time_ns := f64(end - start)
+	printfln("app_update() took {} ms", total_frame_time_ns / 1_000_000)
 
 	if time_to_wait > 0 {
 		time.accurate_sleep(time_to_wait)
@@ -268,6 +268,7 @@ app_hot_reload :: proc(mem: rawptr) {
 	app = (^App)(mem)
 	ui_state = app.ui_state
 	font_init(&ui_state.font_state, ui_state.font_state.font_size)
+	icons_init(&ui_state.icon_state, 24)
 	audio_init_miniaudio(app.audio)
 	sync.atomic_store(&app.audio.exit_timing_thread, false)
 	app.ui_refresh_thread   = thread.create_and_start(ui_refresh_thread_proc, priority = .High)
@@ -382,10 +383,23 @@ handle_keyboard_shortcuts :: proc() {
 			n_handled += 1
 		case .ESCAPE:
 			ui_state.context_menu.active = false
+			n_handled += 1
 		case .R:
 			audio_transport_reset()
+			n_handled += 1
 		case .M:
 			ui_state.show_mixer = !ui_state.show_mixer
+			n_handled += 1
+		case .B:
+			ui_state.sidebar_shown = !ui_state.sidebar_shown
+			n_handled += 1
+		case .LCTRL, .RCTRL:
+			if app.keys_held[sdl.SCANCODE_T] { 
+				println("adding new track")
+				n_handled += 2
+			} else { 
+				println("got control but no T, t")
+			}
 		}
 	}
 	app.curr_chars_stored -= n_handled

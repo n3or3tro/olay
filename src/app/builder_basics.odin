@@ -54,6 +54,11 @@ icon :: proc(code_glyph: rune, hover_text: string, config: Box_Config, id := "",
 	return signals
 }
 
+icon_button :: proc(code_glyph: rune, hover_text: string, config: Box_Config, id := "", extra_flags := Box_Flags{}) -> Box_Signals {
+	return icon(code_glyph, hover_text, config, id, extra_flags + {.Clickable, .Hot_Animation, .Active_Animation})
+}
+
+
 text_button :: proc(label: string, config: Box_Config, id := "", extra_flags := Box_Flags{}) -> Box_Signals {
 	box := box_from_cache({.Clickable, .Hot_Animation, .Active_Animation, .Draw, .Text_Center, .Draw_Text} + extra_flags, config, label, id)
 	return box_signals(box)
