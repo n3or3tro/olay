@@ -1174,8 +1174,6 @@ serialize :: proc(data: any, out_buf: ^[dynamic]byte, s_id := -1) {
 		for ch in s {
 			append_elems(out_buf, ..to_bytes(ch))
 		}
-
-
 	case runtime.Type_Info_Array:
 		assert(s_id != -1)
 		append_elems(out_buf, ..to_bytes(s_id))

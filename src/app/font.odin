@@ -33,6 +33,7 @@ when ODIN_OS == .Windows {
 	icon_path :: "C:\\Users\\n3or3tro\\MySoftware\\my-projects\\olay\\resources\\icons.ttf"
 } else {
 	font_path :: "panic"
+	icon_path :: "panic"
 }
 
 // We create this struct since the library returns the x,y co-ord of the glyph instead of
@@ -49,18 +50,22 @@ Glyph_Cache_Record :: struct {
 	advance_x:            int, // How far to move 'pen' along after drawing this glyph.
 }
 
-
 Glyph_Render_Info :: struct {
 	cache_record: Glyph_Cache_Record,
 	pos:          Vec2_f32,
 }
 
+Glyph_Cache_Key :: struct { 
+	glyph_id: u16,
+	font_size: u32,	
+}
+
 Font_State :: struct {
-	font_size:            u32,
+	// font_size:            u32,
 	// Cache for strings which have already run through the kb_text_shape machinery.
 	shaped_string_cache:  map[string][dynamic]Glyph,
 	// maps kb.glyph.id to a record which we can use to locate the rendered data in the bitmap cache.
-	rendered_glyph_cache: map[u16]Glyph_Cache_Record,
+	rendered_glyph_cache: map[Glyph_Cache_Key]Glyph_Cache_Record,
 	atlas:                struct {
 		// Serves as the bitmap and cache storage for rendered glyphs.
 		bitmap_buffer:          [dynamic]byte,
@@ -83,7 +88,7 @@ Font_State :: struct {
 }
 
 // Must init the font before you call this function.
-icons_init :: proc(state: ^Font_State, font_size: u32, allocator := context.allocator) {
+icons_init :: proc(state: ^Font_State, allocator := context.allocator) {
 	if icon_path == "panic" {
 		panic("Need to set icons path for non Windows systems.")
 	}
@@ -92,11 +97,11 @@ icons_init :: proc(state: ^Font_State, font_size: u32, allocator := context.allo
 	assert(err == .Ok, tprintf("{}  - icon_path: {}", err, icon_path))
 
 	// Width is set to 0 to maintain the aspect ratio.
-	err = ft.set_pixel_sizes(state.freetype.face, 0, font_size)
-	assert(err == .Ok)
+	// err = ft.set_pixel_sizes(state.freetype.face, 0, font_size)
+	// assert(err == .Ok)
 }
 
-font_init :: proc(state: ^Font_State, font_size: u32, allocator := context.allocator) {
+font_init :: proc(state: ^Font_State, allocator := context.allocator) {
 	if font_path == "panic" {
 		panic("Need to set font path for non Windows systems.")
 	}
@@ -117,8 +122,8 @@ font_init :: proc(state: ^Font_State, font_size: u32, allocator := context.alloc
 	assert(err == .Ok)
 
 	// Width is set to 0 to maintain the aspect ratio.
-	err = ft.set_pixel_sizes(state.freetype.face, 0, font_size)
-	ui_state.font_state.font_size = font_size
+	// err = ft.set_pixel_sizes(state.freetype.face, 0, font_size)
+	// ui_state.font_state.font_size = font_size
 
 	// Init the atlas which serves as the cache storage for rendered glyphs.
 	state.atlas.pixel_mode = 2 // This is the default value, need to investigate.
@@ -275,8 +280,9 @@ font_add_shaped_run :: proc(
 */
 font_get_render_info :: proc(
 	glyph_buffer: []Glyph,
+	font_size: u32,
 	override_face:  ft.Face = nil,
-	override_cache: ^map[u16]Glyph_Cache_Record = nil,
+	override_cache: ^map[Glyph_Cache_Key]Glyph_Cache_Record = nil,
 	allocator := context.allocator,
 ) -> [dynamic]Glyph_Render_Info {
 	state := &ui_state.font_state
@@ -288,7 +294,8 @@ font_get_render_info :: proc(
 	load_flags := ft.Load_Flags{.Render}
 	result := make([dynamic]Glyph_Render_Info, len(glyph_buffer), allocator)
 	for glyph, i in glyph_buffer {
-		if existing_record, ok := cache[glyph.glyph.Id]; ok {
+		// if existing_record, ok := cache[glyph.glyph.Id]; ok {
+		if existing_record, ok := cache[{glyph.glyph.Id, font_size}]; ok {
 			glyph_render_info := Glyph_Render_Info {
 				cache_record = existing_record,
 				pos          = glyph.pos,
@@ -296,7 +303,10 @@ font_get_render_info :: proc(
 			result[i] = glyph_render_info
 			continue
 		}
-		err := ft.load_glyph(face, u32(glyph.glyph.Id), load_flags)
+
+		err := ft.set_pixel_sizes(face, 0, font_size)
+		assert(err == .Ok)
+		err = ft.load_glyph(face, u32(glyph.glyph.Id), load_flags)
 		assert(err == .Ok, fmt.tprintf("Failed to render glyph: {}", glyph))
 
 		this_glyphs_bitmap := face.glyph.bitmap
@@ -320,7 +330,6 @@ font_get_render_info :: proc(
 
 			mem.copy(dst, src, int(this_glyphs_bitmap.width))
 		}
-
 		// Metrics from FreeType.
 		// We >> 6 here because FreeType uses the least-sig 6 bits as metadata
 		// for subpixel rendering stuff, which we aren't implementing *yet*.
@@ -352,7 +361,7 @@ font_get_render_info :: proc(
 		}
 
 		result[i] = new_glyph_render_info
-		cache[glyph.glyph.Id] = new_glyph_cache_record
+		cache[{glyph.glyph.Id, font_size}] = new_glyph_cache_record
 
 		// Upload new rendered glyph to bitmap atlas.
 		gl.BindTexture(gl.TEXTURE_2D, ui_state.font_atlas_texture_id)
@@ -383,10 +392,10 @@ font_get_render_info :: proc(
 Takes a string, performs all the transforms neccessary to get a glyph_render_info buffer and then
 calculates the length of that string if those glyphs were rendered.
 */
-font_get_strings_rendered_len :: proc(text: string) -> int {
+font_get_strings_rendered_len :: proc(text: string, font_size: u32) -> int {
 	runes := utf8.string_to_runes(text, context.temp_allocator)
 	shaped_runes := font_segment_and_shape_text(&ui_state.font_state.kb.font, runes)
-	rendered_glyps := font_get_render_info(shaped_runes[:], nil, nil, context.temp_allocator)
+	rendered_glyps := font_get_render_info(shaped_runes[:], font_size, nil, nil, context.temp_allocator)
 	length := font_get_glyphs_rendered_len(rendered_glyps[:])
 	return length
 }
@@ -403,10 +412,10 @@ font_get_glyphs_rendered_len :: proc(text: []Glyph_Render_Info) -> int {
 Tells you the actual height of the tallest glyph, measured in pixels from the bottom of the glyph to the top
 of the glyph.
 */
-font_get_strings_rendered_height :: proc(text: string) -> int {
+font_get_strings_rendered_height :: proc(text: string, font_size: u32) -> int {
 	runes := utf8.string_to_runes(text, context.temp_allocator)
 	shaped_runes := font_segment_and_shape_text(&ui_state.font_state.kb.font, runes)
-	rendered_glyphs := font_get_render_info(shaped_runes[:], nil, nil, context.temp_allocator)
+	rendered_glyphs := font_get_render_info(shaped_runes[:], font_size, nil, nil, context.temp_allocator)
 	return font_get_glyphs_tallest_glyph(rendered_glyphs[:])
 }
 
@@ -439,6 +448,6 @@ font_destroy :: proc(state: ^Font_State) {
 Things I considered but didn't do:
 - Basically a 1d atlas that is as high as the tallest glyph
 	- Essentialy the GPU ecosystem is highly geared to working with more squared
-	shaped bitmaps, for example it pulls in neighbour pixels when sampling some texture,
-	so it's probably wiser to have a more square texture.
+	shaped bitmaps, for example it pulls in neighbour (as in neighbours on the x,y plane of the screen) 
+	pixels when sampling some texture, so it's probably wiser to have a more square texture.
 */

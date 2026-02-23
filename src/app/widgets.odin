@@ -190,16 +190,20 @@ audio_track :: proc(track_num: int, track_width: f32, step_containers: ^[dynamic
 				size = Size_Fit_Text,
 				color = .Primary_Container,
 				text_justify = {.Start, .Center},
-				margin = {right = 2}
+				margin = {right = 2},
+				font_size = 28,
 			},
 		)
-		edit_text_box(
+		input := edit_text_box(
 			{
 				size = {{.Grow, 1}, {.Fixed, 30}},
 				color = .Secondary
 			},
 			.Generic_One_Line,
 		)
+		printfln("track label text box data is: {}", input.box.data.(string))
+		printfln("track.name is: {}", track.name)
+		track.name = str.clone(input.box.data.(string))
 	}
 
 	step_signals: Track_Steps_Signals

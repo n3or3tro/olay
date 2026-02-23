@@ -249,8 +249,8 @@ init_ui_state :: proc() -> ^UI_State {
 	// Generate and store color theme:
 	ui_state.dark_theme = parse_json_token_color_mapping("util/dark-theme.json")
 
-	font_init(&ui_state.font_state,  18)
-	icons_init(&ui_state.icon_state, 24)
+	font_init(&ui_state.font_state)
+	icons_init(&ui_state.icon_state)
 
 	gl.GenVertexArrays(1, ui_state.quad_vabuffer)
 	create_vbuffer(ui_state.quad_vbuffer, nil, 3_000_000)

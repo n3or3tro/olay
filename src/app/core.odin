@@ -100,6 +100,7 @@ Box_Config :: struct {
 	line_thickness: 	int,
 	overflow_x: 		Overflow_Mode,
 	overflow_y: 		Overflow_Mode,
+	font_size: 			u32
 }
 
 // This is a seperate enum so we can have a different default alignment for text. 
@@ -299,6 +300,7 @@ Box_Signals :: struct {
 	scrolled:       bool,
 	scrolled_up:    bool,
 	scrolled_down:  bool,
+	changed: 		bool,
 	box:            ^Box,
 }
 
@@ -341,7 +343,11 @@ icon_rune := '0',
 
 	box.flags = flags
 	box.config = config
+	if box.config.font_size == 0 { 
+		box.config.font_size = 16
+	}
 
+	font_size := box.config.font_size
 	if id != "root" {
 		box.parent = ui_state.parents_top
 		/*
@@ -370,17 +376,17 @@ icon_rune := '0',
 	if x_size_type == .Fit_Text || x_size_type == .Fit_Text_And_Grow  {
 		if .Edit_Text in box.flags {
 			data_as_string := box_data_as_string(box.data, context.temp_allocator)
-			box.width = int(font_get_strings_rendered_len(data_as_string))
+			box.width = int(font_get_strings_rendered_len(data_as_string, font_size))
 		} else {
-			box.width = int(font_get_strings_rendered_len(box.label))
+			box.width = int(font_get_strings_rendered_len(box.label, font_size))
 		}
 	}
 	if y_size_type == .Fit_Text || y_size_type == .Fit_Text_And_Grow {
 		if .Edit_Text in box.flags {
 			data_as_string := box_data_as_string(box.data, context.temp_allocator)
-			box.height = int(font_get_strings_rendered_height(data_as_string))
+			box.height = int(font_get_strings_rendered_height(data_as_string, font_size))
 		} else {
-			box.height = int(font_get_strings_rendered_height(box.label))
+			box.height = int(font_get_strings_rendered_height(box.label, font_size))
 		}
 	}
 	box.keep = true
@@ -428,6 +434,9 @@ icon_rune :rune = '0'
 		box.keep = true
 		box.flags = flags
 		box.config = config
+		if box.config.font_size == 0 { 
+			box.config.font_size = 16
+		}
 		box.z_index = config.z_index
 		box.icon_rune = icon_rune
 		// Label is recreated each frame, so it's temp allocated.
@@ -450,24 +459,25 @@ icon_rune :rune = '0'
 		if x_size_type == .Fixed do box.width  = int(box.config.size.x.amount)
 		if y_size_type == .Fixed do box.height = int(box.config.size.y.amount)
 
+		font_size := box.config.font_size
 		if x_size_type == .Fit_Text || x_size_type == .Fit_Text_And_Grow {
 			if .Edit_Text in box.flags {
 				data_as_string := box_data_as_string(box.data, context.temp_allocator)
 				box.width =
-					font_get_strings_rendered_len(data_as_string) + box.config.padding.left + box.config.padding.right
+					font_get_strings_rendered_len(data_as_string, font_size) + box.config.padding.left + box.config.padding.right
 			} else {
 				box.width =
-					font_get_strings_rendered_len(box.label) + box.config.padding.left + box.config.padding.right
+					font_get_strings_rendered_len(box.label, font_size) + box.config.padding.left + box.config.padding.right
 			}
 		}
 		if y_size_type == .Fit_Text || y_size_type == .Fit_Text_And_Grow {
 			if .Edit_Text in box.flags {
 				data_as_string := box_data_as_string(box.data, context.temp_allocator)
 				box.height =
-					font_get_strings_rendered_height(data_as_string) + box.config.padding.top + box.config.padding.bottom
+					font_get_strings_rendered_height(data_as_string, font_size) + box.config.padding.top + box.config.padding.bottom
 			} else {
 				box.height =
-					font_get_strings_rendered_height(box.label) + box.config.padding.top + box.config.padding.bottom
+					font_get_strings_rendered_height(box.label, font_size) + box.config.padding.top + box.config.padding.bottom
 			}
 		}
 		clear(&box.children)

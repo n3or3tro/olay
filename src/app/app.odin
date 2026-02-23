@@ -162,7 +162,8 @@ app_init :: proc(first_run := true) -> ^App {
 	app.browser_selected_dir = root_dir
 	app.browser_root_dir     = root_dir
 
-	font_init(&ui_state.font_state, ui_state.font_state.font_size)
+	font_init(&ui_state.font_state)
+	icons_init(&ui_state.icon_state)
 
 	file_browser_read_from_disk()
 	app.audio = audio_init()
@@ -267,8 +268,8 @@ app_wants_restart :: proc() -> bool {
 app_hot_reload :: proc(mem: rawptr) {
 	app = (^App)(mem)
 	ui_state = app.ui_state
-	font_init(&ui_state.font_state, ui_state.font_state.font_size)
-	icons_init(&ui_state.icon_state, 24)
+	font_init(&ui_state.font_state)
+	icons_init(&ui_state.icon_state)
 	audio_init_miniaudio(app.audio)
 	sync.atomic_store(&app.audio.exit_timing_thread, false)
 	app.ui_refresh_thread   = thread.create_and_start(ui_refresh_thread_proc, priority = .High)

@@ -264,9 +264,9 @@ get_boxes_rendering_data :: proc(box: Box, allocator := context.allocator) -> Bo
 		calc_cursor_pos :: proc(box: Box, text: string) -> int {
 			editor_state := ui_state.text_editors_state[box.id]
 			cursor_pos := editor_state.selection[0]
-			substr_len := font_get_strings_rendered_len(text[0:cursor_pos])
+			substr_len := font_get_strings_rendered_len(text[0:cursor_pos], box.config.font_size)
 			// Calculate offset gap between left edge of box and start of rendered text.
-			half_gap := (box.width - font_get_strings_rendered_len(text)) / 2
+			half_gap := (box.width - font_get_strings_rendered_len(text, box.config.font_size)) / 2
 			return box.top_left.x + half_gap + substr_len
 		}
 		// Add cursor inside text box. Blinking is kinda jank right now.
@@ -597,7 +597,7 @@ collect_render_data_from_ui_tree :: proc(render_data: ^[dynamic]Rect_Render_Data
 			}
 			text := utf8.string_to_runes(text_to_render, scratch)
 			shaped_glyphs := font_segment_and_shape_text(&ui_state.font_state.kb.font, text)
-			glyph_render_info := font_get_render_info(shaped_glyphs[:], nil, nil, scratch)
+			glyph_render_info := font_get_render_info(shaped_glyphs[:], box.config.font_size, nil, nil, scratch)
 			glyph_rects := get_text_quads(box^, glyph_render_info[:], scratch)
 			for rect in glyph_rects {
 				append(render_data, rect)
@@ -609,6 +609,7 @@ collect_render_data_from_ui_tree :: proc(render_data: ^[dynamic]Rect_Render_Data
 			buf := [1]Glyph{Glyph{glyph = {Id = u16(glyph_index)}, pos= {0, 0}}}
 			render_info := font_get_render_info(
 				buf[:],
+				box.config.font_size,
 				ui_state.icon_state.freetype.face, 
 				&ui_state.icon_state.rendered_glyph_cache, 
 				context.temp_allocator
