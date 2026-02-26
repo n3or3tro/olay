@@ -1,5 +1,6 @@
 package app
 import "core:fmt"
+import "core:mem"
 import "core:math"
 import "core:sync"
 import "vendor:kb_text_shape"
@@ -9,6 +10,7 @@ import gl "vendor:OpenGL"
 import sdl "vendor:sdl2"
 import str "core:strings"
 import "core:sys/windows"
+import vmem "core:mem/virtual"
 
 PROFILING :: #config(profile, false)
 
@@ -36,7 +38,9 @@ App :: struct {
 	running:           		  bool,
 	windows_com_handle:		  windows.HRESULT,
 	ui_refresh_thread: 		  ^thread.Thread,
-	audio_update_thread: 	  ^thread.Thread
+	audio_update_thread: 	  ^thread.Thread,
+	track_arena: 			   vmem.Arena,
+	track_allocator: 		   mem.Allocator
 }
 
 Window :: sdl.Window
@@ -66,20 +70,18 @@ app_update :: proc() -> (all_good: bool) {
 	}
 	event: sdl.Event
 	reset_mouse_state()
-	show_context_menu, exit := ui_state.context_menu.active, false
+	show_context_menu, exit := &ui_state.context_menu.active, false
 	// Sleep until an event arrives and unblocks us.
 	if (ui_state.frames_since_sleep == 0 && sdl.WaitEventTimeout(&event, i32(ui_state.event_wait_timeout * 1_000))) || 
 	ui_state.frame_num < 5 
 	{
-		exit, show_context_menu = handle_input(event)
-		if exit {
-			return false
-		}
+		exit = handle_input(event)
+		if exit do return false
 	}
 
 	// Poll for any other events that arrived with the unblocking event.
 	for sdl.PollEvent(&event) {
-		exit, show_context_menu = handle_input(event)
+		exit = handle_input(event)
 		if exit {
 			return false
 		}
@@ -88,13 +90,6 @@ app_update :: proc() -> (all_good: bool) {
 	// Handle keybaord shortcuts
 	handle_keyboard_shortcuts()
 	root := create_ui()
-
-	if show_context_menu {
-		ui_state.context_menu.active = true
-	} 
-	else {
-		ui_state.context_menu.active = false
-	}
 
 	render_start := time.now()._nsec
 	rect_render_data := make([dynamic]Rect_Render_Data, context.temp_allocator)
@@ -140,9 +135,9 @@ app_update :: proc() -> (all_good: bool) {
 	frame_time := f64(time.now()._nsec - start)
 	time_to_wait := time.Duration(max_frame_time_ns - frame_time)
 
-	end := time.now()._nsec
-	total_frame_time_ns := f64(end - start)
-	printfln("app_update() took {} ms", total_frame_time_ns / 1_000_000)
+	// end := time.now()._nsec
+	// total_frame_time_ns := f64(end - start)
+	// printfln("app_update() took {} ms", total_frame_time_ns / 1_000_000)
 
 	if time_to_wait > 0 {
 		time.accurate_sleep(time_to_wait)
@@ -156,6 +151,12 @@ app_init :: proc(first_run := true) -> ^App {
 	app.ui_state = new(UI_State)
 	ui_state = app.ui_state
 	ui_state.parents_stack = make([dynamic]^Box)
+
+	track_arena_buf := make([]byte, size_of(Track) * 128)
+	err := vmem.arena_init_buffer(&app.track_arena, track_arena_buf)
+	assert(err == .None)
+	app.track_allocator = vmem.arena_allocator(&app.track_arena)
+
 	init_ui_state()
 	root_dir := new(Browser_Directory)
 	root_dir.name = str.clone("Root dir")
@@ -167,7 +168,9 @@ app_init :: proc(first_run := true) -> ^App {
 
 	file_browser_read_from_disk()
 	app.audio = audio_init()
+	println("hello")
 	audio_init_miniaudio(app.audio)
+	println("world")
 	app.running = true
 
 	app.ui_refresh_thread   = thread.create_and_start(ui_refresh_thread_proc, priority = .High)
@@ -183,6 +186,7 @@ app_init :: proc(first_run := true) -> ^App {
 			app.windows_com_handle = hr
 		}
 	}
+	println("finished initing")
 	return app
 }
 
@@ -312,9 +316,6 @@ app_reset_state :: proc() {
 	delete_dynamic_array(app.ui_state.color_stack)
 	for key, val in app.ui_state.box_cache {
 		delete(key)
-		if str, ok := val.data.(string); ok { 
-			delete(str)
-		}
 		delete(val.children)
 		free(val)
 	}
@@ -346,8 +347,8 @@ app_shutdown :: proc() {
 	delete_dynamic_array(app.ui_state.color_stack)
 	for key, val in app.ui_state.box_cache {
 		delete(key)
-		if str, ok := val.data.(string); ok { 
-			delete(str)
+		if str, ok := val.data.(^string); ok { 
+			delete(str^)
 		}
 		delete(val.children)
 		free(val)
@@ -394,12 +395,10 @@ handle_keyboard_shortcuts :: proc() {
 		case .B:
 			ui_state.sidebar_shown = !ui_state.sidebar_shown
 			n_handled += 1
-		case .LCTRL, .RCTRL:
-			if app.keys_held[sdl.SCANCODE_T] { 
-				println("adding new track")
+		case .T:
+			if app.keys_held[sdl.Scancode.LCTRL] || app.keys_held[sdl.Scancode.RCTRL] { 
+				track_add_new(app.audio)
 				n_handled += 2
-			} else { 
-				println("got control but no T, t")
 			}
 		}
 	}

@@ -46,9 +46,9 @@ box_width :: proc(box: Box) -> u32 {
 box_data_as_string :: proc(box_data: Box_Data, allocator := context.allocator) -> string { 
 	data_as_string: string
 	switch data in box_data {
-	case string:
+	case ^string:
 		// Wasteful to clone, but it helps to simplify the API, since other variants must malloc data.
-		data_as_string = str.clone(data, allocator)
+		data_as_string = str.clone(data^, allocator)
 	case int:
 		// Would not work properly for giant numbers.
 		buf := make([]byte, 32, allocator)

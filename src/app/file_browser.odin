@@ -111,7 +111,7 @@ file_browser_menu :: proc(allocator: mem.Allocator) {
 		{.Draw},
 	)
 
-	search_term := ""
+	// search_term := ""
 
 	top_menu: {
 		child_container(
@@ -133,19 +133,20 @@ file_browser_menu :: proc(allocator: mem.Allocator) {
 				border = 1
 			},
 			.Generic_One_Line,
+			&ui_state.browser_search_term
 		)
 		// Quick hack coz I fucked up setting search_bar.box.data somewhere
 		// along the line. This really shoudl just be a one liner where we are
 		// certain that box.data always holds a valid string.
-		if search_bar.box.data == nil {
-			search_term = ""
-		} else {
-			if val, ok := search_bar.box.data.(string); ok {
-				search_term = val
-			} else {
-				search_term = ""	
-			}
-		}
+		// if search_bar.box.data == nil {
+		// 	search_term = ""
+		// } else {
+		// if val, ok := search_bar.box.data.(string^); ok {
+		// 	search_term = val
+		// } else {
+		// 	search_term = ""	
+		// }
+		// }
 		hori: {
 			child_container(
 				{size = Size_Fit_Children},
@@ -284,7 +285,7 @@ file_browser_menu :: proc(allocator: mem.Allocator) {
 		// Create each child of the root at the top level, this is because we don't actually
 		// want to render / interact with the root.
 		for &subdir in app.browser_root_dir.sub_directories{
-			create_subdirs_files(subdir, 0, search_term)
+			create_subdirs_files(subdir, 0, ui_state.browser_search_term)
 		}
 	}
 }

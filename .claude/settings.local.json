@@ -9,7 +9,13 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:miniaud.io)",
       "Bash(dir:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(ls -la \"c:\\\\Temp\\\\odin-windows-amd64-dev-2025-12\\\\dist\\\\vendor\\\\miniaudio\\\\src\"\" 2>/dev/null || echo \"Path not found, checking alternatives \")",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(curl:*)",
+      "Bash(python3:*)",
+      "Bash(find \"c:\\\\Users\\\\n3or3tro\\\\MySoftware\\\\my-projects\\\\olay\\\\src\\\\app\" -name \"*.odin\" -exec grep -l \"handle_input ::\" {} ;)",
+      "Bash(find \"c:\\\\Users\\\\n3or3tro\\\\MySoftware\\\\my-projects\\\\olay\\\\src\\\\app\" -type f -name \"*.odin\" -exec grep -l \"get_drag_delta\" {} ;)"
     ]
   }
 }

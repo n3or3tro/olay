@@ -9,6 +9,7 @@ so they'll need some re-thinking when I ship the UI stuff as a lib.
 
 package app
 import "core:math"
+import "vendor:sdl2"
 import "core:time"
 import "core:math/cmplx"
 import "core:mem"
@@ -74,9 +75,9 @@ topbar :: proc() {
 		if icon_button(Icon_Redo,"redo", btn_config).clicked {
 			redo()
 		}
-		// if text_button("render wav", btn_config).clicked {
-		// 	audio_export_to_wav()
-		// }
+		if text_button("render wav", btn_config).clicked {
+			audio_export_to_wav()
+		}
 		if icon_button(Icon_Save,"save project", btn_config).clicked {
 			audio_state_write_to_disk("saved.bin")
 		}
@@ -157,7 +158,7 @@ topbar :: proc() {
 	}
 }
 
-audio_track :: proc(track_num: int, track_width: f32, step_containers: ^[dynamic]^Box, extra_flags := Box_Flags{}) -> Track_Signals {
+audio_track :: proc(track_num: int, track_width: f32, step_containers: ^[]^Box, extra_flags := Box_Flags{}) -> Track_Signals {
 	track := &app.audio.tracks[track_num]
 	n_steps := 128 // This will ultimately be a dynamic size for each track.
 
@@ -167,6 +168,7 @@ audio_track :: proc(track_num: int, track_width: f32, step_containers: ^[dynamic
 		metadata = Metadata_Track {
 			track_num = track_num
 		},
+		id = tprintf("track-{}-container", track_num)
 	)
 	track_container.box.disabled = !track.armed
 	track_container.box.metadata = Metadata_Track{
@@ -200,10 +202,8 @@ audio_track :: proc(track_num: int, track_width: f32, step_containers: ^[dynamic
 				color = .Secondary
 			},
 			.Generic_One_Line,
+			&track.name
 		)
-		printfln("track label text box data is: {}", input.box.data.(string))
-		printfln("track.name is: {}", track.name)
-		track.name = str.clone(input.box.data.(string))
 	}
 
 	step_signals: Track_Steps_Signals
@@ -218,8 +218,7 @@ audio_track :: proc(track_num: int, track_width: f32, step_containers: ^[dynamic
 			{direction = .Vertical, gap_vertical = 0},
 			box_flags = {.Drag_Drop_Source, .Scrollable},
 		)
-		append(step_containers, steps_container.box)
-
+		step_containers[track_num] = steps_container.box
 
 		substep_config: Box_Config = {
 			size    		 = {{.Percent, 0.25}, {.Percent, 1}},
@@ -231,8 +230,10 @@ audio_track :: proc(track_num: int, track_width: f32, step_containers: ^[dynamic
 		loop_back_step := track.loop_at
 		for i in 0 ..< N_TRACK_STEPS {
 			step_height := f32(ui_state.show_mixer ? 1.0 / (54.0 * 0.7) : 1.0 / (80.0 * 0.7))
+
 			child_container({size = {{.Fixed, track_width + 30}, {.Percent, step_height}}}, {})
 			text(tprintf("{}", i), {size={{.Fixed, 30}, {.Percent, 1}}, text_justify={.Center, .Center}, color = .Surface})
+
 			step_row_container := child_container(
 				{size = {{.Fixed, track_width - 30}, {.Percent, 1}}},
 				{direction = .Horizontal, gap_horizontal = 0},
@@ -255,9 +256,17 @@ audio_track :: proc(track_num: int, track_width: f32, step_containers: ^[dynamic
 				break
 			}
 
+			if i >= track.step_sel_start && i <= track.step_sel_end { 
+				substep_config.color = .Secondary
+			} else { 
+				substep_config.color = .Primary
+			}
+
+
 			pitch_box := edit_text_box(
 				substep_config,
 				.Pitch,
+				nil,
 				metadata = Metadata_Track_Step {
 					track = track_num,
 					step  = i,
@@ -302,6 +311,28 @@ audio_track :: proc(track_num: int, track_width: f32, step_containers: ^[dynamic
 				extra_flags = substep_extra_flags,
 			)
 
+			if pitch_box.clicked  ||
+			   volume_box.clicked ||
+			   send1_box.clicked  ||
+			   send2_box.clicked 
+			{
+				if app.keys_held[sdl2.Scancode.LSHIFT] { 
+					if i > track.step_sel_end  { 
+						track.step_sel_end = i;  
+					}
+					else if i < track.step_sel_start { 
+						track.step_sel_end = track.step_sel_start
+						track.step_sel_start = i
+					// Otherwise we've clicked inside the range
+					} else { 
+						track.step_sel_end = i
+					}
+				} else { 
+					track.step_sel_start = i
+					track.step_sel_end   = i
+				}
+			}
+
 			if pitch_box.double_clicked  ||
 			   volume_box.double_clicked ||
 			   send1_box.double_clicked  ||
@@ -320,20 +351,6 @@ audio_track :: proc(track_num: int, track_width: f32, step_containers: ^[dynamic
 			}
 
 
-			// Set box.selected if audio state says that this step is toggled on.
-			// This is kind of ugly, but old code in the renderer relies on this bool,
-			// so we'll do this little hack for now.
-			if track.selected_steps[i] { 
-				pitch_box.box.selected  = true
-				volume_box.box.selected = true
-				send1_box.box.selected  = true
-				send2_box.box.selected  = true
-			} else { 
-				pitch_box.box.selected  = false
-				volume_box.box.selected = false
-				send1_box.box.selected  = false
-				send2_box.box.selected  = false
-			}
 			curr_step_global := audio_get_current_step()
 			curr_step := track.loop_at == -1 ? curr_step_global % int(track.n_steps) : curr_step_global % track.loop_at
 			// If this is the current step, indicate so.
@@ -483,8 +500,6 @@ audio_track :: proc(track_num: int, track_width: f32, step_containers: ^[dynamic
 	}
 	return Track_Signals{step_signals, {}}
 }
-
-
 
 equalizer_8 :: proc(eq_id: string, track_num: int) {
 	eq_state := &app.audio.tracks[track_num].eq
@@ -1004,6 +1019,7 @@ context_menu :: proc() {
 	track_steps_context_menu :: proc(box: ^Box) {
 		metadata := box.metadata.(Metadata_Track_Step)
 		track_num := metadata.track
+		step_num := metadata.step
 		track := &app.audio.tracks[track_num]
 
 		top_level_btn_config := Box_Config {
@@ -1018,12 +1034,22 @@ context_menu :: proc() {
 			"Add steps",
 			top_level_btn_config,
 		)
+		if add_button.clicked { 
+			for step in track.step_sel_start ..= track.step_sel_end { 
+				track.selected_steps[step] = true
+			}
+		}
 
 		top_level_btn_config.color = .Warning_Container
 		remove_button := text_button(
 			"Remove steps",
 			top_level_btn_config,
 		)
+		if remove_button.clicked { 
+			for step in track.step_sel_start ..= track.step_sel_end { 
+				track.selected_steps[step] = false
+			}
+		}
 
 		top_level_btn_config.color = .Primary_Container
 		loop_button := text_button(
@@ -1034,6 +1060,63 @@ context_menu :: proc() {
 		if loop_button.clicked {
 			track.loop_at = metadata.step
 		}
+
+		copy_button := text_button(
+			"Copy",
+			top_level_btn_config,
+		)
+		if copy_button.clicked {
+			clear(&track.copied_steps.pitches)
+			clear(&track.copied_steps.volumes)
+			clear(&track.copied_steps.send1)
+			clear(&track.copied_steps.send2)
+			clear(&track.copied_steps.selected)
+
+			start := track.step_sel_start
+			end   := track.step_sel_end + 1
+			printfln("copying from {} to {}", start,end)
+			for pitch in track.pitches[start:end] {
+				append(&track.copied_steps.pitches, pitch)
+			}
+			for volume in track.volumes[start:end] {
+				append(&track.copied_steps.volumes, volume)
+			}
+			for s1 in track.send1[start:end] {
+				append(&track.copied_steps.send1, s1)
+			}
+			for s2 in track.send2[start:end] {
+				append(&track.copied_steps.send2, s2)
+			}
+			for selected, i in track.selected_steps[start:end] {
+				printfln("track {} selected: {}", i + start, selected)
+				append(&track.copied_steps.selected, selected)
+			}
+		}
+
+		paste_button := text_button(
+			"Paste",
+			top_level_btn_config,
+		)
+		if paste_button.clicked {
+			start := step_num
+			for step, i in step_num ..< step_num + len(track.copied_steps.pitches) {
+				track.pitches[step] = track.copied_steps.pitches[i] 
+			}
+			for step, i in step_num ..< step_num + len(track.copied_steps.volumes) {
+				track.volumes[step] = track.copied_steps.volumes[i] 
+			}
+			for step, i in step_num ..< step_num + len(track.copied_steps.selected) {
+				track.selected_steps[step] = track.copied_steps.selected[i] 
+			}
+			for step, i in step_num ..< step_num + len(track.copied_steps.send1) {
+				track.send1[step] = track.copied_steps.send1[i] 
+			}
+			for step, i in step_num ..< step_num + len(track.copied_steps.send2) {
+				track.send2[step] = track.copied_steps.send2[i] 
+			}
+		}
+
+
 
 		disarm_labl := track.armed ? "Disarm" : "Arm"
 		top_level_btn_config.color = .Surface
@@ -1097,27 +1180,27 @@ context_menu :: proc() {
 				border = 1
 			}
 			if text_button("All steps", btn_config, "context-add-all").clicked {
-				track_turn_on_steps(track_num, 0, 1)
+				track_turn_on_steps(track_num, step_num, 1)
 				ui_state.clicked_on_context_menu = true
 			}
 			if text_button("Every 2nd", btn_config, "context-add-2nd").clicked {
-				track_turn_on_steps(track_num, 0, 2)
+				track_turn_on_steps(track_num, step_num, 2)
 				ui_state.clicked_on_context_menu = true
 			}
 			if text_button("Every 3rd", btn_config, "context-add-3rd").clicked {
-				track_turn_on_steps(track_num, 0, 3)
+				track_turn_on_steps(track_num, step_num, 3)
 				ui_state.clicked_on_context_menu = true
 			}
 			if text_button("Every 4th", btn_config, "context-add-4th").clicked {
-				track_turn_on_steps(track_num, 0, 4)
+				track_turn_on_steps(track_num, step_num, 4)
 				ui_state.clicked_on_context_menu = true
 			}
 			if text_button("Every 6th", btn_config, "context-add-6th").clicked {
-				track_turn_on_steps(track_num, 0, 6)
+				track_turn_on_steps(track_num, step_num, 6)
 				ui_state.clicked_on_context_menu = true
 			}
 			if text_button("Every 8th", btn_config, "context-add-8th").clicked {
-				track_turn_on_steps(track_num, 0, 8)
+				track_turn_on_steps(track_num, step_num, 8)
 				ui_state.clicked_on_context_menu = true
 			}
 		}
@@ -1148,27 +1231,27 @@ context_menu :: proc() {
 				padding          = {10, 10, 10, 10},
 			}
 			if text_button("All steps", btn_config, "context-remove-all").clicked {
-				track_turn_off_steps(track_num, 0, 1)
+				track_turn_off_steps(track_num, step_num, 1)
 				ui_state.clicked_on_context_menu = true
 			}
 			if text_button("Every 2nd", btn_config, "context-remove-2nd").clicked {
-				track_turn_off_steps(track_num, 0, 2)
+				track_turn_off_steps(track_num, step_num, 2)
 				ui_state.clicked_on_context_menu = true
 			}
 			if text_button("Every 3rd", btn_config, "context-remove-3rd").clicked {
-				track_turn_off_steps(track_num, 0, 3)
+				track_turn_off_steps(track_num, step_num, 3)
 				ui_state.clicked_on_context_menu = true
 			}
 			if text_button("Every 4th", btn_config, "context-remove-4th").clicked {
-				track_turn_off_steps(track_num, 0, 4)
+				track_turn_off_steps(track_num, step_num, 4)
 				ui_state.clicked_on_context_menu = true
 			}
 			if text_button("Every 6th", btn_config, "context-remove-6th").clicked {
-				track_turn_off_steps(track_num, 0, 6)
+				track_turn_off_steps(track_num, step_num, 6)
 				ui_state.clicked_on_context_menu = true
 			}
 			if text_button("Every 8th", btn_config, "context-remove-8th").clicked {
-				track_turn_off_steps(track_num, 0, 8)
+				track_turn_off_steps(track_num, step_num, 8)
 				ui_state.clicked_on_context_menu = true
 			}
 		}
@@ -1177,8 +1260,8 @@ context_menu :: proc() {
 			app.audio.tracks[track_num].armed = !app.audio.tracks[track_num].armed
 		}
 		if delete_track_button.clicked {
+			printfln("deleting track: {}", box.metadata.(Metadata_Track_Step).track)
 			track_delete(box.metadata.(Metadata_Track_Step).track)
-			printfln("deletring track that contains {}", ui_state.right_clicked_on.id)
 		}
 	}
 
@@ -1338,7 +1421,6 @@ context_menu :: proc() {
 		eq_handle_context_menu(metadata.which, metadata.track_num, metadata.band)
 	}
 }
-
 
 // ============== Helper functions for our higher level widgets ===================
 

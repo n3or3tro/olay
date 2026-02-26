@@ -586,12 +586,19 @@ collect_render_data_from_ui_tree :: proc(render_data: ^[dynamic]Rect_Render_Data
 			// gl.BindTexture(gl.TEXTURE_2D, ui_state.font_atlas_texture_id)
 			text_to_render: string
 			if .Edit_Text in box.flags {
-				text_to_render = box_data_as_string(box.data, scratch)
+				if metadata, ok := box.metadata.(Metadata_Track_Step); ok && metadata.type == .Pitch {
+					if metadata.track >= len(app.audio.tracks) do break draw_text
+					text_to_render = get_note_from_num(box.data.(int))
+				} else { 
+					text_to_render = box_data_as_string(box.data, scratch)
+				}
 			} else {
 				text_to_render = box.label
 			}
 			if .Track_Step in box.flags {
-				if !box.selected {
+				track_num := box.metadata.(Metadata_Track_Step).track
+				step_num  := box.metadata.(Metadata_Track_Step).step
+				if !app.audio.tracks[track_num].selected_steps[step_num] {
 					break draw_text
 				}
 			}
@@ -848,6 +855,16 @@ get_text_color_from_base :: proc(color_token: Semantic_Color_Token) -> Color_RGB
 		return ui_state.dark_theme[.On_Warning]
 	case .Warning_Container:
 		return ui_state.dark_theme[.On_Warning_Container]
+	case .Surface_Dim,
+	     .Surface_Bright,
+	     .Surface_Container_Lowest,
+	     .Surface_Container_Low,
+	     .Surface_Container,
+	     .Surface_Container_High,
+	     .Surface_Container_Highest:
+		return ui_state.dark_theme[.On_Surface]
+	case .Inverse_Surface:
+		return ui_state.dark_theme[.Inverse_On_Surface]
 	}
-	panic(tprintf("We haven't defined a mapping for a text color that sits on top of base color {}", color_token))
+	panicf("We haven't defined a mapping for a text color that sits on top of base color {}", color_token)
 }

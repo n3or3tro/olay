@@ -302,16 +302,26 @@ edit_number_box :: proc(
 	return box_signals
 }
 
+// edit box never owns the string it's editing, it can access via box.data.(^string), and it's ALWAYS a reference.
 edit_text_box :: proc(
 	config: Box_Config,
 	text_box_type: Text_Box_Type,
+	text: ^string,
 	id := "",
 	extra_flags := Box_Flags{},
 	metadata := Box_Metadata{},
 ) -> Box_Signals {
+	get_pitch_step_ref :: proc(box: Box) -> ^int { 
+		tracks 	  := &app.audio.tracks
+		track_num := box.metadata.(Metadata_Track_Step).track
+		step_num  := box.metadata.(Metadata_Track_Step).step
+		return &tracks[track_num].pitches[step_num]
+	}
+
 	// Handles input and returns the new string from the editor.
 	handle_generic_single_line_input :: proc(state: ^Edit_Text_State, editor: ^edit.State, box: ^Box) -> string {
 		for i := u32(0); i < app.curr_chars_stored; i += 1 {
+			box.signals.changed = true
 			keycode := app.char_queue[i]
 			#partial switch keycode {
 			case .LEFT:
@@ -389,98 +399,88 @@ edit_text_box :: proc(
 		return str.to_string(editor.builder^)
 	}
 
-	text_container_signals := child_container(
+	edit_box_signals := child_container(
 		config,
 		{direction = .Horizontal},
 		id,
 		{.Clickable, .Draw, .Draw_Text, .Edit_Text, .Hot_Animation, .Active_Animation} + extra_flags,
 		metadata,
 	)
-	text_container := text_container_signals.box
+	edit_box := edit_box_signals.box
 
 	if text_box_type == .Pitch {
 		if step_metadata, ok := metadata.(Metadata_Track_Step); ok { 
-			text_container.metadata = metadata
+			edit_box.metadata = metadata
 		} else { 
 			panic("When trying to create a edit_text_box, passed in the wrong metadata type.")
 		}
-
-		track_num := text_container.metadata.(Metadata_Track_Step).track
-		step_num := text_container.metadata.(Metadata_Track_Step).step
-		// This constant allocation and deallocation may be problematic.
-		if !text_container.fresh && len(text_container.data.(string)) > 0{ 
-			delete(text_container.data.(string))
-		}
-		text_container.data = str.clone(get_note_from_num(app.audio.tracks[track_num].pitches[step_num]))
+		edit_box.data = get_pitch_step_ref(edit_box^)^
 	} else {
-		// Since we ALWAYS delete the previous box.data on a keystroke, a new text box needs an empty "" allocated.
-		if text_container.fresh || text_container.data == nil { 
-			text_container.data = str.clone("")
-		}
+		edit_box.data = text 
 	}
 
-	if ui_state.last_active_box != text_container do return text_container_signals
+	// No need to run editing code if the box isn't active.
+	if ui_state.last_active_box != edit_box do return edit_box_signals
 
 	// All text/edit state and the string buffers used when editing are temporary,
-	// So we need to permanently allocate the resulting final string at some point so it can
+	// So we need to permanently allocate the resulting final result at some point so it can
 	// be stored across frames. We also need to store each text editors state across frames.
 	builder := str.builder_make(context.temp_allocator)
 	editor: edit.State
 	edit.init(&editor, context.temp_allocator, context.temp_allocator)
 	edit.setup_once(&editor, &builder)
 	edit.begin(&editor, 0, &builder)
-	edit.input_text(&editor, text_container.data.(string))
+	if text_box_type == .Pitch {
+		step := get_pitch_step_ref(edit_box^)
+		edit.input_text(&editor, str.clone(get_note_from_num(step^), context.temp_allocator))
+	} else {
+		edit.input_text(&editor, edit_box.data.(^string)^)
+	}
 	
 	existing_edit_box := true
-	if text_container.id not_in ui_state.text_editors_state {
-		ui_state.text_editors_state[text_container.id] = Edit_Text_State{}
+	if edit_box.id not_in ui_state.text_editors_state {
+		ui_state.text_editors_state[edit_box.id] = Edit_Text_State{}
 		existing_edit_box = false
 	}
-	state := &ui_state.text_editors_state[text_container.id]
+	state := &ui_state.text_editors_state[edit_box.id]
 	editor.selection = state.selection
 
-	new_data: string
 	update_audio_data:{
 		#partial switch text_box_type {
 		case .Generic_One_Line:
-			new_data = handle_generic_single_line_input(state, &editor, text_container)
+			// if len(text) > 0 {
+			// 	// clear(text)
+			// }
+			delete(text^)
+			text^ = str.clone(handle_generic_single_line_input(state, &editor, edit_box))
 		case .Pitch:
-			new_data = handle_pitch_input(state, &editor, text_container)
+			new_data := handle_pitch_input(state, &editor, edit_box)
 			// Only update audio state if the string the user entered, actually represents a valid pitch.
-			// If not, the last valid pitch is still the current pitch, regardless if the textbox says
-			// something like: Y#4
 			if pitch_valid(new_data) {
-				track_num := text_container.metadata.(Metadata_Track_Step).track
-				step_num := text_container.metadata.(Metadata_Track_Step).step
-				old_pitch := app.audio.tracks[track_num].pitches[step_num]
+				old_pitch := get_pitch_step_ref(edit_box^)
 				new_pitch := pitch_get_from_note(new_data)
-				if new_pitch == old_pitch {
+				if new_pitch == old_pitch^ {
 					break update_audio_data
 				}
 				change := Track_Step_Change {
-					track = track_num,
-					step = step_num,
-					old_value = old_pitch,
+					track = edit_box.metadata.(Metadata_Track_Step).track,
+					step  = edit_box.metadata.(Metadata_Track_Step).step,
+					old_value = old_pitch^,
 					new_value = new_pitch,
 					type = .Pitch
 				}
-				app.audio.tracks[track_num].pitches[step_num] = new_pitch
+				old_pitch^ = new_pitch
+				edit_box.data = new_pitch 
 				undo_stack_push(change)
 			}
+		case:
+			panicf("don't know how to handle a text box of this type {}", text_box_type)
 		}
+
 	}
-
-	// There should be a way to not have to delete text_container.data every frame that it's selected,
-	// but guarding this code with a conditional on new_data != old_data, doesn't work correctly.
-	if existing_edit_box && len(text_container.data.(string)) > 0 {
-		delete(text_container.data.(string))
-	}
-
-	text_container.data = str.clone(new_data)
-
 	edit.end(&editor)
 	edit.destroy(&editor)
-	return text_container_signals
+	return edit_box_signals
 }
 
 Slider_Signals :: struct {

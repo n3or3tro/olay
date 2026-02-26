@@ -1,5 +1,5 @@
 package app
-import sarr "core:container/small_array"
+// import sarr "core:container/small_array"
 import "core:encoding/json"
 import "core:fmt"
 import "core:mem"
@@ -97,6 +97,7 @@ UI_State :: struct {
 	file_browser_allocator: mem.Allocator,
 	browser_files: [dynamic]Browser_File,
 	browser_dirs:  [dynamic]Browser_Directory,
+	browser_search_term: 	string,
 	frames_since_sleep: 	i8,
 	event_wait_timeout: 	f64,
 	prev_frame_start_ms: 	f64,
@@ -349,23 +350,20 @@ create_ui :: proc() -> ^Box {
 
 	topbar()
 	if ui_state.tab_num == 0 {
-		// child_container(
-		// 	{size=Size_Fit_Children},
-		// 	{direction=.Horizontal}
-		// )
-		// num_column: {
-		// 	child_container(
-		// 		{
-		// 			size = { {.Fixed, 30}, {.Fixed, f32(app.wy - TOPBAR_HEIGHT)} },
-		// 		},
-		// 		{
-		// 			direction = .Vertical
-		// 		}
-		// 	)
-		// 	text_button("hey", {size={{.Fixed, 20}, {.Fixed, 50}}})
-		// 	text_button("there", {size={{.Fixed, 20}, {.Fixed, 50}}})
-		// 	text_button("mate", {size={{.Fixed, 20}, {.Fixed, 50}}})
-		// }
+		if text_button(
+			"+",
+			{
+				floating_type = .Center_Right,
+				padding       = {10, 10, 10, 10},
+				border        = 2,
+				size = {{.Fit_Text, 1}, {.Fit_Text, 1}},
+				color         = .Warning,
+			},
+  		).clicked
+		{
+			track_add_new(app.audio)
+		}
+
 		audio_tracks: {
 			child_container(
 				{
@@ -380,14 +378,16 @@ create_ui :: proc() -> ^Box {
 					gap_horizontal = 3,
 				},
 			)
+
+			// Ugliness to scroll container in sync.
 			arena, scratch := arena_allocator_new()	
 			defer arena_allocator_destroy(arena, scratch)
-			step_containers := make([dynamic]^Box, scratch)
+			step_containers := make([]^Box, len(app.audio.tracks), scratch)
+
 			for track, i in app.audio.tracks {
 				audio_track(i, 190, &step_containers)
 			}
 
-			// Ugliness to scroll container in sync.
 			scrolled_container : ^Box
 			for box in step_containers {
 				if box.signals.scrolled {
@@ -395,6 +395,7 @@ create_ui :: proc() -> ^Box {
 					break
 				}
 			}
+
 			if scrolled_container != nil {
 				for box in step_containers { 
 					box.signals.scrolled = true
@@ -404,19 +405,7 @@ create_ui :: proc() -> ^Box {
 			}
 		}
 
-		if text_button(
-			"+",
-			{
-				floating_type = .Center_Right,
-				padding       = {10, 10, 10, 10},
-				border        = 2,
-				size = {{.Fit_Text, 1}, {.Fit_Text, 1}},
-				color         = .Warning,
-			},
-  		).clicked
-		{
-			track_add_new(app.audio)
-		}
+
 
 	}
 	else {

@@ -230,7 +230,8 @@ Box_Flag :: enum {
 Box_Flags :: bit_set[Box_Flag]
 
 Box_Data :: union {
-	string, 
+	// string,
+	^string, 
 	int,
 	f64,
 }
@@ -558,8 +559,8 @@ box_regular_close_children :: proc(signals: Box_Signals) {
 
 
 /* ============================ Signal Handling =========================== */
-handle_input :: proc(event: sdl.Event) -> (exit, show_context_menu: bool) {
-	show_context_menu = ui_state.context_menu.active
+handle_input :: proc(event: sdl.Event) -> (exit: bool) {
+	// show_context_menu = ui_state.context_menu.active
 	etype := event.type
 
 	if etype == .QUIT {
@@ -632,7 +633,7 @@ handle_input :: proc(event: sdl.Event) -> (exit, show_context_menu: bool) {
 		case sdl.BUTTON_RIGHT:
 			if app.mouse.right_pressed { 	// i.e. A right click was performed.
 				app.mouse.right_clicked = true
-				show_context_menu = true
+				ui_state.context_menu.active = true
 				ui_state.context_menu.pos = Vec2_f32{f32(app.mouse.pos.x), f32(app.mouse.pos.y)}
 			}
 			app.mouse.right_pressed = false
@@ -650,7 +651,8 @@ handle_input :: proc(event: sdl.Event) -> (exit, show_context_menu: bool) {
 	// 	}
 	// }
 
-	return exit, show_context_menu
+	return exit
+	// return exit, show_context_menu
 }
 
 register_resize :: proc() -> bool {
