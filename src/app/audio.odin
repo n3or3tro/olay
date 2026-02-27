@@ -143,7 +143,7 @@ Track :: struct {
 	volumes:           [MAX_TRACK_STEPS]int `s_id:8`,
 	send1:             [MAX_TRACK_STEPS]int `s_id:9`,
 	send2:             [MAX_TRACK_STEPS]int `s_id:10`,
-	selected_steps:    [MAX_TRACK_STEPS]bool `s_id:11`,
+	selected_steps:    [MAX_TRACK_STEPS]bool`s_id:11`,
 	eq:                EQ_State `s_id:12`,
 	sampler:           Sampler_State `s_id:13`,
 	// Not serialized — runtime audio graph node.
@@ -154,20 +154,28 @@ Track :: struct {
 	copied_steps: struct {
 		pitches, volumes, send1, send2: [dynamic]int ,
 		selected: [dynamic]bool
-	}
+	},
+	// Mostly UI related, not sure if it should be in this struct since the vibe was that this is just
+	// audio related data, but we'll keep it for now until we have a better place for it.
+	step_drag_origin: 	int,
+	step_drag_mode: 	enum{None, Move, Select},
+	step_drag_current: 	int, // Only used in .Move mode.
+	step_drag_sel_origin_start: int,
+	step_drag_sel_origin_end:   int,
+	step_drag_cache_pitches:    [N_TRACK_STEPS]int,
+	step_drag_cache_volumes:    [N_TRACK_STEPS]int,
+	step_drag_cache_send1:      [N_TRACK_STEPS]int,
+	step_drag_cache_send2:      [N_TRACK_STEPS]int,
+	step_drag_cache_selected:   [N_TRACK_STEPS]bool,
 }
 
 Audio_State :: struct {
-	// Not serialized — transient playback state, always starts stopped.
+	// Always starts stopped.
 	playing:                      bool,
 	bpm:                          u16 `s_id:1`,
 	tracks:                       [dynamic]Track `s_id:2`,
-	// Not serialized — runtime miniaudio engine handle.
 	engine:                       ^ma.engine,
-	// For some reason this thing needs to be globally accessible (at least according to the docs),
-	// Perhaps we can localize it later.
-	// delay:               ma.delay_node,
-	// for now there will be a fixed amount of channels, but irl this will be dynamic.
+	// For now there will be a fixed amount of channels, but irl this will be dynamic.
 	// channels are a miniaudio idea of basically audio processing groups. need to dive deeper into this
 	// as it probably will help in designging the audio processing stuff.
 	// Not serialized — runtime miniaudio sound group handles.

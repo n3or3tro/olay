@@ -2,8 +2,6 @@
 if something isn't clear to you then you should always ask and never assume, but many things like: "What is this variable set to " should never 
 be asked if you can determine that from just looking at the source code.
 
-- You are NOT allowed to ever edit the source files in this project.
-
 - You are always allowed to run any read-only command line programs, such as grep, ls, find, etc. You are never allowed to run command line arguments that write data. I REPEAT, you ARE always allowed to run read only commands, do not ask me for permission when trying to perform read only, non destructive commands.
 
 - You can run commandline scripts / programs, but you MUST ALWAYS ask for my permission first. You are NEVER allowed to run scripts that can

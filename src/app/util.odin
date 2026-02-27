@@ -200,3 +200,8 @@ accurate_sleep :: proc(duration: time.Duration) {
 		panicf("Don't know how to accurately sleep on {}", ODIN_OS)
 	}
 }
+
+in_range :: proc(num, start, end: $T) -> bool
+where intrinsics.type_is_numeric(T) { 
+	return num >= start && num <= end
+}

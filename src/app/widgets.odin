@@ -228,6 +228,38 @@ audio_track :: proc(track_num: int, track_width: f32, step_containers: ^[]^Box, 
 		substep_extra_flags := Box_Flags{.Draw_Border, .Track_Step, .Drag_Drop_Sink}
 
 		loop_back_step := track.loop_at
+		just_pressed  := app.mouse.left_pressed && !app.mouse_last_frame.left_pressed
+		drag_released := app.mouse.drag_done && !app.mouse_last_frame.drag_done
+		for jj in 0 ..< len(app.audio.tracks) {
+			if jj == track_num do continue
+			primary := &app.audio.tracks[jj]
+			if primary.step_drag_mode == .Move {
+				if track.step_sel_start != -1 {
+					delta     := primary.step_drag_current - primary.step_drag_origin
+					sel_len   := track.step_drag_sel_origin_end - track.step_drag_sel_origin_start + 1
+					new_start := clamp(track.step_drag_sel_origin_start + delta, 0, N_TRACK_STEPS - sel_len)
+					if new_start != track.step_sel_start {
+						for j in 0..<sel_len {
+							track.pitches[track.step_sel_start + j]        = 0
+							track.volumes[track.step_sel_start + j]        = 0
+							track.send1[track.step_sel_start + j]          = 0
+							track.send2[track.step_sel_start + j]          = 0
+							track.selected_steps[track.step_sel_start + j] = false
+						}
+						for j in 0..<sel_len {
+							track.pitches[new_start + j]        = track.step_drag_cache_pitches[j]
+							track.volumes[new_start + j]        = track.step_drag_cache_volumes[j]
+							track.send1[new_start + j]          = track.step_drag_cache_send1[j]
+							track.send2[new_start + j]          = track.step_drag_cache_send2[j]
+							track.selected_steps[new_start + j] = track.step_drag_cache_selected[j]
+						}
+						track.step_sel_start = new_start
+						track.step_sel_end   = new_start + sel_len - 1
+					}
+				}
+				break
+			}
+		}
 		for i in 0 ..< N_TRACK_STEPS {
 			step_height := f32(ui_state.show_mixer ? 1.0 / (54.0 * 0.7) : 1.0 / (80.0 * 0.7))
 
@@ -262,6 +294,7 @@ audio_track :: proc(track_num: int, track_width: f32, step_containers: ^[]^Box, 
 				substep_config.color = .Primary
 			}
 
+			display_step := i
 
 			pitch_box := edit_text_box(
 				substep_config,
@@ -269,7 +302,7 @@ audio_track :: proc(track_num: int, track_width: f32, step_containers: ^[]^Box, 
 				nil,
 				metadata = Metadata_Track_Step {
 					track = track_num,
-					step  = i,
+					step  = display_step,
 					type  = .Pitch,
 				},
 				extra_flags = substep_extra_flags,
@@ -281,7 +314,7 @@ audio_track :: proc(track_num: int, track_width: f32, step_containers: ^[]^Box, 
 				100,
 				metadata = Metadata_Track_Step {
 					track = track_num,
-					step  = i,
+					step  = display_step,
 					type  = .Volume,
 				},
 				extra_flags = substep_extra_flags,
@@ -293,7 +326,7 @@ audio_track :: proc(track_num: int, track_width: f32, step_containers: ^[]^Box, 
 				100,
 				metadata = Metadata_Track_Step {
 					track = track_num,
-					step  = i,
+					step  = display_step,
 					type  = .Send1,
 				},
 				extra_flags = substep_extra_flags,
@@ -305,20 +338,102 @@ audio_track :: proc(track_num: int, track_width: f32, step_containers: ^[]^Box, 
 				100,
 				metadata = Metadata_Track_Step {
 					track = track_num,
-					step  = i,
+					step  = display_step,
 					type  = .Send2,
 				},
 				extra_flags = substep_extra_flags,
 			)
 
-			if pitch_box.clicked  ||
+			step_is_pressed := pitch_box.pressed || volume_box.pressed || send1_box.pressed || send2_box.pressed
+
+			if just_pressed && step_is_pressed && !app.keys_held[sdl2.Scancode.LSHIFT] {
+				if i >= track.step_sel_start && i <= track.step_sel_end {
+					track.step_drag_mode             = .Move
+					track.step_drag_origin           = i
+					track.step_drag_current          = i
+					track.step_drag_sel_origin_start = track.step_sel_start
+					track.step_drag_sel_origin_end   = track.step_sel_end
+					sel_len := track.step_drag_sel_origin_end - track.step_drag_sel_origin_start + 1
+					for j in 0..<sel_len {
+						src := track.step_drag_sel_origin_start + j
+						track.step_drag_cache_pitches[j]  = track.pitches[src]
+						track.step_drag_cache_volumes[j]  = track.volumes[src]
+						track.step_drag_cache_send1[j]    = track.send1[src]
+						track.step_drag_cache_send2[j]    = track.send2[src]
+						track.step_drag_cache_selected[j] = track.selected_steps[src]
+					}
+					for jj in 0 ..< len(app.audio.tracks) {
+						if jj == track_num do continue
+						other := &app.audio.tracks[jj]
+						if other.step_sel_start != -1 {
+							other.step_drag_sel_origin_start = other.step_sel_start
+							other.step_drag_sel_origin_end   = other.step_sel_end
+							other_sel_len := other.step_drag_sel_origin_end - other.step_drag_sel_origin_start + 1
+							for k in 0..<other_sel_len {
+								src := other.step_drag_sel_origin_start + k
+								other.step_drag_cache_pitches[k]  = other.pitches[src]
+								other.step_drag_cache_volumes[k]  = other.volumes[src]
+								other.step_drag_cache_send1[k]    = other.send1[src]
+								other.step_drag_cache_send2[k]    = other.send2[src]
+								other.step_drag_cache_selected[k] = other.selected_steps[src]
+							}
+						}
+					}
+				} else {
+					track.step_drag_mode   = .Select
+					track.step_drag_origin = i
+					track.step_sel_start   = i
+					track.step_sel_end     = i
+					if !app.keys_held[sdl2.Scancode.LCTRL] {
+						for jj in 0 ..< len(app.audio.tracks) {
+							if jj == track_num do continue
+							app.audio.tracks[jj].step_sel_start = -1
+							app.audio.tracks[jj].step_sel_end   = -1
+						}
+					}
+				}
+			}
+
+			if track.step_drag_mode == .Move && step_is_pressed {
+				track.step_drag_current = i
+				delta     := track.step_drag_current - track.step_drag_origin
+				sel_len   := track.step_drag_sel_origin_end - track.step_drag_sel_origin_start + 1
+				new_start := clamp(track.step_drag_sel_origin_start + delta, 0, N_TRACK_STEPS - sel_len)
+				if new_start != track.step_sel_start {
+					for j in 0..<sel_len {
+						track.pitches[track.step_sel_start + j]        = 0
+						track.volumes[track.step_sel_start + j]        = 0
+						track.send1[track.step_sel_start + j]          = 0
+						track.send2[track.step_sel_start + j]          = 0
+						track.selected_steps[track.step_sel_start + j] = false
+					}
+					for j in 0..<sel_len {
+						track.pitches[new_start + j]        = track.step_drag_cache_pitches[j]
+						track.volumes[new_start + j]        = track.step_drag_cache_volumes[j]
+						track.send1[new_start + j]          = track.step_drag_cache_send1[j]
+						track.send2[new_start + j]          = track.step_drag_cache_send2[j]
+						track.selected_steps[new_start + j] = track.step_drag_cache_selected[j]
+					}
+					track.step_sel_start = new_start
+					track.step_sel_end   = new_start + sel_len - 1
+				}
+			}
+
+			if track.step_drag_mode == .Select && step_is_pressed {
+				track.step_sel_start = min(track.step_drag_origin, i)
+				track.step_sel_end   = max(track.step_drag_origin, i)
+			}
+
+			if (pitch_box.clicked ||
 			   volume_box.clicked ||
 			   send1_box.clicked  ||
-			   send2_box.clicked 
+			   send2_box.clicked) &&
+			   track.step_drag_mode == .None
 			{
 				if app.keys_held[sdl2.Scancode.LSHIFT] { 
 					if i > track.step_sel_end  { 
 						track.step_sel_end = i;  
+						if track.step_sel_start == -1 do track.step_sel_start = 0
 					}
 					else if i < track.step_sel_start { 
 						track.step_sel_end = track.step_sel_start
@@ -330,6 +445,13 @@ audio_track :: proc(track_num: int, track_width: f32, step_containers: ^[]^Box, 
 				} else { 
 					track.step_sel_start = i
 					track.step_sel_end   = i
+					if !app.keys_held[sdl2.Scancode.LCTRL] {
+						for jj in 0 ..< len(app.audio.tracks) {
+							if jj == track_num do continue
+							app.audio.tracks[jj].step_sel_start = -1
+							app.audio.tracks[jj].step_sel_end   = -1
+						}
+					}
 				}
 			}
 
@@ -361,6 +483,19 @@ audio_track :: proc(track_num: int, track_width: f32, step_containers: ^[]^Box, 
 				send2_box.box.config.color  = .Primary_Container
 			}
 		}
+		if drag_released {
+			switch track.step_drag_mode {
+			case .Move:
+				track.step_drag_mode = .None
+				if track.step_drag_current == track.step_drag_origin {
+					track.step_sel_start = track.step_drag_origin
+					track.step_sel_end   = track.step_drag_origin
+				}
+			case .Select:
+				track.step_drag_mode = .None
+			case .None:
+			}
+		}
 	}
 
 	// Because we check this here, only the steps part will 'absorb' a file if dropped,
@@ -373,14 +508,12 @@ audio_track :: proc(track_num: int, track_width: f32, step_containers: ^[]^Box, 
 		cpath: cstring
 		#partial switch val in drop_data {
 			case Browser_File:
-				// full_path := tprintf("/{}/{}", val.parent.path, val.name)
 				full_path, err := filepath.join({val.parent.path, val.name}, context.temp_allocator)
 				cpath = str.clone_to_cstring(full_path)
 				printfln("dropped {} onto track", full_path)
-				// printfln("dropped {} onto track", val.name)
-				// printfln("it's parent is: {}", val.parent)
 			case:
-				println("Cant drop this onto a track")
+				println("Cant {} this onto a track", val)
+				break handle_drop
 		}
 		track_set_sound(track, cpath)
 	}
