@@ -133,21 +133,24 @@ Dependencies are kept as lean as possible. The libraries used solve problems tha
     - `OpenGL` - GPU-accelerated rendering.
 - **FreeType** - rasterising TrueType fonts.
 ---
-# Build
+# Building + Running
 
-### Windows
 I've created pre-built binaries forand Windows [here](https://github.com/n3or3tro/olay/releases).
 
-### Linux
-Pre-packaging binaries for distribution for Linux is notoriously painful, so building from source is required.
+It's notoriously a pain to build cross-distro compatible Linux binaries, so you'll have to build, but it's pretty simple.
 
-Requirements:
+### Requirements:
+Linux specific:
 - SDL2 installed on your system.
+- Freetype installed on your system.
+
+General:
 - The Odin Programming Language available in the path.
 	- Requires version <= dev-2025-12a due to using older version of `vendor:kb_text_shape`.
 	- Alternatively you can use the latest version of Odin and patch `vendor:kb_text_shape` with the one from Odin version dev-2025-12a.
-- Freetype installed on your system.
 
 Building and running:
 - `odin build src -define:hot_reload=false -define:release=true -o:speed -out:<name-of-the-binary>`
 - `./<name-of-the-binary>`
+
+On Windows you need `SDL2.dll` next to the outputted binary, in the same directory, otherwise it will silently fail to run.
