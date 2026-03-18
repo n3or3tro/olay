@@ -1,4 +1,7 @@
 # Neo Retro Tracker
+
+<img width="1402" height="958" alt="Screenshot 2026-03-19 050917" src="https://github.com/user-attachments/assets/710db8ad-c2ec-487e-b4da-5bcda51917b9" />
+
 A modern take on an old school tracker style step-sequencer.
 
 If you're here as a spectator and just want to run the app, you can skip to [the build instructions](#build). 
@@ -11,7 +14,6 @@ Built from relative scratch (sane use of minimal dependencies) in [Odin](https:/
 These apply to this specific application, but these are also capabilities that will be surfaced to any user who leverages the underlying UI + application library:
 
 - Hot reloadable dev builds, allows live-reloading of running application code without restarting the process.
-- Cross platform: Windows, MacOS, Linux.
 - Relatively low memory footprint ~80MB runtime at start-up, with ~50MB runtime working set (on Windows).
 - Multithreaded to support real time audio with no audio dropouts or glitches and sample accurate playback.
 - Hand made serialization / deserialization system using Odin's runtime type information + reflection capabilities. Used for saving / loading project files and in parts of the undo / redo system.
@@ -47,6 +49,7 @@ These apply to this specific application, but these are also capabilities that w
     - Fully cross platform via `miniaudio`.
     - Memory efficient - only needs to load each sound in use once, even if a sound is used on many tracks.
 - Extensive use of lifetime based arena allocators + scratch allocators for efficient & simple manual memory management.
+- Cross platform: Windows, Linux; MacOS coming soon ...
 
 I've written a few in depth blog posts about specific parts of the project you can find [here](https://neoretro.tech/).
 
@@ -119,8 +122,7 @@ Eq_State :: struct {
 ```
 Fields without a tag are skipped, they are considered runtime-only and recomputed on demand. The serializer uses Odin's `core:reflect` to iterate struct fields at runtime, reading the tag value as a stable numeric identifier in the binary format. This means field ordering and naming can change freely without breaking existing save files, as long as the `s_id` values are preserved. The same mechanism is reused in the undo/redo system to snapshot and restore state without writing separate serialization logic.
 
----
-## Dependencies
+### Dependencies
 
 Dependencies are kept as lean as possible. The libraries used solve problems that aren't feasible for one person to solve in a reasonable amount of time. The key requirements were: simple to integrate, stable, low overhead, and flexible.
 
@@ -130,16 +132,22 @@ Dependencies are kept as lean as possible. The libraries used solve problems tha
     - `miniaudio` - cross-platform audio I/O and basic sound abstractions.
     - `OpenGL` - GPU-accelerated rendering.
 - **FreeType** - rasterising TrueType fonts.
-
+---
 # Build
-I've created pre-built binaries for MacOS and Windows [here](/link/to/releases).
 
-Pre-packaging binaries for distribution on Linux is notoriously painful, so building from source is required.
+### Windows
+I've created pre-built binaries forand Windows [here](https://github.com/n3or3tro/olay/releases).
+
+### Linux
+Pre-packaging binaries for distribution for Linux is notoriously painful, so building from source is required.
 
 Requirements:
-- SDL2.dll in the project root directory.
+- SDL2 installed on your system.
 - The Odin Programming Language available in the path.
-- FreeType Odin bindings.
+	- Requires version <= dev-2025-12a due to using older version of `vendor:kb_text_shape`.
+	- Alternatively you can use the latest version of Odin and patch `vendor:kb_text_shape` with the one from Odin version dev-2025-12a.
+- Freetype installed on your system.
 
 Building and running:
-- `odin build src -define:hot_reload=false -define:release=true -o:speed -out:app.exe`
+- `odin build src -define:hot_reload=false -define:release=true -o:speed -out:<name-of-the-binary>`
+- `./<name-of-the-binary>`
