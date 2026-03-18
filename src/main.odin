@@ -19,11 +19,12 @@ VERTEX_SHADER_PATH :: "src/app/shaders/box_vertex_shader.glsl"
 PIXEL_SHADER_PATH  :: "src/app/shaders/box_pixel_shader.glsl"
 
 DLL_PATH :: "build/app." + dynlib.LIBRARY_FILE_EXTENSION
-when MODE_RELEASE {
-	COLOR_FILE_PATH :: "dark-theme.json"
-} else {
-	COLOR_FILE_PATH :: "util/dark-theme.json"
-}
+// when MODE_RELEASE {
+// 	COLOR_FILE_PATH :: "dark-theme.json"
+// } else {
+// 	COLOR_FILE_PATH :: "util/dark-theme.json"
+// }
+COLOR_FILE_PATH :: "util/dark-theme.json"
 
 print :: fmt.print
 println :: fmt.println

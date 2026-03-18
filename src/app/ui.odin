@@ -12,7 +12,7 @@ import gl "vendor:OpenGL"
 import sdl "vendor:sdl2"
 import vmem "core:mem/virtual"
 
-DARK_THEME_FILE_DATA :: #load("../../dark-theme.json")
+DARK_THEME_FILE_DATA :: #load("../../util/dark-theme.json")
 EXPECTED_FRAME_TIME_SECONDS :: 0.00833333
 id :: fmt.tprintf
 
