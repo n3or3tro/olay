@@ -1,0 +1,12 @@
+trace_test.spall
+src.*
+util/node_modules
+build/src*
+build/app*
+releases/
+releases
+miniaudio.h
+kb_text_shape.h
+CLAUDE.md
+.claude
+util/node_modules

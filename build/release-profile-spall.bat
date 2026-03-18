@@ -1,0 +1,1 @@
+odin build src -define:hot_reload=false -define:release=true -define:profile=true -o:speed -no-bounds-check -disable-assert -no-type-assert -out:build/app-release-profile-spall.exe
